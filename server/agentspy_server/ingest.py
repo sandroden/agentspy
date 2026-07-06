@@ -33,6 +33,22 @@ async def ingest_hook(request: Request) -> JSONResponse:
         await asyncio.to_thread(store.reassign_session, merged_id, session_id)
         await ws_manager.broadcast({"type": "session_removed", "id": merged_id})
 
+    # sessione figlia (subagente) scoperta da questo hook: assicura la riga
+    # con il legame alla madre; su SubagentStop viene chiusa.
+    child = info.get("child_session")
+    if child:
+        await asyncio.to_thread(
+            store.upsert_session,
+            child["id"],
+            tag=tag,
+            title=child.get("agent_type"),
+            agent_id=child["agent_id"],
+            parent_session_id=child["parent_session_id"],
+            started_at=ts,
+            ended_at=ts,
+            live=not info.get("child_ended"),
+        )
+
     if session_id:
         ending = hook_name in ("Stop", "SubagentStop")
         await asyncio.to_thread(

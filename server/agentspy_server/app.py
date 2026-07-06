@@ -58,6 +58,12 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     info = correlator.correlate_round_trip(record)
     session_id = info["session_id"]
 
+    # sessioni sintetiche identificate ora con una sessione reale (binding via
+    # prompt): sposta gli eventi già salvati e avvisa i client.
+    for merged_id in info.get("merged_from") or []:
+        await asyncio.to_thread(store.reassign_session, merged_id, session_id)
+        await ws_manager.broadcast({"type": "session_removed", "id": merged_id})
+
     analysis = (record.get("request") or {}).get("analysis") or {}
     model = analysis.get("model")
     response = record.get("response") or {}
@@ -73,6 +79,8 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
         session_id,
         tag=record.get("tag"),
         model=model,
+        agent_id=info.get("agent_id"),
+        parent_session_id=info.get("parent_session_id"),
         started_at=ts_start,
         ended_at=ts_end,
         live=True,

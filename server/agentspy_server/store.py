@@ -218,7 +218,10 @@ class Store:
                 for r in self._conn.execute("SELECT * FROM sessions ORDER BY started_at").fetchall()
             ]
             agg_rows = self._conn.execute(
-                "SELECT session_id, COUNT(DISTINCT turn_index) AS turns,"
+                # turn_index 0 = eventi pre-turno (SessionStart, traffico di
+                # servizio): non è un turno utente e non va contato.
+                "SELECT session_id,"
+                " COUNT(DISTINCT CASE WHEN turn_index >= 1 THEN turn_index END) AS turns,"
                 " SUM(CASE WHEN kind='round_trip' THEN 1 ELSE 0 END) AS round_trips,"
                 " MIN(ts_start) AS min_ts, MAX(COALESCE(ts_end, ts_start)) AS max_ts,"
                 " SUM(COALESCE(input_tokens,0)) AS input_tokens,"

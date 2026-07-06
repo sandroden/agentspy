@@ -114,6 +114,34 @@ class Correlator:
         # id (toolu_...) del blocco tool_use prodotto da un round trip -> fingerprint
         # della conversazione in cui è comparso, per il join con PreToolUse/SubagentStart.
         self.tool_use_to_fingerprint: dict[str, str] = {}
+        # prompt testuale di UserPromptSubmit -> session_id reale: permette di
+        # legare conversazioni SENZA tool call (che non hanno tool_use_id da
+        # joinare) al loro session_id, confrontando l'ultimo messaggio user.
+        self.prompt_to_session: dict[str, str] = {}
+
+    def _remember_prompt(self, prompt: str, session_id: str) -> None:
+        self.prompt_to_session[prompt] = session_id
+        while len(self.prompt_to_session) > 200:
+            self.prompt_to_session.pop(next(iter(self.prompt_to_session)))
+
+    def _match_pending_prompt(self, content) -> str | None:
+        """Cerca fra i prompt registrati da UserPromptSubmit uno che coincida
+        con un blocco text del messaggio user (Claude Code affianca al prompt
+        blocchi di system-reminder: il confronto è per singolo blocco)."""
+        texts: list[str] = []
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            texts.extend(
+                b.get("text") or ""
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+        for t in texts:
+            for key in (t, t.strip()):
+                if key in self.prompt_to_session:
+                    return self.prompt_to_session.pop(key)
+        return None
 
     def _state(self, session_id: str) -> SessionState:
         return self.session_state.setdefault(session_id, SessionState())
@@ -159,6 +187,25 @@ class Correlator:
                 self.fingerprint_to_session[fp] = session_id
             is_new_session = True
 
+        # binding via prompt (regola 2): una conversazione ancora sintetica il
+        # cui ultimo messaggio user coincide con un prompt annunciato da
+        # UserPromptSubmit appartiene a quella sessione reale. Copre le
+        # conversazioni senza tool call, dove il join per tool_use_id non
+        # scatterà mai.
+        merged_from: list[str] = []
+        if session_id.startswith("syn-") and messages:
+            last_message = messages[-1]
+            if last_message.get("role") == "user":
+                real_sid = self._match_pending_prompt(last_message.get("content"))
+                if real_sid:
+                    if not is_new_session:
+                        merged_from.append(session_id)
+                    self._merge_session(session_id, real_sid)
+                    if fp:
+                        self.fingerprint_to_session[fp] = real_sid
+                    session_id = real_sid
+                    is_new_session = False
+
         state = self._state(session_id)
         if fp:
             state.fingerprints.add(fp)
@@ -191,8 +238,10 @@ class Correlator:
             "session_id": session_id,
             "turn_index": state.turn_index,
             "agent_id": state.agent_id,
+            "parent_session_id": state.parent_session_id,
             "is_new_session": is_new_session,
             "is_new_turn": is_new_turn,
+            "merged_from": merged_from,
         }
 
     # -- hook events ------------------------------------------------------
@@ -207,60 +256,70 @@ class Correlator:
         """
         session_id = payload.get("session_id")
         hook_name = payload.get("hook_event_name")
+        agent_id = payload.get("agent_id")
         state = self._state(session_id) if session_id else None
         if state is not None:
             state.has_hooks = True
             if tag:
                 state.tag = tag
 
+        # Schema reale (verificato in F5): gli hook generati DENTRO un
+        # subagente portano agent_id/agent_type ma il session_id della MADRE.
+        # L'evento appartiene quindi alla sessione figlia "sub-<agent_id>";
+        # SubagentStart/Stop restano invece marker sulla timeline della madre.
+        child_session = None
+        target_id, target = session_id, state
+        if agent_id and session_id:
+            child_id = f"sub-{agent_id}"
+            child = self._state(child_id)
+            child.has_hooks = True
+            child.agent_id = agent_id
+            child.parent_session_id = session_id
+            if tag:
+                child.tag = tag
+            child_session = {
+                "id": child_id,
+                "agent_id": agent_id,
+                "agent_type": payload.get("agent_type"),
+                "parent_session_id": session_id,
+            }
+            if hook_name not in ("SubagentStart", "SubagentStop"):
+                target_id, target = child_id, child
+
         is_new_turn = False
         merged_from: list[str] = []
 
-        if hook_name == "PreToolUse" and state is not None:
-            tool_use_id = payload.get("tool_use_id") or (payload.get("tool_input") or {}).get(
-                "tool_use_id"
-            )
+        if hook_name == "PreToolUse" and target is not None:
+            tool_use_id = payload.get("tool_use_id")
             fp = self.tool_use_to_fingerprint.get(tool_use_id) if tool_use_id else None
             if fp:
-                synthetic = self.fingerprint_to_session.get(fp)
-                if synthetic and synthetic != session_id:
-                    self._merge_session(synthetic, session_id)
-                    merged_from.append(synthetic)
-                self.fingerprint_to_session[fp] = session_id
-                state.fingerprints.add(fp)
+                owner = self.fingerprint_to_session.get(fp)
+                if owner and owner != target_id and owner.startswith("syn-"):
+                    self._merge_session(owner, target_id)
+                    merged_from.append(owner)
+                self.fingerprint_to_session[fp] = target_id
+                target.fingerprints.add(fp)
 
         elif hook_name == "UserPromptSubmit" and state is not None:
             state.turn_index += 1
             prompt = payload.get("prompt")
             if isinstance(prompt, str):
                 state.last_user_text = prompt
+                if session_id:
+                    self._remember_prompt(prompt, session_id)
             is_new_turn = True
 
-        elif hook_name == "SubagentStart" and state is not None:
-            agent_id = payload.get("agent_id") or payload.get("subagent_type")
-            parent_session_id = payload.get("parent_session_id")
-            if not parent_session_id:
-                parent_tool_use_id = payload.get("parent_tool_use_id") or payload.get("tool_use_id")
-                parent_fp = (
-                    self.tool_use_to_fingerprint.get(parent_tool_use_id)
-                    if parent_tool_use_id
-                    else None
-                )
-                parent_session_id = self.fingerprint_to_session.get(parent_fp) if parent_fp else None
-            state.agent_id = agent_id
-            state.parent_session_id = parent_session_id
-
-        elif hook_name == "SubagentStop" and state is not None:
-            pass  # nessuna transizione di stato aggiuntiva: solo ended_at lato store
-
         return {
-            "session_id": session_id,
-            "turn_index": state.turn_index if state else None,
-            "agent_id": state.agent_id if state else None,
-            "parent_session_id": state.parent_session_id if state else None,
+            "session_id": target_id,
+            "turn_index": target.turn_index if target else None,
+            "agent_id": target.agent_id if target else None,
+            "parent_session_id": target.parent_session_id if target else None,
             "is_new_turn": is_new_turn,
-            # sessioni sintetiche assorbite da questa sessione reale: il
-            # chiamante DEVE riassegnarne gli eventi nello store
-            # (store.reassign_session) e notificare i client.
+            # sessioni sintetiche assorbite: il chiamante DEVE riassegnarne
+            # gli eventi (store.reassign_session) e notificare i client.
             "merged_from": merged_from,
+            # sessione figlia scoperta/aggiornata da questo hook: il chiamante
+            # la upserta nello store (con live=False su SubagentStop).
+            "child_session": child_session,
+            "child_ended": bool(agent_id) and hook_name == "SubagentStop",
         }

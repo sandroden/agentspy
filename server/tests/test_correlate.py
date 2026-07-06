@@ -124,28 +124,114 @@ def test_pretooluse_merges_synthetic_session_into_real_one():
     assert info2["session_id"] == "real-session-1"
 
 
-def test_subagent_binding_via_subagent_start():
+def test_subagent_hooks_route_to_child_session():
+    """Schema reale (verificato su Claude Code): gli hook del subagente portano
+    agent_id + session_id della MADRE. SubagentStart/Stop restano marker sulla
+    madre; i tool hook del subagente vanno nella sessione figlia sub-<agent_id>;
+    la conversazione API del subagente si aggancia alla figlia via tool_use_id."""
     correlator = Correlator()
 
-    parent_record = {
-        "request": {
-            "body": {"system": "sys-parent", "messages": [{"role": "user", "content": "esegui subagente"}]}
-        },
-        "response": {"message": {"content": [{"type": "tool_use", "id": "toolu_task_1", "name": "Task"}]}},
-    }
-    parent_info = correlator.correlate_round_trip(parent_record)
-    parent_session_id = parent_info["session_id"]
-
-    sub_info = correlator.correlate_hook(
+    # SubagentStart: evento sulla madre + sessione figlia dichiarata
+    start_info = correlator.correlate_hook(
         {
-            "session_id": "child-session-1",
+            "session_id": "mother-1",
             "hook_event_name": "SubagentStart",
-            "agent_id": "explorer",
-            "parent_tool_use_id": "toolu_task_1",
+            "agent_id": "ag123",
+            "agent_type": "Explore",
         }
     )
-    assert sub_info["parent_session_id"] == parent_session_id
-    assert sub_info["agent_id"] == "explorer"
+    assert start_info["session_id"] == "mother-1"  # marker sulla madre
+    assert start_info["child_session"] == {
+        "id": "sub-ag123",
+        "agent_id": "ag123",
+        "agent_type": "Explore",
+        "parent_session_id": "mother-1",
+    }
+    assert start_info["child_ended"] is False
+    # la madre NON deve ereditare l'agent_id del figlio
+    assert correlator.session_state["mother-1"].agent_id is None
+
+    # round trip della conversazione del subagente (fingerprint proprio)
+    sub_record = {
+        "request": {"body": {"system": "sys-sub", "messages": [{"role": "user", "content": "conta"}]}},
+        "response": {"message": {"content": [{"type": "tool_use", "id": "toolu_glob", "name": "Glob"}]}},
+    }
+    synthetic_id = correlator.correlate_round_trip(sub_record)["session_id"]
+    assert synthetic_id.startswith("syn-")
+
+    # PreToolUse del tool del subagente: agent_id valorizzato, session della madre
+    pre_info = correlator.correlate_hook(
+        {
+            "session_id": "mother-1",
+            "hook_event_name": "PreToolUse",
+            "agent_id": "ag123",
+            "tool_name": "Glob",
+            "tool_use_id": "toolu_glob",
+        }
+    )
+    assert pre_info["session_id"] == "sub-ag123"  # l'evento va nella figlia
+    assert pre_info["merged_from"] == [synthetic_id]  # la conversazione pure
+    assert pre_info["parent_session_id"] == "mother-1"
+
+    # round trip successivo del subagente -> direttamente nella figlia
+    sub_record2 = {
+        "request": {
+            "body": {
+                "system": "sys-sub",
+                "messages": [
+                    {"role": "user", "content": "conta"},
+                    {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_glob", "name": "Glob"}]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_glob", "content": "3"}]},
+                ],
+            }
+        },
+        "response": {"message": {"content": []}},
+    }
+    assert correlator.correlate_round_trip(sub_record2)["session_id"] == "sub-ag123"
+
+    # SubagentStop: marker sulla madre, figlia dichiarata chiusa
+    stop_info = correlator.correlate_hook(
+        {
+            "session_id": "mother-1",
+            "hook_event_name": "SubagentStop",
+            "agent_id": "ag123",
+            "agent_type": "Explore",
+        }
+    )
+    assert stop_info["session_id"] == "mother-1"
+    assert stop_info["child_ended"] is True
+
+
+def test_prompt_binding_links_toolless_conversation():
+    """Una conversazione senza tool call (nessun tool_use_id da joinare) si
+    aggancia alla sessione reale confrontando l'ultimo messaggio user con il
+    prompt annunciato da UserPromptSubmit."""
+    correlator = Correlator()
+    correlator.correlate_hook(
+        {"session_id": "real-lesson", "hook_event_name": "UserPromptSubmit", "prompt": "Estrai le lezioni."}
+    )
+    record = {
+        "request": {
+            "body": {
+                "system": "sys-lesson",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "<system-reminder>bla</system-reminder>"},
+                            {"type": "text", "text": "Estrai le lezioni."},
+                        ],
+                    }
+                ],
+            }
+        },
+        "response": {"message": {"content": []}},
+    }
+    info = correlator.correlate_round_trip(record)
+    assert info["session_id"] == "real-lesson"
+    assert info["is_new_session"] is False
+    # il turno resta quello della sessione reale (da hook), niente doppio conteggio
+    assert info["turn_index"] == 1
 
 
 def test_fingerprint_ignores_cache_control_markers():
