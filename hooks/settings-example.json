@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "/PATH/TO/agentspy/hooks/agentspy_hook.py"}]}]
+  }
+}
