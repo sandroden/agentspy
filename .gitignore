@@ -1,0 +1,19 @@
+# dati raccolti
+logs/
+*.jsonl
+*.db
+*.db-wal
+*.db-shm
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# frontend
+node_modules/
+dist/
+
+# vari
+.env
+*~
