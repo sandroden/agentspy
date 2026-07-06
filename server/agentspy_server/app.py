@@ -1,0 +1,182 @@
+"""Assembla l'app Starlette: /api/*, /ws, /ingest/*, /ui/* (statico), catch-all -> proxy.
+
+``create_app()`` costruisce un'istanza isolata (store/correlator/client propri):
+utile per i test, che passano ``db_path``/``upstream`` propri. ``main()`` è
+l'entry point dello script ``agentspy`` e lancia uvicorn con la configurazione
+da environment.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import httpx
+import uvicorn
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.staticfiles import StaticFiles
+from starlette.websockets import WebSocket
+
+from . import api, ingest
+from .correlate import Correlator
+from .proxy import ProxyForwarder
+from .store import Store, default_db_path
+from .ws import ConnectionManager
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+DEFAULT_UPSTREAM = "https://api.anthropic.com"
+
+
+def _tool_names_from_response(response: dict) -> list[str]:
+    message = response.get("message") or {}
+    return [
+        b.get("name")
+        for b in message.get("content", []) or []
+        if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name")
+    ]
+
+
+async def _handle_round_trip(app: Starlette, record: dict) -> None:
+    store: Store = app.state.store
+    correlator: Correlator = app.state.correlator
+    ws_manager: ConnectionManager = app.state.ws_manager
+
+    # Il proxy emette un record per OGNI richiesta inoltrata, ma solo le vere
+    # chiamate al modello (body con "messages") sono round trip da correlare
+    # e persistere: HEAD /, /v1/models, count_tokens ecc. creerebbero solo
+    # sessioni sintetiche spurie nel DB.
+    body = (record.get("request") or {}).get("body")
+    if not (isinstance(body, dict) and body.get("messages")):
+        return
+
+    info = correlator.correlate_round_trip(record)
+    session_id = info["session_id"]
+
+    analysis = (record.get("request") or {}).get("analysis") or {}
+    model = analysis.get("model")
+    response = record.get("response") or {}
+    usage = response.get("usage") or {}
+    stop_reason = response.get("stop_reason")
+    timing = record.get("timing") or {}
+    ts_start = timing.get("ts_start")
+    total_s = timing.get("total_s")
+    ts_end = ts_start + total_s if (ts_start is not None and total_s is not None) else ts_start
+
+    await asyncio.to_thread(
+        store.upsert_session,
+        session_id,
+        tag=record.get("tag"),
+        model=model,
+        started_at=ts_start,
+        ended_at=ts_end,
+        live=True,
+    )
+
+    event_id = await asyncio.to_thread(
+        store.insert_event,
+        session_id=session_id,
+        kind="round_trip",
+        turn_index=info["turn_index"],
+        agent_id=info.get("agent_id"),
+        ts_start=ts_start,
+        ts_end=ts_end,
+        ttfb_s=timing.get("ttfb_s"),
+        model=model,
+        status=record.get("status"),
+        stop_reason=stop_reason,
+        input_tokens=usage.get("input_tokens"),
+        output_tokens=usage.get("output_tokens"),
+        cache_read_tokens=usage.get("cache_read_input_tokens"),
+        cache_write_tokens=usage.get("cache_creation_input_tokens"),
+        tool_names=_tool_names_from_response(response),
+        payload=record,
+    )
+
+    events = await asyncio.to_thread(store.get_session_events, session_id)
+    event_summary = next((e for e in events if e["id"] == event_id), None)
+    if event_summary:
+        await ws_manager.broadcast_event(event_summary)
+    sessions = await asyncio.to_thread(store.get_sessions)
+    this_session = next((s for s in sessions if s["id"] == session_id), None)
+    if this_session:
+        await ws_manager.broadcast_session(this_session)
+
+
+async def ui_not_built(request: Request) -> Response:
+    return JSONResponse(
+        {"error": "frontend non compilato: esegui la build in frontend/ (npm run build)"},
+        status_code=404,
+    )
+
+
+async def root_redirect(request: Request) -> Response:
+    return RedirectResponse(url="/ui/")
+
+
+async def ws_endpoint(websocket: WebSocket) -> None:
+    manager: ConnectionManager = websocket.app.state.ws_manager
+    store: Store = websocket.app.state.store
+    await manager.serve(websocket, lambda: asyncio.to_thread(store.get_sessions))
+
+
+def create_app(db_path: str | None = None, upstream: str | None = None) -> Starlette:
+    upstream = upstream or os.environ.get("AGENTSPY_UPSTREAM", DEFAULT_UPSTREAM)
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        app.state.store = Store(db_path or default_db_path())
+        app.state.correlator = Correlator()
+        app.state.ws_manager = ConnectionManager()
+        app.state.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=15, read=None, write=60, pool=15)
+        )
+        app.state.proxy = ProxyForwarder(
+            upstream,
+            app.state.client,
+            on_event=lambda record: _handle_round_trip(app, record),
+        )
+        try:
+            yield
+        finally:
+            await app.state.client.aclose()
+            app.state.store.close()
+
+    routes = list(api.routes) + list(ingest.routes)
+    routes.append(WebSocketRoute("/ws", ws_endpoint))
+
+    if FRONTEND_DIST.is_dir():
+        routes.append(Mount("/ui", app=StaticFiles(directory=str(FRONTEND_DIST), html=True), name="ui"))
+    else:
+        routes.append(Route("/ui/{path:path}", ui_not_built))
+        routes.append(Route("/ui", ui_not_built))
+
+    routes.append(Route("/", root_redirect))
+
+    async def proxy_endpoint(request: Request) -> Response:
+        return await request.app.state.proxy.forward(request)
+
+    routes.append(
+        Route(
+            "/{path:path}",
+            proxy_endpoint,
+            methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+        )
+    )
+
+    return Starlette(routes=routes, lifespan=lifespan)
+
+
+def main() -> None:
+    port = int(os.environ.get("AGENTSPY_PORT", "8082"))
+    app = create_app()
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
+if __name__ == "__main__":
+    main()
