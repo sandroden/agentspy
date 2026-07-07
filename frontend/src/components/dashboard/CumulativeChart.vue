@@ -16,6 +16,8 @@ interface Series {
   session: Session
   stats: StatsItem[]
   featured: boolean
+  /** discendenti della famiglia in evidenza: sempre visibili, tratteggiati. */
+  subagent?: boolean
 }
 
 const props = defineProps<{
@@ -47,8 +49,12 @@ function cumulativeOf(stats: StatsItem[]): number[] {
   return out
 }
 
+/** La featured e i subagenti della sua famiglia sono sempre visibili; le
+ * altre sessioni top-level solo col checkbox. */
 const shownSeries = computed(() =>
-  showOthers.value ? props.series : props.series.filter((s) => s.featured)
+  props.series.filter(
+    (s) => (s.featured || s.subagent || showOthers.value) && s.stats.length > 0
+  )
 )
 
 const maxIndex = computed(() => Math.max(0, ...shownSeries.value.map((s) => s.stats.length - 1)))
@@ -69,18 +75,27 @@ function yFor(v: number): number {
 }
 
 const attenuatedPalette = ['#5b6472', '#6d7688', '#83788f', '#6f8598']
+const subagentPalette = ['#2fb5a0', '#4fb0d8', '#b08ad6', '#d8a04f']
 
 const lines = computed(() => {
   let attIdx = 0
+  let subIdx = 0
   return shownSeries.value.map((s) => {
     const cum = cumulativeOf(s.stats)
     const pts = cum.map((v, i) => `${xFor(i)},${yFor(v)}`).join(' ')
     return {
       id: s.session.id,
+      title: (s.subagent ? '↳ ' : '') + (s.session.title || s.session.tag || s.session.id),
       featured: s.featured,
-      color: s.featured ? 'var(--accent)' : attenuatedPalette[attIdx++ % attenuatedPalette.length],
+      total: cum.at(-1) ?? 0,
+      color: s.featured
+        ? 'var(--accent)'
+        : s.subagent
+          ? subagentPalette[subIdx++ % subagentPalette.length]
+          : attenuatedPalette[attIdx++ % attenuatedPalette.length],
       width: s.featured ? 2.4 : 1.2,
-      opacity: s.featured ? 1 : 0.5,
+      opacity: s.featured ? 1 : s.subagent ? 0.85 : 0.5,
+      dash: s.subagent && !s.featured ? '5 4' : undefined,
       points: pts,
     }
   })
@@ -162,7 +177,9 @@ const selection = computed(() => {
 })
 
 const hasData = computed(() => (featured.value?.stats.length ?? 0) > 0)
-const hasOthers = computed(() => props.series.some((s) => !s.featured && s.stats.length > 0))
+const hasOthers = computed(() =>
+  props.series.some((s) => !s.featured && !s.subagent && s.stats.length > 0)
+)
 </script>
 
 <template>
@@ -174,7 +191,7 @@ const hasOthers = computed(() => props.series.some((s) => !s.featured && s.stats
       <div class="controls">
         <label v-if="hasOthers" class="toggle">
           <input v-model="showOthers" type="checkbox" />
-          sovrapponi altre sessioni
+          confronta con le altre sessioni
         </label>
         <span class="readout">
           <template v-if="selection">
@@ -223,9 +240,17 @@ const hasOthers = computed(() => props.series.some((s) => !s.featured && s.stats
           :stroke="l.color"
           :stroke-width="l.width"
           :opacity="l.opacity"
+          :stroke-dasharray="l.dash"
           stroke-linejoin="round"
         />
       </svg>
+
+      <div v-if="lines.length > 1" class="legend">
+        <span v-for="l in lines" :key="'lg' + l.id" class="legend-item">
+          <span class="swatch" :style="{ backgroundColor: l.color }"></span>
+          {{ l.title }} · {{ formatTokens(l.total) }}
+        </span>
+      </div>
     </template>
   </div>
 </template>
@@ -287,5 +312,28 @@ const hasOthers = computed(() => props.series.some((s) => !s.featured && s.stats
   stroke: var(--accent);
   stroke-opacity: 0.5;
   stroke-width: 1;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
 }
 </style>

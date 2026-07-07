@@ -7,7 +7,8 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useSpyStore } from '../stores/spy'
+import { storeToRefs } from 'pinia'
+import { useSpyStore, type SessionNode } from '../stores/spy'
 import { fetchSessionEvents } from '../api/client'
 import type { EventSummary, Session } from '../types'
 import { formatDuration, formatTokens } from '../utils/format'
@@ -27,28 +28,87 @@ const topLevelSessions = computed(() =>
     .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
 )
 
+// -- parentele ---------------------------------------------------------------
+const childrenMap = computed(() => {
+  const byParent = new Map<string, Session[]>()
+  for (const s of Object.values(spy.sessions)) {
+    if (!s.parent_session_id) continue
+    const bucket = byParent.get(s.parent_session_id)
+    if (bucket) bucket.push(s)
+    else byParent.set(s.parent_session_id, [s])
+  }
+  return byParent
+})
+
+/** Discendenti (ricorsivi) di una sessione, in ordine di visita. */
+function descendantsOf(id: string): Session[] {
+  const out: Session[] = []
+  const walk = (cur: string) => {
+    for (const child of childrenMap.value.get(cur) ?? []) {
+      out.push(child)
+      walk(child.id)
+    }
+  }
+  walk(id)
+  return out
+}
+
+/** Capostipite top-level risalendo la catena dei parent. */
+function rootAncestorOf(id: string): string {
+  let cur = id
+  let parent = spy.sessions[cur]?.parent_session_id ?? null
+  while (parent) {
+    cur = parent
+    parent = spy.sessions[cur]?.parent_session_id ?? null
+  }
+  return cur
+}
+
 // -- sessione in evidenza ----------------------------------------------------
-const featuredId = ref<string | null>(null)
+// Vive nello store (featuredSessionId): così il click in sidebar mentre si è
+// già in dashboard può cambiarla senza navigare, e sopravvive ai cambi route.
+// Può essere anche un subagente: i grafici mostrano i SUOI round trip.
+const { featuredSessionId: featuredId } = storeToRefs(spy)
 
 watch(
-  topLevelSessions,
-  (list) => {
-    if (featuredId.value && list.some((s) => s.id === featuredId.value)) return
+  () => spy.sessions,
+  (all) => {
+    if (featuredId.value && all[featuredId.value]) return
+    const list = topLevelSessions.value
     const live = list.find((s) => s.live)
     featuredId.value = (live ?? list[0])?.id ?? null
   },
-  { immediate: true }
+  { immediate: true, deep: false }
 )
 
 const featured = computed<Session | null>(() =>
   featuredId.value ? (spy.sessions[featuredId.value] ?? null) : null
 )
 
-// -- caricamento stats per le top-level (con refresh sulle live) -------------
+/** Opzioni del select in evidenza: albero appiattito, subagenti indentati. */
+const sessionOptions = computed(() => {
+  const out: { id: string; label: string }[] = []
+  const walk = (nodes: SessionNode[], depth: number) => {
+    for (const n of nodes) {
+      const name = n.title || n.tag || n.id
+      const indent = '  '.repeat(depth)
+      out.push({
+        id: n.id,
+        label: `${indent}${depth > 0 ? '└ ' : ''}${name}${n.live ? ' · live' : ''}`,
+      })
+      walk(n.children, depth + 1)
+    }
+  }
+  walk(spy.sessionTree, 0)
+  return out
+})
+
+// -- caricamento stats per tutte le sessioni (con refresh sulle live) --------
+// Anche i subagenti: hanno round trip propri e possono essere featured.
 const loadedRoundTrips = new Map<string, number>()
 
 watch(
-  topLevelSessions,
+  () => Object.values(spy.sessions),
   (list) => {
     for (const s of list) {
       const prev = loadedRoundTrips.get(s.id)
@@ -61,13 +121,30 @@ watch(
   { immediate: true, deep: true }
 )
 
-const series = computed(() =>
-  topLevelSessions.value.map((s) => ({
+/**
+ * Serie dei grafici: le top-level più i discendenti della famiglia in
+ * evidenza (tratteggiati), così il lavoro dei subagenti è visibile accanto
+ * a quello dell'orchestratore.
+ */
+const series = computed(() => {
+  const out = topLevelSessions.value.map((s) => ({
     session: s,
     stats: spy.statsBySession[s.id] ?? [],
     featured: s.id === featuredId.value,
+    subagent: false,
   }))
-)
+  if (featuredId.value) {
+    for (const d of descendantsOf(rootAncestorOf(featuredId.value))) {
+      out.push({
+        session: d,
+        stats: spy.statsBySession[d.id] ?? [],
+        featured: d.id === featuredId.value,
+        subagent: true,
+      })
+    }
+  }
+  return out
+})
 
 const featuredStats = computed(() =>
   featuredId.value ? (spy.statsBySession[featuredId.value] ?? []) : []
@@ -110,29 +187,21 @@ const userPromptTurns = computed(() => {
 })
 
 // -- subagenti (discendenti della featured) ----------------------------------
-const subagents = computed<Session[]>(() => {
-  if (!featuredId.value) return []
-  const byParent = new Map<string, Session[]>()
-  for (const s of Object.values(spy.sessions)) {
-    if (!s.parent_session_id) continue
-    const bucket = byParent.get(s.parent_session_id)
-    if (bucket) bucket.push(s)
-    else byParent.set(s.parent_session_id, [s])
-  }
-  const out: Session[] = []
-  const walk = (id: string) => {
-    for (const child of byParent.get(id) ?? []) {
-      out.push(child)
-      walk(child.id)
-    }
-  }
-  walk(featuredId.value)
-  return out
-})
+const subagents = computed<Session[]>(() =>
+  featuredId.value ? descendantsOf(featuredId.value) : []
+)
 
 // -- navigazione -------------------------------------------------------------
 function openSession(id: string) {
   void router.push(`/session/${id}`)
+}
+
+/** Click su una barra subagente: lo mette in evidenza (i grafici diventano i suoi). */
+const rootEl = ref<HTMLElement | null>(null)
+function featureSession(id: string) {
+  featuredId.value = id
+  // lo scroll avviene su main.center, non su window: si risale col root
+  rootEl.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function jumpToEvent(sessionId: string, eventId: number) {
@@ -153,7 +222,7 @@ function totalTokens(s: Session): number {
 </script>
 
 <template>
-  <div class="dashboard">
+  <div ref="rootEl" class="dashboard">
     <header class="header">
       <div class="title-block">
         <h1>agentspy</h1>
@@ -164,9 +233,7 @@ function totalTokens(s: Session): number {
       <label v-if="topLevelSessions.length" class="featured-select">
         <span>sessione in evidenza</span>
         <select v-model="featuredId">
-          <option v-for="s in topLevelSessions" :key="s.id" :value="s.id">
-            {{ s.title || s.tag || s.id }}{{ s.live ? ' · live' : '' }}
-          </option>
+          <option v-for="o in sessionOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
         </select>
       </label>
     </header>
@@ -189,8 +256,9 @@ function totalTokens(s: Session): number {
         <div class="panel-head">
           <h2>Contesto per round trip</h2>
           <p class="panel-sub">
-            Quanti token viaggiano a ogni chiamata. Ogni linea è una sessione; i marker verdi sono i
-            round trip aperti da un tuo prompt. La linea rossa è il tetto pratico di ~200k.
+            Quanti token viaggiano a ogni chiamata. Ogni linea è una sessione (tratteggiata = un
+            subagente della famiglia in evidenza); i marker verdi sono i round trip aperti da un tuo
+            prompt. La linea rossa è il tetto pratico di ~200k.
           </p>
         </div>
         <ContextChart :series="series" :user-prompt-turns="userPromptTurns" @jump="jumpToEvent" />
@@ -223,10 +291,11 @@ function totalTokens(s: Session): number {
           <h2>Subagenti</h2>
           <p class="panel-sub">
             I subagenti lavorano su un contesto separato: qui i token totali di ciascuno, per capire
-            dove va la spesa nascosta al thread principale.
+            dove va la spesa nascosta al thread principale. Click su una barra per mettere in
+            evidenza il subagente e vederne i grafici.
           </p>
         </div>
-        <SubagentBars :subagents="subagents" @open="openSession" />
+        <SubagentBars :subagents="subagents" @open="featureSession" />
       </section>
 
       <section class="panel">

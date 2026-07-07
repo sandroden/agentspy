@@ -41,11 +41,24 @@ const ratio = computed(() =>
 
 const roundTrips = computed(() => props.stats.length)
 
+/** Round trip totali della run: featured + tutti i subagenti. */
+const roundTripsInclSub = computed(() =>
+  props.subagents.reduce((sum, s) => sum + s.round_trips, roundTrips.value)
+)
+
 const subagentTokens = computed(() =>
   props.subagents.reduce((sum, s) => {
     const u = s.usage
     return sum + u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
   }, 0)
+)
+
+/** Totale consumato includendo i subagenti: il vero integrale della run. */
+const totalConsumedInclSub = computed(() => totalConsumed.value + subagentTokens.value)
+
+/** Costo dei subagenti, ognuno col tariffario del proprio modello. */
+const subagentCost = computed(() =>
+  props.subagents.reduce((sum, s) => sum + estimateCost(s.usage, s.model ?? props.model), 0)
 )
 
 const featuredUsage = computed<Usage>(() =>
@@ -72,6 +85,9 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
     <div class="card">
       <div class="value">{{ formatTokens(totalConsumed) }}</div>
       <div class="label">token consumati (integrale)</div>
+      <div v-if="subagents.length" class="sub">
+        incl. subagenti {{ formatTokens(totalConsumedInclSub) }}
+      </div>
     </div>
     <div class="card">
       <div class="value">{{ ratio > 0 ? ratio.toFixed(1) + '×' : '—' }}</div>
@@ -84,6 +100,7 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
     <div class="card">
       <div class="value">{{ roundTrips }}</div>
       <div class="label">round trip</div>
+      <div v-if="subagents.length" class="sub">incl. subagenti {{ roundTripsInclSub }}</div>
     </div>
     <div
       class="card"
@@ -100,6 +117,9 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
     <div class="card">
       <div class="value">{{ formatCost(cost) }}</div>
       <div class="label">costo stimato (featured)</div>
+      <div v-if="subagents.length" class="sub">
+        incl. subagenti {{ formatCost(cost + subagentCost) }}
+      </div>
     </div>
   </div>
 </template>
@@ -138,5 +158,13 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
   margin-top: 0.35rem;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+/* seconda riga: stesso valore ma includendo i subagenti (il totale "vero") */
+.sub {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 </style>

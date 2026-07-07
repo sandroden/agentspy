@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useSpyStore, type SessionNode } from '../stores/spy'
 import { formatTokens } from '../utils/format'
 import type { Session } from '../types'
 
 const spy = useSpyStore()
 const router = useRouter()
+const route = useRoute()
 
 interface FlatRow {
   session: SessionNode
@@ -147,9 +148,24 @@ function totalTokens(s: Session): number {
   return u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
 }
 
+const onDashboard = computed(() => route.path === '/')
+
+/** Riga evidenziata: in dashboard è la featured, altrove la sessione aperta. */
+function isActiveRow(id: string): boolean {
+  if (selectionMode.value) return false
+  if (onDashboard.value) return id === spy.featuredSessionId
+  return id === spy.currentSessionId
+}
+
 function onRowClick(id: string) {
   if (selectionMode.value) {
     toggleRow(id)
+    return
+  }
+  // In dashboard il click non naviga: mette in evidenza la sessione cliccata
+  // (anche un subagente: i grafici mostrano i suoi round trip).
+  if (onDashboard.value) {
+    spy.featuredSessionId = id
     return
   }
   router.push(`/session/${id}`)
@@ -184,7 +200,7 @@ function externalHref(id: string): string {
         :key="row.session.id"
         class="row"
         :class="{
-          active: !selectionMode && row.session.id === spy.currentSessionId,
+          active: isActiveRow(row.session.id),
           live: row.session.live,
           selecting: selectionMode,
           checked: selectionMode && isChecked(row.session.id),
@@ -412,6 +428,17 @@ function externalHref(id: string): string {
 
 .row.live:hover {
   background-color: rgba(62, 207, 110, 0.16);
+}
+
+/* la sessione APERTA nella pagina vince su tutto (anche su live): con molte
+   sessioni live il verde è ovunque e senza questo non si capisce quale si
+   sta guardando */
+.row.active,
+.row.live.active {
+  background-color: rgba(79, 157, 255, 0.18);
+  border-left-color: var(--accent);
+  border-left-width: 3px;
+  box-shadow: inset 0 0 0 1px rgba(79, 157, 255, 0.35);
 }
 
 .live-chip {

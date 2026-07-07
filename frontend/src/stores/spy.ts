@@ -19,6 +19,9 @@ export const useSpyStore = defineStore('spy', () => {
   // -- state ------------------------------------------------------------
   const sessions = ref<Record<string, Session>>({})
   const currentSessionId = ref<string | null>(null)
+  /** sessione "in evidenza" nella dashboard; nello store così la sidebar può
+   * impostarla senza cambiare route quando si è già in dashboard. */
+  const featuredSessionId = ref<string | null>(null)
   /** eventi della sessione aperta, ordinati per ts_start crescente. */
   const events = ref<EventSummary[]>([])
   const stats = ref<StatsItem[]>([])
@@ -211,6 +214,7 @@ export const useSpyStore = defineStore('spy', () => {
       events.value = []
       stats.value = []
     }
+    if (featuredSessionId.value === id) featuredSessionId.value = null
   }
 
   /**
@@ -241,6 +245,7 @@ export const useSpyStore = defineStore('spy', () => {
     // state
     sessions,
     currentSessionId,
+    featuredSessionId,
     events,
     stats,
     statsBySession,

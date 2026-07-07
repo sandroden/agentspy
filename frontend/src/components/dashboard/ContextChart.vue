@@ -15,6 +15,8 @@ interface Series {
   session: Session
   stats: StatsItem[]
   featured: boolean
+  /** true per i discendenti della famiglia in evidenza: linea tratteggiata. */
+  subagent?: boolean
 }
 
 const props = defineProps<{
@@ -80,15 +82,23 @@ interface SeriesView {
   color: string
   strokeWidth: number
   opacity: number
+  dash: string | undefined
   polyline: string
   points: Point[]
 }
 
+const subagentPalette = ['#2fb5a0', '#4fb0d8', '#b08ad6', '#d8a04f']
+
 const seriesViews = computed<SeriesView[]>(() => {
   let attIdx = 0
+  let subIdx = 0
   const views = props.series.map((s): SeriesView => {
     const featured = s.featured
-    const color = featured ? 'var(--accent)' : attenuatedPalette[attIdx++ % attenuatedPalette.length]
+    const color = featured
+      ? 'var(--accent)'
+      : s.subagent
+        ? subagentPalette[subIdx++ % subagentPalette.length]
+        : attenuatedPalette[attIdx++ % attenuatedPalette.length]
     const points: Point[] = s.stats.map((item, idx) => ({
       x: xFor(idx),
       y: yFor(contextTokens(item)),
@@ -99,11 +109,12 @@ const seriesViews = computed<SeriesView[]>(() => {
     }))
     return {
       id: s.session.id,
-      title: s.session.title || s.session.tag || s.session.id,
+      title: (s.subagent ? '↳ ' : '') + (s.session.title || s.session.tag || s.session.id),
       featured,
       color,
       strokeWidth: featured ? 2.4 : 1.2,
-      opacity: featured ? 1 : 0.55,
+      opacity: featured ? 1 : s.subagent ? 0.8 : 0.55,
+      dash: s.subagent && !featured ? '5 4' : undefined,
       polyline: points.map((p) => `${p.x},${p.y}`).join(' '),
       points,
     }
@@ -212,6 +223,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
           :stroke="v.color"
           :stroke-width="v.strokeWidth"
           :opacity="v.opacity"
+          :stroke-dasharray="v.dash"
           stroke-linejoin="round"
         />
 
