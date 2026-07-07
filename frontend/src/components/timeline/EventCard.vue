@@ -5,6 +5,7 @@
 import { computed } from 'vue'
 import { useSpyStore } from '../../stores/spy'
 import { formatDuration, formatTime } from '../../utils/format'
+import { toolIcon } from '../../utils/toolIcon'
 import type { EventSummary } from '../../types'
 import UsageBar from './UsageBar.vue'
 
@@ -61,7 +62,9 @@ function onClick() {
     <UsageBar class="usage" :usage="event.usage" />
 
     <div v-if="event.tool_names.length" class="tools">
-      <span v-for="tool in event.tool_names" :key="tool" class="chip tool">{{ tool }}</span>
+      <span v-for="tool in event.tool_names" :key="tool" class="chip tool">
+        <span class="tool-icon">{{ toolIcon(tool) }}</span>{{ tool }}
+      </span>
     </div>
 
     <p v-if="event.snippet" class="snippet">{{ event.snippet }}</p>
@@ -151,7 +154,15 @@ function onClick() {
 }
 
 .chip.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
   color: var(--accent-live);
+}
+
+.tool-icon {
+  font-size: 0.8rem;
+  line-height: 1;
 }
 
 .snippet {

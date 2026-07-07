@@ -44,6 +44,24 @@ function rowKey(row: TimelineRow, index: number): string {
   if (row.rowKind === 'subagent') return `subagent-${row.data.agentId}-${row.data.ts}`
   return `gap-${props.group.key}-${index}`
 }
+
+/**
+ * Colore dell'indicatore sinistro (il "tacchino" sulla colonna di flusso)
+ * per tipo di riga: round trip = accento, hook = grigio (verde per il prompt
+ * utente che apre il giro), mcp = viola, subagente = arancio. Il gap non ha
+ * indicatore.
+ */
+function rowAccent(row: TimelineRow): string {
+  if (row.rowKind === 'gap') return 'transparent'
+  if (row.rowKind === 'subagent') return '#f0883e'
+  const e = row.event
+  if (e.kind === 'round_trip') {
+    return e.status != null && e.status !== 200 ? 'var(--danger)' : 'var(--accent)'
+  }
+  if (e.kind === 'mcp') return '#a78bfa'
+  if (e.subkind === 'UserPromptSubmit') return 'var(--accent-live)'
+  return 'var(--muted)'
+}
 </script>
 
 <template>
@@ -61,7 +79,13 @@ function rowKey(row: TimelineRow, index: number): string {
     </header>
 
     <TransitionGroup name="row" tag="div" class="rows">
-      <div v-for="(row, i) in group.rows" :key="rowKey(row, i)" class="row-wrap">
+      <div
+        v-for="(row, i) in group.rows"
+        :key="rowKey(row, i)"
+        class="row-wrap"
+        :class="{ 'is-gap': row.rowKind === 'gap' }"
+        :style="{ '--row-accent': rowAccent(row) }"
+      >
         <div v-if="row.rowKind === 'gap'" class="gap-sep">··· {{ formatDuration(row.seconds) }} ···</div>
         <SubagentBlock v-else-if="row.rowKind === 'subagent'" :data="row.data" />
         <EventCard v-else-if="row.event.kind === 'round_trip'" :event="row.event" />
@@ -123,15 +147,37 @@ function rowKey(row: TimelineRow, index: number): string {
 }
 
 .rows {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: 0.4rem 1.5rem 0.8rem;
   gap: 0.4rem;
 }
 
+/* colonna di flusso: linea verticale continua che collega le righe del turno */
+.rows::before {
+  content: '';
+  position: absolute;
+  left: 1.5rem;
+  top: 0.4rem;
+  bottom: 0.8rem;
+  width: 2px;
+  background-color: var(--border);
+  border-radius: 2px;
+}
+
 .row-wrap {
+  position: relative;
   display: flex;
   flex-direction: column;
+  padding-left: 0.75rem;
+  /* segmento colorato per tipo, sovrapposto alla colonna di flusso grigia:
+     dove c'è una riga il flusso è colorato, nei gap resta grigio */
+  border-left: 3px solid var(--row-accent, transparent);
+}
+
+.row-wrap.is-gap {
+  border-left-color: transparent;
 }
 
 .gap-sep {

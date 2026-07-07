@@ -21,7 +21,7 @@ function onClick() {
 
 <template>
   <article class="mcp-card" :class="{ selected }" :data-event-id="event.id" @click="onClick">
-    <span class="tag">mcp</span>
+    <span class="tag"><span class="mcp-icon">🔌</span>mcp</span>
     <span class="subkind">{{ event.subkind || '—' }}</span>
     <span class="time">{{ formatTime(event.ts_start) }}</span>
     <span class="duration">{{ formatDuration(event.duration_s) }}</span>
@@ -31,7 +31,7 @@ function onClick() {
 
 <style scoped>
 .mcp-card {
-  --mcp-accent: #2dd4bf;
+  --mcp-accent: #a78bfa;
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -54,11 +54,19 @@ function onClick() {
 }
 
 .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
   color: var(--mcp-accent);
   font-weight: 700;
   font-size: 0.68rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.mcp-icon {
+  font-size: 0.8rem;
+  line-height: 1;
 }
 
 .subkind {

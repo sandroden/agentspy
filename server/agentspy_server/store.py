@@ -79,7 +79,17 @@ def _snippet_from_payload(kind: str, subkind: str | None, payload: dict | None) 
                 if isinstance(content, str):
                     return content[:160]
             return ""
-        if kind in ("hook", "mcp"):
+        if kind == "hook":
+            # schema hook reale: UserPromptSubmit porta "prompt",
+            # Pre/PostToolUse portano "tool_name"
+            prompt = payload.get("prompt")
+            if isinstance(prompt, str) and prompt:
+                return prompt[:160]
+            tool_name = payload.get("tool_name")
+            if isinstance(tool_name, str) and tool_name:
+                return tool_name
+            return subkind or ""
+        if kind == "mcp":
             return subkind or ""
     except Exception:
         return ""

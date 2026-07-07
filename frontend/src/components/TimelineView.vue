@@ -307,6 +307,14 @@ watch(
       <TurnGroup v-for="g in groups" :key="g.key" :group="g" :sticky-offset="stickyOffset" />
     </TransitionGroup>
 
+    <footer v-if="groups.length" class="legend" aria-label="legenda">
+      <span class="item"><span class="swatch" style="background-color: var(--accent)"></span>round trip</span>
+      <span class="item"><span class="glyph" style="color: var(--accent-live)">▶</span>prompt utente</span>
+      <span class="item"><span class="swatch" style="background-color: var(--muted)"></span>hook</span>
+      <span class="item"><span class="glyph">🔌</span>mcp</span>
+      <span class="item"><span class="glyph">🤖</span>subagente</span>
+    </footer>
+
     <button v-if="showFollowButton" class="follow-btn" @click="onFollowClick">⤓ nuovi eventi</button>
   </div>
 </template>
@@ -328,6 +336,34 @@ watch(
 .groups {
   display: flex;
   flex-direction: column;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  padding: 0.6rem 1.5rem 0;
+  margin-top: 0.4rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.legend .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legend .swatch {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.legend .glyph {
+  font-size: 0.78rem;
+  line-height: 1;
 }
 
 .follow-btn {
