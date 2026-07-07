@@ -3,7 +3,7 @@
 // selezionato (spy.selectedDetail, lazy-fetch gestito dallo store) in tab
 // orizzontali. Per i round_trip: Sintesi | Richiesta | Risposta | Delta |
 // JSON. Per hook/mcp: Sintesi | (Chiamata, solo mcp) | JSON.
-import { computed, ref, watch, watchEffect } from 'vue'
+import { computed, provide, ref, watch, watchEffect } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import { fetchEventDetail } from '../api/client'
 import type { EventDetail, EventSummary } from '../types'
@@ -12,6 +12,15 @@ import Collapsible from './detail/Collapsible.vue'
 import ContentBlock from './detail/ContentBlock.vue'
 import JsonTree from './detail/JsonTree.vue'
 import MessageBlock from './detail/MessageBlock.vue'
+import { compactViewKey } from './detail/detailKeys'
+
+// -- vista compatta system-reminder ------------------------------------------
+// Collassa le sezioni <system-reminder> nei blocchi text (vedi
+// SystemReminderText.vue). Persistita in localStorage e fornita ai discendenti.
+const COMPACT_KEY = 'agentspy.compactView'
+const compactView = ref(localStorage.getItem(COMPACT_KEY) === '1')
+provide(compactViewKey, compactView)
+watch(compactView, (v) => localStorage.setItem(COMPACT_KEY, v ? '1' : '0'))
 
 type AnyRecord = Record<string, any>
 type TabId = 'sintesi' | 'richiesta' | 'risposta' | 'delta' | 'chiamata' | 'json'
@@ -30,10 +39,14 @@ const payload = computed<AnyRecord>(() => asRecord(detail.value?.payload))
 
 const activeTab = ref<TabId>('sintesi')
 
+// Cambiando evento la tab attiva resta quella corrente (es. Delta per
+// confrontare round trip successivi); si torna a Sintesi solo se la tab
+// non esiste per il nuovo tipo di evento (es. da round_trip a hook).
 watch(
-  () => spy.selectedEventId,
+  () => [spy.selectedEventId, detail.value?.kind] as const,
   () => {
-    activeTab.value = 'sintesi'
+    if (!detail.value) return
+    if (!tabs.value.some((t) => t.id === activeTab.value)) activeTab.value = 'sintesi'
   }
 )
 
@@ -221,6 +234,10 @@ async function copyJson() {
           <span>{{ formatTime(detail.ts_start) }}</span>
           <span>{{ formatDuration(detail.duration_s) }}</span>
           <span v-if="detail.turn_index != null">turno {{ detail.turn_index }}</span>
+          <label v-if="detail.kind === 'round_trip'" class="compact-toggle" title="collassa le sezioni system-reminder">
+            <input type="checkbox" v-model="compactView" />
+            <span>vista compatta</span>
+          </label>
         </div>
       </header>
 
@@ -348,14 +365,13 @@ async function copyJson() {
 
         <!-- RICHIESTA (solo round_trip) -->
         <section v-else-if="activeTab === 'richiesta'" class="tab-richiesta">
-          <div class="section-title">System</div>
+          <div class="section-title">System (campo della richiesta)</div>
           <p v-if="systemBlocks.length === 0" class="placeholder">nessun system prompt</p>
           <Collapsible
             v-for="(b, i) in systemBlocks"
             :key="i"
             :title="systemBlocks.length > 1 ? `blocco ${i + 1}/${systemBlocks.length}` : 'system'"
             :meta="`${b.text.length.toLocaleString('it-IT')} caratteri`"
-            default-open
           >
             <pre class="pre-wrap">{{ b.text }}</pre>
           </Collapsible>
@@ -374,7 +390,7 @@ async function copyJson() {
           </Collapsible>
 
           <div class="section-title">Messages ({{ messages.length }})</div>
-          <MessageBlock v-for="(m, i) in messages" :key="i" :message="m" />
+          <MessageBlock v-for="(m, i) in messages" :key="i" :message="m" collapsible />
         </section>
 
         <!-- RISPOSTA (solo round_trip) -->
@@ -560,11 +576,26 @@ async function copyJson() {
 
 .meta-row {
   display: flex;
+  align-items: center;
   gap: 0.7rem;
   margin-top: 0.3rem;
   font-size: 0.75rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.compact-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  cursor: pointer;
+  user-select: none;
+}
+
+.compact-toggle input {
+  cursor: pointer;
+  accent-color: var(--accent);
 }
 
 .tabs {

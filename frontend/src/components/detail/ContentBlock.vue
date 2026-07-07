@@ -7,6 +7,7 @@
 import { computed } from 'vue'
 import JsonTree from './JsonTree.vue'
 import Collapsible from './Collapsible.vue'
+import SystemReminderText from './SystemReminderText.vue'
 
 const props = defineProps<{
   block: Record<string, any>
@@ -18,7 +19,6 @@ function truncate(text: string): { text: string; truncated: boolean } {
   return { text: `${text.slice(0, props.maxChars)}…`, truncated: true }
 }
 
-const textOut = computed(() => truncate(String(props.block.text ?? '')))
 const thinkingOut = computed(() => truncate(String(props.block.thinking ?? '')))
 
 const toolInputJson = computed(() => {
@@ -51,7 +51,7 @@ const resultChars = computed(() => {
     </template>
 
     <template v-else-if="block.type === 'text'">
-      <pre class="pre-wrap">{{ textOut.text }}</pre>
+      <SystemReminderText :text="String(block.text ?? '')" :max-chars="maxChars" />
     </template>
 
     <template v-else-if="block.type === 'tool_use'">
