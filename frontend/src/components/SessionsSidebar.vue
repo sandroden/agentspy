@@ -163,6 +163,9 @@ function externalHref(id: string): string {
 <template>
   <nav class="sessions-sidebar">
     <div class="toolbar">
+      <router-link to="/" class="home-link" title="torna alla dashboard con i grafici">
+        📊 Dashboard
+      </router-link>
       <button
         type="button"
         class="edit-toggle"
@@ -251,9 +254,31 @@ function externalHref(id: string): string {
 .toolbar {
   flex: none;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--border);
+}
+
+.home-link {
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.home-link:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+/* evidenzia quando la dashboard è la vista corrente */
+.home-link.router-link-exact-active {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .edit-toggle {
