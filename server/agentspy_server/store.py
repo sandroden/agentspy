@@ -179,6 +179,48 @@ class Store:
             )
         return moved
 
+    def delete_sessions(self, ids: list[str]) -> list[str]:
+        """Elimina le sessioni indicate e TUTTE le loro discendenti (subagenti,
+        ricorsivamente via parent_session_id), cancellando prima gli eventi e
+        poi le righe di sessione. Gli id inesistenti vengono ignorati. Ritorna
+        l'elenco completo (dedup) degli id effettivamente eliminati."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, parent_session_id FROM sessions"
+            ).fetchall()
+            children: dict[str | None, list[str]] = {}
+            existing: set[str] = set()
+            for r in rows:
+                existing.add(r["id"])
+                children.setdefault(r["parent_session_id"], []).append(r["id"])
+
+            to_delete: list[str] = []
+            seen: set[str] = set()
+
+            def collect(sid: str) -> None:
+                if sid in seen or sid not in existing:
+                    return
+                seen.add(sid)
+                to_delete.append(sid)
+                for c in children.get(sid, []):
+                    collect(c)
+
+            for sid in ids:
+                collect(sid)
+
+            if not to_delete:
+                return []
+
+            placeholders = ",".join("?" for _ in to_delete)
+            self._conn.execute(
+                f"DELETE FROM events WHERE session_id IN ({placeholders})", to_delete
+            )
+            self._conn.execute(
+                f"DELETE FROM sessions WHERE id IN ({placeholders})", to_delete
+            )
+            self._conn.commit()
+        return to_delete
+
     # -- events ---------------------------------------------------------
 
     def insert_event(

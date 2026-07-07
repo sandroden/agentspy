@@ -124,6 +124,47 @@ def test_session_stats(tmp_path):
     store.close()
 
 
+def test_delete_sessions_cascade(tmp_path):
+    store = Store(tmp_path / "del1.db")
+    store.upsert_session("parent", started_at=0.0, live=True)
+    store.upsert_session("child", parent_session_id="parent", started_at=1.0, live=True)
+    store.upsert_session("grandchild", parent_session_id="child", started_at=2.0, live=True)
+    store.upsert_session("other", started_at=0.0, live=True)
+
+    store.insert_event(session_id="parent", kind="round_trip", ts_start=0.0)
+    store.insert_event(session_id="child", kind="hook", subkind="PreToolUse", ts_start=1.0)
+    store.insert_event(session_id="grandchild", kind="round_trip", ts_start=2.0)
+    store.insert_event(session_id="other", kind="round_trip", ts_start=0.0)
+
+    deleted = store.delete_sessions(["parent"])
+    assert set(deleted) == {"parent", "child", "grandchild"}
+
+    ids = {s["id"] for s in store.get_sessions()}
+    assert ids == {"other"}
+    # gli eventi delle sessioni cancellate spariscono
+    assert store.get_session_events("parent") == []
+    assert store.get_session_events("child") == []
+    assert store.get_session_events("grandchild") == []
+    assert len(store.get_session_events("other")) == 1
+    store.close()
+
+
+def test_delete_sessions_ignores_unknown_and_dedups(tmp_path):
+    store = Store(tmp_path / "del2.db")
+    store.upsert_session("a", started_at=0.0, live=True)
+    store.upsert_session("b", parent_session_id="a", started_at=1.0, live=True)
+
+    # id inesistente ignorato; padre + figlio elencati esplicitamente non
+    # producono duplicati.
+    deleted = store.delete_sessions(["a", "b", "nope"])
+    assert sorted(deleted) == ["a", "b"]
+    assert deleted.count("b") == 1
+
+    assert store.get_sessions() == []
+    assert store.delete_sessions(["nope"]) == []
+    store.close()
+
+
 def test_reassign_session(tmp_path):
     from agentspy_server.store import Store
 

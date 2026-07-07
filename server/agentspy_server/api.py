@@ -43,9 +43,38 @@ async def session_stats(request: Request) -> JSONResponse:
     return JSONResponse(stats)
 
 
+async def _delete_and_broadcast(request: Request, ids: list[str]) -> list[str]:
+    """Elimina le sessioni (con discendenti) e notifica i client via WS un
+    ``session_removed`` per ciascun id rimosso, così le sidebar aperte si
+    aggiornano anche senza refetch."""
+    store = request.app.state.store
+    ws_manager = request.app.state.ws_manager
+    deleted = await asyncio.to_thread(store.delete_sessions, ids)
+    for sid in deleted:
+        await ws_manager.broadcast({"type": "session_removed", "id": sid})
+    return deleted
+
+
+async def delete_session(request: Request) -> JSONResponse:
+    session_id = request.path_params["session_id"]
+    deleted = await _delete_and_broadcast(request, [session_id])
+    return JSONResponse({"deleted": deleted})
+
+
+async def delete_sessions_bulk(request: Request) -> JSONResponse:
+    body = await request.json()
+    ids = body.get("ids") if isinstance(body, dict) else None
+    if not isinstance(ids, list):
+        return JSONResponse({"error": "campo 'ids' mancante o non valido"}, status_code=400)
+    deleted = await _delete_and_broadcast(request, [str(i) for i in ids])
+    return JSONResponse({"deleted": deleted})
+
+
 routes = [
     Route("/api/sessions", list_sessions, methods=["GET"]),
+    Route("/api/sessions/delete", delete_sessions_bulk, methods=["POST"]),
     Route("/api/sessions/{session_id}/events", session_events, methods=["GET"]),
     Route("/api/events/{event_id}", get_event, methods=["GET"]),
     Route("/api/sessions/{session_id}/stats", session_stats, methods=["GET"]),
+    Route("/api/sessions/{session_id}", delete_session, methods=["DELETE"]),
 ]

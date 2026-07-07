@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
+  deleteSessions as apiDeleteSessions,
   fetchEventDetail,
   fetchSessionEvents,
   fetchSessionStats,
@@ -178,6 +179,42 @@ export const useSpyStore = defineStore('spy', () => {
   }
 
   /**
+   * Rimuove localmente una sessione dallo stato (usata sia dall'azione di
+   * eliminazione sia dal messaggio WS session_removed). Se è quella aperta,
+   * azzera la selezione e gli eventi correnti: la view farà l'eventuale
+   * redirect.
+   */
+  function removeSessionLocal(id: string) {
+    if (sessions.value[id]) {
+      const next = { ...sessions.value }
+      delete next[id]
+      sessions.value = next
+    }
+    if (unseenCounts.value[id] != null) {
+      const nextUnseen = { ...unseenCounts.value }
+      delete nextUnseen[id]
+      unseenCounts.value = nextUnseen
+    }
+    if (currentSessionId.value === id) {
+      currentSessionId.value = null
+      events.value = []
+      stats.value = []
+    }
+  }
+
+  /**
+   * Elimina le sessioni indicate via API (cascata sui figli lato server) e
+   * aggiorna lo stato locale senza dipendere dal WS, che potrebbe non essere
+   * connesso. Ritorna gli id effettivamente rimossi (inclusi i discendenti).
+   */
+  async function deleteSessions(ids: string[]): Promise<string[]> {
+    const deleted = await apiDeleteSessions(ids)
+    // rimuovi sia gli id richiesti sia i discendenti riportati dal server.
+    for (const id of new Set([...ids, ...deleted])) removeSessionLocal(id)
+    return deleted
+  }
+
+  /**
    * Carica (con cache) le stats di una sessione per la dashboard, senza
    * toccare `stats`/`currentSessionId` usati da SessionView. `force` rilegge
    * ignorando la cache (utile per sessioni live che accumulano round trip).
@@ -218,6 +255,7 @@ export const useSpyStore = defineStore('spy', () => {
     step,
     select,
     clearSelection,
+    deleteSessions,
     loadStatsFor,
   }
 })

@@ -57,6 +57,50 @@ def test_api_sessions_events_and_stats(tmp_path):
         assert stats[0]["system_chars"] == 10
 
 
+def test_api_delete_session_single(tmp_path):
+    db_path = str(tmp_path / "del_api.db")
+    app = create_app(db_path=db_path, upstream="http://unused.invalid")
+
+    with TestClient(app) as client:
+        store = app.state.store
+        store.upsert_session("p", started_at=0.0, live=True)
+        store.upsert_session("c", parent_session_id="p", started_at=1.0, live=True)
+        store.insert_event(session_id="p", kind="round_trip", ts_start=0.0)
+        store.insert_event(session_id="c", kind="round_trip", ts_start=1.0)
+
+        r = client.delete("/api/sessions/p")
+        assert r.status_code == 200
+        assert set(r.json()["deleted"]) == {"p", "c"}
+
+        assert client.get("/api/sessions").json() == []
+        # gli eventi delle sessioni cancellate non sono più recuperabili
+        assert client.get("/api/sessions/p/events").json() == []
+        assert client.get("/api/sessions/c/events").json() == []
+
+
+def test_api_delete_sessions_bulk(tmp_path):
+    db_path = str(tmp_path / "del_bulk.db")
+    app = create_app(db_path=db_path, upstream="http://unused.invalid")
+
+    with TestClient(app) as client:
+        store = app.state.store
+        store.upsert_session("a", started_at=0.0, live=True)
+        store.upsert_session("b", started_at=0.0, live=True)
+        store.upsert_session("keep", started_at=0.0, live=True)
+        store.insert_event(session_id="a", kind="round_trip", ts_start=0.0)
+        store.insert_event(session_id="b", kind="round_trip", ts_start=0.0)
+
+        r = client.post("/api/sessions/delete", json={"ids": ["a", "b", "nope"]})
+        assert r.status_code == 200
+        assert sorted(r.json()["deleted"]) == ["a", "b"]
+
+        ids = {s["id"] for s in client.get("/api/sessions").json()}
+        assert ids == {"keep"}
+
+        # body senza 'ids' -> 400
+        assert client.post("/api/sessions/delete", json={}).status_code == 400
+
+
 def test_ingest_hook_creates_session_and_event(tmp_path):
     db_path = str(tmp_path / "api2.db")
     app = create_app(db_path=db_path, upstream="http://unused.invalid")

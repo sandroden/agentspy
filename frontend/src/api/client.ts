@@ -37,6 +37,23 @@ export async function fetchSessionStats(id: string): Promise<StatsItem[]> {
 }
 
 /**
+ * Elimina le sessioni indicate (con le loro discendenti, in cascata lato
+ * server). Ritorna l'elenco completo degli id effettivamente rimossi.
+ */
+export async function deleteSessions(ids: string[]): Promise<string[]> {
+  const response = await fetch('/api/sessions/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} su /api/sessions/delete`)
+  }
+  const body = (await response.json()) as { deleted: string[] }
+  return body.deleted ?? []
+}
+
+/**
  * Forma grezza restituita da GET /api/events/:id (Store.get_event): è la riga
  * DB "piatta", con i token come colonne separate (non un oggetto usage), senza
  * duration_s e senza snippet precalcolato. fetchEventDetail la normalizza

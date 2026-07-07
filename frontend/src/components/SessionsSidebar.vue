@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSpyStore, type SessionNode } from '../stores/spy'
 import { formatTokens } from '../utils/format'
@@ -23,6 +23,105 @@ function flatten(nodes: SessionNode[], depth: number): FlatRow[] {
 }
 
 const rows = computed(() => flatten(spy.sessionTree, 0))
+
+// -- modalità selezione / eliminazione ------------------------------------
+const selectionMode = ref(false)
+/** id esplicitamente spuntati (le radici della selezione). */
+const selected = ref<Set<string>>(new Set())
+
+/** true se una sessione antenata è già selezionata: allora questa riga è
+ * coperta dalla cascata e la sua checkbox è spuntata ma bloccata. */
+function coveredByAncestor(id: string): boolean {
+  let parent = spy.sessions[id]?.parent_session_id ?? null
+  while (parent) {
+    if (selected.value.has(parent)) return true
+    parent = spy.sessions[parent]?.parent_session_id ?? null
+  }
+  return false
+}
+
+function isChecked(id: string): boolean {
+  return selected.value.has(id) || coveredByAncestor(id)
+}
+
+function isLocked(id: string): boolean {
+  return coveredByAncestor(id)
+}
+
+/** tutti gli id che spariranno (radici + discendenti visibili spuntati). */
+const effectiveIds = computed(() => rows.value.map((r) => r.session.id).filter(isChecked))
+
+function toggleSelectionMode() {
+  selectionMode.value = !selectionMode.value
+  if (!selectionMode.value) selected.value = new Set()
+}
+
+function toggleRow(id: string) {
+  if (isLocked(id)) return
+  const next = new Set(selected.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+    // rimuove selezioni esplicite di discendenti ora ridondanti.
+    for (const other of [...next]) {
+      if (other !== id && hasAncestor(other, id)) next.delete(other)
+    }
+  }
+  selected.value = next
+}
+
+/** true se `ancestor` è antenato di `id` risalendo la catena dei parent. */
+function hasAncestor(id: string, ancestor: string): boolean {
+  let parent = spy.sessions[id]?.parent_session_id ?? null
+  while (parent) {
+    if (parent === ancestor) return true
+    parent = spy.sessions[parent]?.parent_session_id ?? null
+  }
+  return false
+}
+
+function cancelSelection() {
+  selectionMode.value = false
+  selected.value = new Set()
+}
+
+/** id delle sessioni top-level (le figlie seguono in cascata). */
+const topLevelIds = computed(() =>
+  rows.value.filter((r) => r.depth === 0).map((r) => r.session.id)
+)
+
+const allSelected = computed(
+  () => topLevelIds.value.length > 0 && topLevelIds.value.every((id) => selected.value.has(id))
+)
+
+/** Seleziona tutte le top-level (caso tipico: cancellare tutto tranne poche
+ * da tenere, che si de-spuntano dopo). Se già tutte selezionate, azzera. */
+function toggleAll() {
+  selected.value = allSelected.value ? new Set() : new Set(topLevelIds.value)
+}
+
+async function confirmDelete() {
+  const ids = effectiveIds.value
+  if (ids.length === 0) return
+  const plural = ids.length === 1 ? 'la sessione selezionata' : `${ids.length} sessioni selezionate`
+  const msg =
+    `Eliminare ${plural}? Verranno rimosse in cascata anche le eventuali ` +
+    `sessioni figlie (subagenti) e tutti i loro eventi. L'operazione è definitiva.`
+  if (!window.confirm(msg)) return
+  const currentDeleted = spy.currentSessionId != null && ids.includes(spy.currentSessionId)
+  try {
+    await spy.deleteSessions(ids)
+  } catch (err) {
+    window.alert(
+      `Eliminazione fallita: ${err instanceof Error ? err.message : err}.\n` +
+        `Se il collector è stato avviato con una versione precedente del codice, riavvialo.`
+    )
+    return
+  }
+  cancelSelection()
+  if (currentDeleted) router.push('/')
+}
 
 /** Modello abbreviato per non affollare la riga (es. claude-sonnet-4-5-20250929 -> sonnet-4.5). */
 function abbreviateModel(model: string | null): string {
@@ -48,7 +147,11 @@ function totalTokens(s: Session): number {
   return u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
 }
 
-function open(id: string) {
+function onRowClick(id: string) {
+  if (selectionMode.value) {
+    toggleRow(id)
+    return
+  }
   router.push(`/session/${id}`)
 }
 
@@ -59,35 +162,80 @@ function externalHref(id: string): string {
 
 <template>
   <nav class="sessions-sidebar">
-    <p v-if="rows.length === 0" class="empty">Nessuna sessione</p>
-    <div
-      v-for="row in rows"
-      :key="row.session.id"
-      class="row"
-      :class="{ active: row.session.id === spy.currentSessionId }"
-      :style="{ paddingLeft: `${0.6 + row.depth * 1}rem` }"
-      @click="open(row.session.id)"
-    >
-      <span class="dot" :class="{ live: row.session.live }"></span>
-      <span v-if="row.session.tag" class="chip" :style="{ backgroundColor: tagColor(row.session.tag) }">
-        {{ row.session.tag }}
-      </span>
-      <span class="title">{{ row.session.title || row.session.id }}</span>
-      <span class="model">{{ abbreviateModel(row.session.model) }}</span>
-      <span class="tokens">{{ formatTokens(totalTokens(row.session)) }}</span>
-      <span v-if="spy.unseenCounts[row.session.id]" class="badge">
-        {{ spy.unseenCounts[row.session.id] }}
-      </span>
-      <a
-        class="external"
-        :href="externalHref(row.session.id)"
-        target="_blank"
-        rel="noopener"
-        title="apri in un'altra scheda"
-        @click.stop
+    <div class="toolbar">
+      <button
+        type="button"
+        class="edit-toggle"
+        :class="{ active: selectionMode }"
+        :title="selectionMode ? 'esci dalla modalità selezione' : 'seleziona sessioni da eliminare'"
+        @click="toggleSelectionMode"
       >
-        ↗
-      </a>
+        {{ selectionMode ? '✕ Fine' : '🗑 Modifica' }}
+      </button>
+    </div>
+
+    <div class="list">
+      <p v-if="rows.length === 0" class="empty">Nessuna sessione</p>
+      <div
+        v-for="row in rows"
+        :key="row.session.id"
+        class="row"
+        :class="{
+          active: !selectionMode && row.session.id === spy.currentSessionId,
+          live: row.session.live,
+          selecting: selectionMode,
+          checked: selectionMode && isChecked(row.session.id),
+        }"
+        :style="{ paddingLeft: `${0.6 + row.depth * 1}rem` }"
+        @click="onRowClick(row.session.id)"
+      >
+        <input
+          v-if="selectionMode"
+          type="checkbox"
+          class="check"
+          :checked="isChecked(row.session.id)"
+          :disabled="isLocked(row.session.id)"
+          :title="isLocked(row.session.id) ? 'eliminata in cascata col genitore' : ''"
+        />
+        <span class="dot" :class="{ live: row.session.live }"></span>
+        <span v-if="row.session.live" class="live-chip">LIVE</span>
+        <span v-if="row.session.tag" class="chip" :style="{ backgroundColor: tagColor(row.session.tag) }">
+          {{ row.session.tag }}
+        </span>
+        <span class="title">{{ row.session.title || row.session.id }}</span>
+        <span class="model">{{ abbreviateModel(row.session.model) }}</span>
+        <span class="tokens">{{ formatTokens(totalTokens(row.session)) }}</span>
+        <span v-if="!selectionMode && spy.unseenCounts[row.session.id]" class="badge">
+          {{ spy.unseenCounts[row.session.id] }}
+        </span>
+        <a
+          v-if="!selectionMode"
+          class="external"
+          :href="externalHref(row.session.id)"
+          target="_blank"
+          rel="noopener"
+          title="apri in un'altra scheda"
+          @click.stop
+        >
+          ↗
+        </a>
+      </div>
+    </div>
+
+    <div v-if="selectionMode" class="delete-bar">
+      <button type="button" class="cancel-btn" @click="toggleAll">
+        {{ allSelected ? 'Nessuna' : 'Tutte' }}
+      </button>
+      <button
+        type="button"
+        class="delete-btn"
+        :disabled="effectiveIds.length === 0"
+        @click="confirmDelete"
+      >
+        Elimina {{ effectiveIds.length }}
+        {{ effectiveIds.length === 1 ? 'sessione' : 'sessioni' }}
+      </button>
+      <button type="button" class="cancel-btn" @click="cancelSelection">Annulla</button>
     </div>
   </nav>
 </template>
@@ -95,6 +243,42 @@ function externalHref(id: string): string {
 <style scoped>
 .sessions-sidebar {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.edit-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.edit-toggle:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.edit-toggle.active {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -106,6 +290,72 @@ function externalHref(id: string): string {
   color: var(--muted);
   font-style: italic;
   font-size: 0.85rem;
+}
+
+.check {
+  flex: none;
+  margin: 0;
+  accent-color: var(--danger);
+  /* il click è gestito dalla riga: la checkbox è solo un indicatore visuale. */
+  pointer-events: none;
+}
+
+.row.selecting {
+  cursor: pointer;
+}
+
+.row.checked {
+  background-color: rgba(229, 83, 75, 0.12);
+}
+
+.row.checked:hover {
+  background-color: rgba(229, 83, 75, 0.18);
+}
+
+.delete-bar {
+  flex: none;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-top: 1px solid var(--border);
+  background-color: var(--panel-alt);
+}
+
+.delete-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.delete-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cancel-btn {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.cancel-btn:hover {
+  color: var(--text);
+  border-color: var(--muted);
 }
 
 .row {
@@ -125,6 +375,29 @@ function externalHref(id: string): string {
 .row.active {
   background-color: var(--panel-alt);
   border-left-color: var(--accent);
+  border-left-width: 3px;
+}
+
+/* live vince sulla selezione: bordo verde + sfondo acceso + chip */
+.row.live {
+  background-color: rgba(62, 207, 110, 0.1);
+  border-left-color: var(--accent-live);
+  border-left-width: 3px;
+}
+
+.row.live:hover {
+  background-color: rgba(62, 207, 110, 0.16);
+}
+
+.live-chip {
+  flex: none;
+  background-color: var(--accent-live);
+  color: #06210f;
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .dot {
