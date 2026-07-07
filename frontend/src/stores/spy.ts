@@ -67,6 +67,16 @@ export const useSpyStore = defineStore('spy', () => {
   )
 
   // -- helpers --------------------------------------------------------------
+  /**
+   * I PostToolUse non entrano proprio in events: didatticamente la tool call
+   * è UNA (il "tool_use" reso dal PreToolUse); il Post è un dettaglio del
+   * meccanismo hook di Claude Code e, se incluso, produrrebbe scatti "a
+   * vuoto" del player (cursore su eventi che la timeline non mostra).
+   */
+  function isTimelineEvent(e: EventSummary): boolean {
+    return !(e.kind === 'hook' && e.subkind === 'PostToolUse')
+  }
+
   function replaceSessions(list: Session[]) {
     const map: Record<string, Session> = {}
     for (const s of list) map[s.id] = s
@@ -92,7 +102,7 @@ export const useSpyStore = defineStore('spy', () => {
     currentSessionId.value = id
     unseenCounts.value = { ...unseenCounts.value, [id]: 0 }
     const [evts, st] = await Promise.all([fetchSessionEvents(id), fetchSessionStats(id)])
-    events.value = evts
+    events.value = evts.filter(isTimelineEvent)
     stats.value = st
     cursor.value = events.value.length - 1
     live.value = true
@@ -130,6 +140,7 @@ export const useSpyStore = defineStore('spy', () => {
     }
     if (msg.type === 'event') {
       const evt = msg.event
+      if (!isTimelineEvent(evt)) return
       if (evt.session_id === currentSessionId.value) {
         insertEventSorted(evt)
         if (live.value) cursor.value = events.value.length - 1

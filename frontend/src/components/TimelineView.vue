@@ -17,7 +17,7 @@ export interface SubagentRowData {
 }
 
 export type TimelineRow =
-  | { rowKind: 'event'; event: EventSummary }
+  | { rowKind: 'event'; event: EventSummary; nextRt?: EventSummary }
   | { rowKind: 'subagent'; data: SubagentRowData }
   | { rowKind: 'gap'; seconds: number }
 
@@ -48,6 +48,7 @@ const GAP_SECONDS = 30
  * gli eventi del figlio.
  */
 const groups = computed<TimelineGroup[]>(() => {
+  // nota: i PostToolUse sono già filtrati alla fonte (stores/spy.ts)
   const evts = spy.visibleEvents
   const parentId = spy.currentSessionId
   // l'agent_id della sessione APERTA (se essa stessa è un subagente): un
@@ -160,6 +161,22 @@ const groups = computed<TimelineGroup[]>(() => {
       const payload = cached?.payload as Record<string, unknown> | undefined
       const prompt = payload && typeof payload.prompt === 'string' ? payload.prompt : ''
       if (prompt) group.promptSnippet = prompt.slice(0, 160)
+    }
+  }
+
+  // Gauge di contesto DOPO ogni tool_use: il contesto "dopo" è esattamente
+  // l'input del round trip successivo (la richiesta che contiene il
+  // tool_result), quindi ogni marker tool_use eredita usage/model di quel
+  // round trip. Scansione all'indietro: nextRt = round trip più vicino che segue.
+  {
+    const eventRows = order
+      .flatMap((k) => (byKey.get(k) as TimelineGroup).rows)
+      .filter((r): r is TimelineRow & { rowKind: 'event' } => r.rowKind === 'event')
+    let nextRt: EventSummary | undefined
+    for (let i = eventRows.length - 1; i >= 0; i--) {
+      const r = eventRows[i]
+      if (r.event.kind === 'round_trip') nextRt = r.event
+      else if (r.event.kind === 'hook' && r.event.subkind === 'PreToolUse') r.nextRt = nextRt
     }
   }
 
@@ -310,6 +327,7 @@ watch(
     <footer v-if="groups.length" class="legend" aria-label="legenda">
       <span class="item"><span class="swatch" style="background-color: var(--accent)"></span>round trip</span>
       <span class="item"><span class="glyph" style="color: var(--accent-live)">▶</span>prompt utente</span>
+      <span class="item"><span class="glyph">🔧</span>tool_use</span>
       <span class="item"><span class="swatch" style="background-color: var(--muted)"></span>hook</span>
       <span class="item"><span class="glyph">🔌</span>mcp</span>
       <span class="item"><span class="glyph">🤖</span>subagente</span>

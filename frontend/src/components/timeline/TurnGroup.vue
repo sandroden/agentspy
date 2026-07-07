@@ -6,6 +6,7 @@
 // competenza di questo agente.
 import { formatDuration, formatTime, formatTokens } from '../../utils/format'
 import type { EventSummary } from '../../types'
+import ContextGauge from './ContextGauge.vue'
 import EventCard from './EventCard.vue'
 import HookMarker from './HookMarker.vue'
 import McpCard from './McpCard.vue'
@@ -19,7 +20,7 @@ interface SubagentRowData {
 }
 
 type TimelineRow =
-  | { rowKind: 'event'; event: EventSummary }
+  | { rowKind: 'event'; event: EventSummary; nextRt?: EventSummary }
   | { rowKind: 'subagent'; data: SubagentRowData }
   | { rowKind: 'gap'; seconds: number }
 
@@ -68,7 +69,11 @@ function rowAccent(row: TimelineRow): string {
   <section class="turn-group">
     <header class="turn-header" :style="{ top: `${stickyOffset}px` }">
       <div class="turn-title">
-        <span class="turn-badge">{{ group.turnIndex === null ? 'avvio' : `Turno ${group.turnIndex}` }}</span>
+        <!-- turno 0 = eventi prima del primo prompt (SessionStart, traffico di
+             servizio): non è un turno utente, quindi niente numerazione -->
+        <span class="turn-badge">{{
+          group.turnIndex === null ? 'avvio' : group.turnIndex === 0 ? 'pre-prompt' : `Turno ${group.turnIndex}`
+        }}</span>
         <span class="turn-time">{{ formatTime(group.startTs) }}</span>
         <span class="turn-stats">
           {{ group.roundTrips }} round trip · {{ formatTokens(group.outputTokens) }} out ·
@@ -88,9 +93,24 @@ function rowAccent(row: TimelineRow): string {
       >
         <div v-if="row.rowKind === 'gap'" class="gap-sep">··· {{ formatDuration(row.seconds) }} ···</div>
         <SubagentBlock v-else-if="row.rowKind === 'subagent'" :data="row.data" />
-        <EventCard v-else-if="row.event.kind === 'round_trip'" :event="row.event" />
+        <!-- round trip: card + gauge di riempimento contesto in una colonna
+             dedicata a destra (stesso criterio non lineare della statusline) -->
+        <div v-else-if="row.event.kind === 'round_trip'" class="rt-line">
+          <EventCard :event="row.event" class="rt-card" />
+          <ContextGauge :usage="row.event.usage" :model="row.event.model" class="rt-gauge" />
+        </div>
         <McpCard v-else-if="row.event.kind === 'mcp'" :event="row.event" />
-        <HookMarker v-else :event="row.event" />
+        <!-- hook: il tool_use mostra anche il contesto DOPO di sé, cioè
+             l'input del round trip successivo (che porta il tool_result) -->
+        <div v-else class="rt-line">
+          <HookMarker :event="row.event" class="rt-card" />
+          <ContextGauge
+            v-if="row.event.subkind === 'PreToolUse' && row.nextRt"
+            :usage="row.nextRt.usage"
+            :model="row.nextRt.model"
+            class="rt-gauge hook-gauge"
+          />
+        </div>
       </div>
     </TransitionGroup>
   </section>
@@ -178,6 +198,28 @@ function rowAccent(row: TimelineRow): string {
 
 .row-wrap.is-gap {
   border-left-color: transparent;
+}
+
+/* riga round trip: card + colonna gauge contesto allineata a destra */
+.rt-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.rt-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.rt-gauge {
+  flex-shrink: 0;
+  margin-top: 0.55rem;
+}
+
+/* sul marker tool_use (riga sottile) il gauge si allinea al testo */
+.rt-gauge.hook-gauge {
+  margin-top: 0.15rem;
 }
 
 .gap-sep {

@@ -46,11 +46,15 @@ function goTo(id: string) {
   <div class="session-view">
     <header v-if="session" class="session-header">
       <div class="title-row">
-        <h1>{{ session.title || session.id }}</h1>
+        <!-- il tag (x-agentspy-tag) è il nome parlante scelto dall'utente:
+             è LUI il titolo; l'id di sessione resta come dettaglio accanto -->
+        <h1 v-if="session.tag">
+          {{ session.tag }}<span class="title-id">· {{ session.title || session.id }}</span>
+        </h1>
+        <h1 v-else>{{ session.title || session.id }}</h1>
         <span class="dot" :class="{ live: session.live }"></span>
       </div>
       <div class="meta-row">
-        <span v-if="session.tag" class="chip">{{ session.tag }}</span>
         <span>{{ session.model }}</span>
         <span>{{ formatDuration(session.duration_s) }}</span>
         <span>{{ session.turns }} turni · {{ session.round_trips }} round trip</span>
@@ -116,6 +120,13 @@ function goTo(id: string) {
 
 .title-row h1 {
   font-size: 1.3rem;
+}
+
+.title-id {
+  margin-left: 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
 }
 
 .dot {

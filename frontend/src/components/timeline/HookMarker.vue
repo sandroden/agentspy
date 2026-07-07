@@ -19,6 +19,17 @@ const selected = computed(() => spy.selectedEventId === props.event.id)
 
 const isPrompt = computed(() => props.event.subkind === 'UserPromptSubmit')
 
+/**
+ * Etichetta didattica: il PreToolUse rappresenta la tool call del modello
+ * (il "tool_use" del dialogo con l'LLM); che Claude Code la notifichi via un
+ * hook chiamato PreToolUse è un dettaglio di implementazione che non vogliamo
+ * insegnare. Il PostToolUse non viene proprio mostrato in timeline.
+ */
+const label = computed(() => {
+  if (props.event.subkind === 'PreToolUse') return 'tool_use'
+  return props.event.subkind || 'hook'
+})
+
 /** Glifo per subkind: prompt utente ▶, tool 🔧, subagente 🤖, stop ■, altro ○. */
 const glyph = computed(() => {
   switch (props.event.subkind) {
@@ -68,7 +79,7 @@ function onClick() {
     @click="onClick"
   >
     <span class="icon">{{ glyph }}</span>
-    <span class="subkind">{{ event.subkind || 'hook' }}</span>
+    <span class="subkind">{{ label }}</span>
     <span v-if="toolName" class="tool">
       <span class="tool-icon">{{ toolIcon(toolName) }}</span>{{ toolName }}
     </span>
