@@ -222,6 +222,9 @@ function externalHref(id: string): string {
           {{ row.session.tag }}
         </span>
         <span class="title">{{ row.session.title || row.session.id }}</span>
+        <span class="rt" :title="`${row.session.round_trips} round trip`">
+          {{ row.session.round_trips }}
+        </span>
         <span class="model">{{ abbreviateModel(row.session.model) }}</span>
         <span class="tokens">{{ formatTokens(totalTokens(row.session)) }}</span>
         <span v-if="!selectionMode && spy.unseenCounts[row.session.id]" class="badge">
@@ -321,6 +324,7 @@ function externalHref(id: string): string {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   padding: 0.4rem 0;
@@ -480,8 +484,25 @@ function externalHref(id: string): string {
   white-space: nowrap;
 }
 
-.model {
+/* cerchietto azzurro accanto al nome: numero di round trip */
+.rt {
   flex: none;
+  background-color: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 0.35rem;
+  font-size: 0.65rem;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+/* può comprimersi (con ellissi) prima di far sbordare la riga */
+.model {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 0.7rem;
 }
