@@ -21,6 +21,8 @@ export const useSpyStore = defineStore('spy', () => {
   /** eventi della sessione aperta, ordinati per ts_start crescente. */
   const events = ref<EventSummary[]>([])
   const stats = ref<StatsItem[]>([])
+  /** cache stats per sessione, usata dalla dashboard (indipendente da `stats`). */
+  const statsBySession = ref<Record<string, StatsItem[]>>({})
   const live = ref(true)
   /** indice (in `events`) dell'ultimo evento visibile. */
   const cursor = ref(-1)
@@ -175,12 +177,25 @@ export const useSpyStore = defineStore('spy', () => {
     selectedEventId.value = null
   }
 
+  /**
+   * Carica (con cache) le stats di una sessione per la dashboard, senza
+   * toccare `stats`/`currentSessionId` usati da SessionView. `force` rilegge
+   * ignorando la cache (utile per sessioni live che accumulano round trip).
+   */
+  async function loadStatsFor(id: string, force = false): Promise<StatsItem[]> {
+    if (!force && statsBySession.value[id]) return statsBySession.value[id]
+    const st = await fetchSessionStats(id)
+    statsBySession.value = { ...statsBySession.value, [id]: st }
+    return st
+  }
+
   return {
     // state
     sessions,
     currentSessionId,
     events,
     stats,
+    statsBySession,
     live,
     cursor,
     selectedEventId,
@@ -203,5 +218,6 @@ export const useSpyStore = defineStore('spy', () => {
     step,
     select,
     clearSelection,
+    loadStatsFor,
   }
 })

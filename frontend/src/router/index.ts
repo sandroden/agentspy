@@ -1,13 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
+import DashboardView from '../views/DashboardView.vue'
 import SessionView from '../views/SessionView.vue'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'Home',
-    component: HomeView,
+    name: 'Dashboard',
+    component: DashboardView,
   },
   {
     path: '/session/:id',
