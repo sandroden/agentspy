@@ -17,3 +17,7 @@ dist/
 # vari
 .env
 *~
+
+# stato locale di Claude Code
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
