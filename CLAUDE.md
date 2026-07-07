@@ -28,3 +28,14 @@ come questa è composta:
  per capire come viene impiegato il contesto, mostrare ad esempio
  visivamente il rimpimento del contesto, il totale e dove viene usato.
  
+## Conoscenza (.okf/)
+
+Bundle di conoscenza OKF in `.okf/` — indice in `.okf/index.md`.
+
+- **Prima** di esplorare a colpi di grep o lettura diretta del codice, consulta
+  `.okf/index.md` e i concept pertinenti (skill OKF, modalità "consume"). Per
+  modifiche vere e proprie, verifica comunque sul codice: i concept possono
+  essere disallineati.
+- **Dopo** modifiche significative, valuta se aggiornare il bundle (skill OKF,
+  modalità "maintain"), insieme alla proposta di commit.
+  

@@ -45,7 +45,15 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
   Sintesi | Richiesta | Risposta | Delta | JSON; sotto-componenti
   `ContentBlock`, `MessageBlock`, `JsonTree`, `SystemReminderText`
   (vista espansa/compatta dei `<system-reminder>`, persistita).
-- **SessionsSidebar**: elenco ad albero con chip LIVE e badge unseen.
+- **SessionsSidebar**: elenco ad albero con chip LIVE, badge azzurro
+  coi round trip accanto al nome e badge unseen. In cima un bottone
+  toggle fra le due viste — che hanno un nome: **Grafici** (la
+  DashboardView su `/`) e **Timeline** (la SessionView). Sulla Timeline
+  il bottone mostra "📊 Grafici"; sui Grafici mostra "🕒 Timeline" e
+  torna all'ultima sessione aperta (`currentSessionId`, fallback
+  `featuredSessionId`, disabilitato se entrambi nulli). In dashboard il
+  click su una riga non naviga: mette la sessione in evidenza nei
+  grafici.
 
 # Utility
 

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-07-07
+* **Update**: [Frontend](/components/frontend.md) — nomi delle due viste (Grafici = dashboard grafica, Timeline = flusso interazioni) e bottone della sidebar diventato toggle bidirezionale fra le due; documentato anche il badge coi round trip nella sidebar.
 * **Initialization**: Creato il bundle OKF derivandolo da README.md, PLAN.md e dal codice sorgente.
 * **Creation**: [Architettura](/architecture.md) con i tre canali di osservazione.
 * **Creation**: Componenti — [collector server](/components/collector-server.md), [hook script](/components/hook-script.md), [wrapper MCP](/components/mcp-wrapper.md), [frontend](/components/frontend.md), [proxy standalone](/components/standalone-proxy.md), [seed demo](/components/seed-demo.md).

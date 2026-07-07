@@ -150,6 +150,10 @@ function totalTokens(s: Session): number {
 
 const onDashboard = computed(() => route.path === '/')
 
+/** Destinazione del toggle quando si è sui grafici: l'ultima sessione aperta
+ * nella timeline, o in mancanza quella in evidenza nei grafici. */
+const backSessionId = computed(() => spy.currentSessionId ?? spy.featuredSessionId)
+
 /** Riga evidenziata: in dashboard è la featured, altrove la sessione aperta. */
 function isActiveRow(id: string): boolean {
   if (selectionMode.value) return false
@@ -179,9 +183,18 @@ function externalHref(id: string): string {
 <template>
   <nav class="sessions-sidebar">
     <div class="toolbar">
-      <router-link to="/" class="home-link" title="torna alla dashboard con i grafici">
-        📊 Dashboard
+      <router-link v-if="!onDashboard" to="/" class="home-link" title="passa alla vista Grafici">
+        📊 Grafici
       </router-link>
+      <router-link
+        v-else-if="backSessionId"
+        :to="`/session/${backSessionId}`"
+        class="home-link"
+        title="torna alla Timeline della sessione"
+      >
+        🕒 Timeline
+      </router-link>
+      <span v-else class="home-link disabled" title="nessuna sessione aperta">🕒 Timeline</span>
       <button
         type="button"
         class="edit-toggle"
@@ -294,10 +307,15 @@ function externalHref(id: string): string {
   border-color: var(--muted);
 }
 
-/* evidenzia quando la dashboard è la vista corrente */
-.home-link.router-link-exact-active {
-  color: var(--accent);
-  border-color: var(--accent);
+/* toggle spento: sui grafici senza nessuna sessione da riaprire */
+.home-link.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.home-link.disabled:hover {
+  color: var(--muted);
+  border-color: var(--border);
 }
 
 .edit-toggle {
