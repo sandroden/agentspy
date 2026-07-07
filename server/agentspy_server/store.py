@@ -223,6 +223,25 @@ class Store:
                 "UPDATE events SET session_id=? WHERE session_id=?", (new_id, old_id)
             )
             moved = cur.rowcount
+            # Gli eventi arrivati quando la sessione era ancora sintetica
+            # portano il turn_index di QUELLO stato (spesso 0): senza questo
+            # ricalcolo finirebbero nel gruppo "pre-prompt" invece che nel
+            # turno del prompt che li ha innescati. Il turno giusto è quello
+            # dell'ultimo UserPromptSubmit della sessione reale che precede
+            # l'evento; se non ce n'è (traffico pre-prompt, o sessione
+            # subagente senza prompt) il turn_index resta com'era.
+            self._conn.execute(
+                """
+                UPDATE events SET turn_index = COALESCE(
+                    (SELECT MAX(h.turn_index) FROM events h
+                     WHERE h.session_id = ? AND h.kind = 'hook'
+                       AND h.subkind = 'UserPromptSubmit'
+                       AND h.ts_start <= events.ts_start),
+                    turn_index)
+                WHERE session_id = ? AND kind = 'round_trip'
+                """,
+                (new_id, new_id),
+            )
             self._conn.execute("DELETE FROM sessions WHERE id=?", (old_id,))
             self._conn.commit()
         if old is not None:

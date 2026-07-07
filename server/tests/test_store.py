@@ -216,3 +216,33 @@ def test_tool_hints_in_summary(tmp_path):
     # il cwd della sessione è esposto (serve alla UI per relativizzare i path)
     assert store.get_sessions()[0]["cwd"] == "/home/x/progetto"
     store.close()
+
+
+def test_reassign_session_recomputes_turns_from_prompts(tmp_path):
+    """Gli eventi fusi da una sessione sintetica ereditano il turno del
+    UserPromptSubmit della sessione reale che li precede; quelli davvero
+    pre-prompt restano a 0."""
+    store = Store(str(tmp_path / "t.db"))
+    store.upsert_session("real", started_at=1.0)
+    store.upsert_session("syn-x", started_at=1.0)
+    # round trip di servizio PRIMA di ogni prompt
+    store.insert_event(session_id="syn-x", kind="round_trip", turn_index=0, ts_start=5.0)
+    store.insert_event(
+        session_id="real", kind="hook", subkind="UserPromptSubmit", turn_index=1, ts_start=10.0
+    )
+    # round trip del turno 1, arrivato quando la sessione era ancora sintetica
+    store.insert_event(session_id="syn-x", kind="round_trip", turn_index=0, ts_start=11.0)
+    store.insert_event(
+        session_id="real", kind="hook", subkind="UserPromptSubmit", turn_index=2, ts_start=20.0
+    )
+    store.insert_event(session_id="syn-x", kind="round_trip", turn_index=0, ts_start=21.0)
+
+    store.reassign_session("syn-x", "real")
+
+    turns = {
+        e["ts_start"]: e["turn_index"]
+        for e in store.get_session_events("real")
+        if e["kind"] == "round_trip"
+    }
+    assert turns == {5.0: 0, 11.0: 1, 21.0: 2}
+    store.close()

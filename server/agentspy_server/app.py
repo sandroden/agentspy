@@ -48,11 +48,13 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     ws_manager: ConnectionManager = app.state.ws_manager
 
     # Il proxy emette un record per OGNI richiesta inoltrata, ma solo le vere
-    # chiamate al modello (body con "messages") sono round trip da correlare
-    # e persistere: HEAD /, /v1/models, count_tokens ecc. creerebbero solo
-    # sessioni sintetiche spurie nel DB.
+    # chiamate al modello sono round trip da correlare e persistere. Il body
+    # con "messages" non basta: anche /v1/messages/count_tokens lo ha (Claude
+    # Code all'avvio ne fa decine, una per agente/skill, ognuna con fingerprint
+    # diverso -> valanga di sessioni sintetiche), quindi si filtra sul path.
     body = (record.get("request") or {}).get("body")
-    if not (isinstance(body, dict) and body.get("messages")):
+    path = (record.get("path") or "").rstrip("/")
+    if not (isinstance(body, dict) and body.get("messages") and path.endswith("/messages")):
         return
 
     info = correlator.correlate_round_trip(record)
@@ -74,10 +76,18 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     total_s = timing.get("total_s")
     ts_end = ts_start + total_s if (ts_start is not None and total_s is not None) else ts_start
 
+    # una sintetica agganciata a una madre reale è traffico di servizio della
+    # CLI (titolo di sessione, topic detection...): un titolo parlante evita
+    # che in sidebar sembri una conversazione dell'utente
+    service_title = (
+        "servizio" if session_id.startswith("syn-") and info.get("parent_session_id") else None
+    )
+
     await asyncio.to_thread(
         store.upsert_session,
         session_id,
         tag=record.get("tag"),
+        title=service_title,
         model=model,
         agent_id=info.get("agent_id"),
         parent_session_id=info.get("parent_session_id"),

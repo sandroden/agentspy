@@ -86,6 +86,17 @@ def _extract_user_text(content) -> str | None:
     return None
 
 
+def _last_user_message(messages) -> dict | None:
+    """Ultimo messaggio con role='user'. NON basta messages[-1]: Claude Code
+    (cli >= 2.1) accoda alla richiesta un messaggio con role='system' (es. il
+    reminder dei deferred tools), che maschererebbe il prompt dell'utente sia
+    al binding via prompt sia all'euristica del turno."""
+    for m in reversed(messages):
+        if isinstance(m, dict) and m.get("role") == "user":
+            return m
+    return None
+
+
 def _is_tool_result_message(content) -> bool:
     """True se il messaggio user è (anche solo in parte) un tool_result:
     continuazione automatica del loop tool, non un nuovo turno utente."""
@@ -205,8 +216,8 @@ class Correlator:
         # scatterà mai.
         merged_from: list[str] = []
         if session_id.startswith("syn-") and messages:
-            last_message = messages[-1]
-            if last_message.get("role") == "user":
+            last_message = _last_user_message(messages)
+            if last_message is not None:
                 real_sid = self._match_pending_prompt(last_message.get("content"))
                 if real_sid:
                     if not is_new_session:
@@ -223,10 +234,26 @@ class Correlator:
         if tag:
             state.tag = tag
 
+        # Aggancio alla sessione madre via header x-claude-code-session-id
+        # (claude-cli >= 2.x lo manda su ogni richiesta). NON sostituisce la
+        # correlazione per fingerprint: le conversazioni dei subagenti portano
+        # l'id della MADRE e devono poter migrare nella sessione figlia al
+        # primo PreToolUse (il merge scatta solo su owner "syn-"). Qui la
+        # sintetica viene solo nidificata sotto la madre, così il traffico di
+        # servizio non resta orfano in cima alla sidebar. Solo se la madre è
+        # già nota via hook: la sidebar nasconde i figli di sessioni che non
+        # esistono come riga nel DB.
+        if session_id.startswith("syn-") and state.parent_session_id is None:
+            headers = (record.get("request") or {}).get("headers") or {}
+            cc_sid = headers.get("x-claude-code-session-id")
+            mother = self.session_state.get(cc_sid) if cc_sid else None
+            if mother is not None and mother.has_hooks:
+                state.parent_session_id = cc_sid
+
         is_new_turn = False
         if not state.has_hooks:
-            last_message = messages[-1] if messages else None
-            if last_message is not None and last_message.get("role") == "user":
+            last_message = _last_user_message(messages) if messages else None
+            if last_message is not None:
                 content = last_message.get("content")
                 text = _extract_user_text(content)
                 if (

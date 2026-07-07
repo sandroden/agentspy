@@ -306,3 +306,73 @@ def test_tag_from_header_on_round_trip():
     }
     info = correlator.correlate_round_trip(record)
     assert correlator.session_state[info["session_id"]].tag == "notte-1"
+
+
+def test_header_session_id_parents_synthetic_session():
+    """Un round trip con header x-claude-code-session-id di una sessione già
+    nota via hook: la sintetica viene nidificata sotto la madre (non fusa,
+    perché potrebbe essere la conversazione di un subagente)."""
+    correlator = Correlator()
+    correlator.correlate_hook({"session_id": "real-9", "hook_event_name": "SessionStart"})
+
+    record = {
+        "request": {
+            "headers": {"x-claude-code-session-id": "real-9"},
+            "body": {"system": "svc", "messages": [{"role": "user", "content": "quota?"}]},
+        },
+        "response": {"message": {"content": []}},
+    }
+    info = correlator.correlate_round_trip(record)
+    assert info["session_id"].startswith("syn-")
+    assert info["parent_session_id"] == "real-9"
+
+
+def test_header_session_id_ignored_when_mother_unknown():
+    """Se la madre non è mai stata vista via hook (progetto senza hook o
+    collector riavviato) la sintetica resta top-level: un parent che non
+    esiste come riga la farebbe sparire dalla sidebar."""
+    correlator = Correlator()
+
+    record = {
+        "request": {
+            "headers": {"x-claude-code-session-id": "mai-vista"},
+            "body": {"system": "svc", "messages": [{"role": "user", "content": "quota?"}]},
+        },
+        "response": {"message": {"content": []}},
+    }
+    info = correlator.correlate_round_trip(record)
+    assert info["session_id"].startswith("syn-")
+    assert info["parent_session_id"] is None
+
+
+def test_prompt_binding_survives_trailing_system_message():
+    """Claude Code (cli >= 2.1) accoda un messaggio role='system' dopo il
+    prompt utente: il binding via prompt e il turno devono basarsi sull'ultimo
+    messaggio USER, non su messages[-1] (bug: round trip in 'pre-prompt')."""
+    correlator = Correlator()
+    correlator.correlate_hook({"session_id": "real-7", "hook_event_name": "SessionStart"})
+    correlator.correlate_hook(
+        {"session_id": "real-7", "hook_event_name": "UserPromptSubmit", "prompt": "che ore sono?"}
+    )
+
+    record = {
+        "request": {
+            "body": {
+                "system": "sys",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "<system-reminder>contesto</system-reminder>"},
+                            {"type": "text", "text": "che ore sono?"},
+                        ],
+                    },
+                    {"role": "system", "content": "The following deferred tools..."},
+                ],
+            }
+        },
+        "response": {"message": {"content": []}},
+    }
+    info = correlator.correlate_round_trip(record)
+    assert info["session_id"] == "real-7"
+    assert info["turn_index"] == 1
