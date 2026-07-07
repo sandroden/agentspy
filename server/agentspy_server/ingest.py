@@ -90,11 +90,23 @@ async def ingest_hook(request: Request) -> JSONResponse:
 async def ingest_mcp(request: Request) -> JSONResponse:
     store = request.app.state.store
     ws_manager = request.app.state.ws_manager
+    correlator = request.app.state.correlator
 
     body = await request.json()
     tag = body.get("tag")
     session_id = body.get("session_id")
     server_name = body.get("server_name")
+
+    # Claude Code passa il tool_use id della conversazione API dentro la
+    # tools/call: è il ponte che lega l'evento MCP alla sessione (gli eventi
+    # di lifecycle — initialize, tools/list — restano senza sessione).
+    turn_index = None
+    if not session_id:
+        meta = (body.get("params") or {}).get("_meta") or {}
+        session_id = correlator.session_for_tool_use(meta.get("claudecode/toolUseId"))
+        if session_id:
+            state = correlator.session_state.get(session_id)
+            turn_index = state.turn_index if state else None
     method = body.get("method")
     ts_request = body.get("ts_request")
     ts_response = body.get("ts_response")
@@ -111,6 +123,7 @@ async def ingest_mcp(request: Request) -> JSONResponse:
     event_id = await asyncio.to_thread(
         store.insert_event,
         session_id=session_id,
+        turn_index=turn_index,
         kind="mcp",
         subkind=subkind,
         ts_start=ts_request or ts,

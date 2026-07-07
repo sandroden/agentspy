@@ -146,6 +146,17 @@ class Correlator:
     def _state(self, session_id: str) -> SessionState:
         return self.session_state.setdefault(session_id, SessionState())
 
+    def session_for_tool_use(self, tool_use_id: str | None) -> str | None:
+        """Sessione della conversazione in cui è comparso un tool_use.
+
+        Usato per legare gli eventi MCP alla sessione: Claude Code passa il
+        tool_use id nel campo params._meta["claudecode/toolUseId"] della
+        tools/call JSON-RPC."""
+        if not tool_use_id:
+            return None
+        fp = self.tool_use_to_fingerprint.get(tool_use_id)
+        return self.fingerprint_to_session.get(fp) if fp else None
+
     def _merge_session(self, synthetic_id: str, real_id: str) -> None:
         """Sostituisce una sessione sintetica con l'id reale scoperto via hook."""
         if synthetic_id == real_id:
