@@ -4,6 +4,12 @@ logs/
 *.db
 *.db-wal
 *.db-shm
+*.db.pre-migrazione
+*.db.vuoto
+
+# runtime del collector (just up/down)
+.agentspy.pid
+agentspy.log
 
 # python
 __pycache__/
