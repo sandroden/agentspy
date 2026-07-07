@@ -60,6 +60,8 @@ async def ingest_hook(request: Request) -> JSONResponse:
             started_at=ts,
             ended_at=ts,
             live=not ending,
+            # per relativizzare in UI i path dei tool su file
+            cwd=payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
         )
 
     event_id = await asyncio.to_thread(

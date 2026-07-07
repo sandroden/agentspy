@@ -189,3 +189,30 @@ def test_reassign_session(tmp_path):
     events = store.get_session_events("real-1")
     assert {e["id"] for e in events} == {e1, e2}
     store.close()
+
+
+def test_tool_hints_in_summary(tmp_path):
+    from agentspy_server.store import Store
+
+    store = Store(str(tmp_path / "t.db"))
+    store.upsert_session("s1", started_at=1.0, cwd="/home/x/progetto")
+    rt = store.insert_event(
+        session_id="s1", kind="round_trip", ts_start=2.0,
+        payload={"response": {"message": {"content": [
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "/home/x/progetto/src/a.py"}},
+            {"type": "tool_use", "name": "Bash", "input": {"command": "ls  -la\n | head"}},
+        ]}}},
+    )
+    hook = store.insert_event(
+        session_id="s1", kind="hook", subkind="PreToolUse", ts_start=3.0,
+        payload={"tool_name": "WebFetch", "tool_input": {"url": "https://example.com/x"}},
+    )
+    events = {e["id"]: e for e in store.get_session_events("s1")}
+    assert events[rt]["tool_uses"] == [
+        {"name": "Read", "hint": "/home/x/progetto/src/a.py"},
+        {"name": "Bash", "hint": "ls -la | head"},  # normalizzato su una riga
+    ]
+    assert events[hook]["tool_hint"] == "https://example.com/x"
+    # il cwd della sessione è esposto (serve alla UI per relativizzare i path)
+    assert store.get_sessions()[0]["cwd"] == "/home/x/progetto"
+    store.close()

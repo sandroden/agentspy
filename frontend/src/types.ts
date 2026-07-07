@@ -32,6 +32,8 @@ export interface Session {
   /** null finché la sessione è live. */
   ended_at: number | null
   live: boolean
+  /** working directory della sessione (dagli hook); usata per relativizzare i path. */
+  cwd?: string | null
   /** numero di turn_index distinti visti negli eventi della sessione. */
   turns: number
   round_trips: number
@@ -67,6 +69,10 @@ export interface EventSummary {
   stop_reason: string | null
   usage: Usage
   tool_names: string[]
+  /** per i round trip: tool chiamati nella risposta, con un indizio dell'argomento. */
+  tool_uses?: { name: string; hint: string }[]
+  /** per gli hook Pre/PostToolUse: indizio dell'argomento del tool. */
+  tool_hint?: string
   /** breve estratto testuale (primi ~160 char) per l'anteprima in lista. */
   snippet: string
 }

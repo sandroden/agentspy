@@ -8,7 +8,7 @@
 import { computed } from 'vue'
 import { useSpyStore } from '../../stores/spy'
 import { formatTime } from '../../utils/format'
-import { toolIcon } from '../../utils/toolIcon'
+import { relativizeHint, toolIcon } from '../../utils/toolIcon'
 import type { EventSummary } from '../../types'
 
 const props = defineProps<{ event: EventSummary }>()
@@ -47,6 +47,14 @@ const toolName = computed(() => {
   return snippet && snippet !== props.event.subkind ? snippet : null
 })
 
+/** Indizio dell'argomento del tool (path relativo, comando, url...). */
+const toolHint = computed(() => {
+  const hint = props.event.tool_hint
+  if (!hint) return null
+  const cwd = props.event.session_id ? spy.sessions[props.event.session_id]?.cwd : null
+  return { short: relativizeHint(hint, cwd), full: hint }
+})
+
 function onClick() {
   void spy.select(props.event.id)
 }
@@ -64,6 +72,7 @@ function onClick() {
     <span v-if="toolName" class="tool">
       <span class="tool-icon">{{ toolIcon(toolName) }}</span>{{ toolName }}
     </span>
+    <span v-if="toolHint" class="tool-hint" :title="toolHint.full">{{ toolHint.short }}</span>
     <span v-if="isPrompt && event.snippet" class="prompt-snippet">{{ event.snippet }}</span>
     <span class="time">{{ formatTime(event.ts_start) }}</span>
   </div>
@@ -120,6 +129,16 @@ function onClick() {
 .tool-icon {
   font-size: 0.8rem;
   line-height: 1;
+}
+
+/* indizio dell'argomento del tool: tono leggero, troncato (integrale nel title) */
+.tool-hint {
+  font-style: italic;
+  opacity: 0.8;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .prompt-snippet {

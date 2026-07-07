@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     agent_id TEXT,
     started_at REAL,
     ended_at REAL,
-    live INTEGER
+    live INTEGER,
+    cwd TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -96,6 +97,57 @@ def _snippet_from_payload(kind: str, subkind: str | None, payload: dict | None) 
     return ""
 
 
+def _tool_hint(name: str | None, tool_input: Any) -> str:
+    """Indizio compatto dell'argomento di una chiamata tool, per i badge in
+    timeline: path per i tool su file, inizio comando per Bash, url/query per
+    i tool web, pattern per le ricerche. Best-effort, stringa vuota se non
+    riconosciuto."""
+    if not isinstance(tool_input, dict):
+        return ""
+    try:
+        for key in ("file_path", "notebook_path", "path"):
+            v = tool_input.get(key)
+            if isinstance(v, str) and v:
+                return v
+        if name == "Bash":
+            v = tool_input.get("command")
+        elif name in ("Grep", "Glob"):
+            v = tool_input.get("pattern")
+        elif name == "WebFetch":
+            v = tool_input.get("url")
+        elif name == "WebSearch":
+            v = tool_input.get("query")
+        elif name in ("Task", "Agent"):
+            v = tool_input.get("description") or tool_input.get("prompt")
+        elif name == "Skill":
+            v = tool_input.get("skill")
+        else:
+            # fallback generico (incluso mcp__*): il primo valore stringa
+            v = next((x for x in tool_input.values() if isinstance(x, str) and x), None)
+        if isinstance(v, str):
+            v = " ".join(v.split())  # su una riga
+            return v[:200]
+    except Exception:
+        pass
+    return ""
+
+
+def _tool_uses_from_payload(payload: dict | None) -> list[dict[str, str]]:
+    """Coppie {name, hint} dai blocchi tool_use della risposta di un round trip."""
+    if not payload:
+        return []
+    try:
+        message = (payload.get("response") or {}).get("message") or {}
+        out = []
+        for block in message.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                name = block.get("name") or "?"
+                out.append({"name": name, "hint": _tool_hint(name, block.get("input"))})
+        return out
+    except Exception:
+        return []
+
+
 class Store:
     def __init__(self, db_path: str | Path | None = None):
         self.db_path = str(db_path) if db_path is not None else default_db_path()
@@ -105,6 +157,11 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         with self._lock:
             self._conn.executescript(SCHEMA)
+            # migrazione leggera per DB creati prima della colonna cwd
+            try:
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN cwd TEXT")
+            except sqlite3.OperationalError:
+                pass
             self._conn.commit()
 
     def close(self) -> None:
@@ -125,16 +182,17 @@ class Store:
         started_at: float | None = None,
         ended_at: float | None = None,
         live: bool | None = None,
+        cwd: str | None = None,
     ) -> None:
         with self._lock:
             row = self._conn.execute("SELECT * FROM sessions WHERE id=?", (id,)).fetchone()
             if row is None:
                 self._conn.execute(
                     "INSERT INTO sessions (id, tag, title, model, parent_session_id, agent_id,"
-                    " started_at, ended_at, live) VALUES (?,?,?,?,?,?,?,?,?)",
+                    " started_at, ended_at, live, cwd) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         id, tag, title, model, parent_session_id, agent_id,
-                        started_at, ended_at, 1 if live is None else int(live),
+                        started_at, ended_at, 1 if live is None else int(live), cwd,
                     ),
                 )
             else:
@@ -146,10 +204,10 @@ class Store:
                     "UPDATE sessions SET tag=COALESCE(?, tag), title=COALESCE(?, title),"
                     " model=COALESCE(?, model), parent_session_id=COALESCE(?, parent_session_id),"
                     " agent_id=COALESCE(?, agent_id), started_at=?, ended_at=?,"
-                    " live=COALESCE(?, live) WHERE id=?",
+                    " live=COALESCE(?, live), cwd=COALESCE(?, cwd) WHERE id=?",
                     (
                         tag, title, model, parent_session_id, agent_id, new_started, new_ended,
-                        None if live is None else int(live), id,
+                        None if live is None else int(live), cwd, id,
                     ),
                 )
             self._conn.commit()
@@ -323,6 +381,7 @@ class Store:
                     "started_at": s["started_at"],
                     "ended_at": s["ended_at"],
                     "live": bool(s["live"]),
+                    "cwd": s["cwd"],
                     "turns": agg.get("turns") or 0,
                     "round_trips": agg.get("round_trips") or 0,
                     "duration_s": duration_s,
@@ -357,6 +416,12 @@ class Store:
                 "cache_write_tokens": row["cache_write_tokens"],
             },
             "tool_names": json.loads(row["tool_names"]) if row["tool_names"] else [],
+            "tool_uses": _tool_uses_from_payload(payload) if row["kind"] == "round_trip" else [],
+            "tool_hint": (
+                _tool_hint((payload or {}).get("tool_name"), (payload or {}).get("tool_input"))
+                if row["kind"] == "hook" and row["subkind"] in ("PreToolUse", "PostToolUse")
+                else ""
+            ),
             "snippet": _snippet_from_payload(row["kind"], row["subkind"], payload),
         }
 

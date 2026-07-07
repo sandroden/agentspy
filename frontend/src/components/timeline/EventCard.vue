@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import { useSpyStore } from '../../stores/spy'
 import { formatDuration, formatTime } from '../../utils/format'
-import { toolIcon } from '../../utils/toolIcon'
+import { relativizeHint, toolIcon } from '../../utils/toolIcon'
 import type { EventSummary } from '../../types'
 import UsageBar from './UsageBar.vue'
 
@@ -38,6 +38,19 @@ const hasThinking = computed(() => {
   )
 })
 
+/**
+ * Badge tool con indizio dell'argomento (path relativo, inizio comando,
+ * url...). Se il summary non porta tool_uses (righe vecchie o risposta
+ * troncata) ripiega sui soli nomi in tool_names.
+ */
+const toolBadges = computed<{ name: string; hint: string; full: string }[]>(() => {
+  const cwd = props.event.session_id ? spy.sessions[props.event.session_id]?.cwd : null
+  const uses = props.event.tool_uses?.length
+    ? props.event.tool_uses
+    : props.event.tool_names.map((name) => ({ name, hint: '' }))
+  return uses.map((u) => ({ name: u.name, hint: relativizeHint(u.hint, cwd), full: u.hint }))
+})
+
 function onClick() {
   void spy.select(props.event.id)
 }
@@ -61,9 +74,15 @@ function onClick() {
 
     <UsageBar class="usage" :usage="event.usage" />
 
-    <div v-if="event.tool_names.length" class="tools">
-      <span v-for="tool in event.tool_names" :key="tool" class="chip tool">
-        <span class="tool-icon">{{ toolIcon(tool) }}</span>{{ tool }}
+    <div v-if="toolBadges.length" class="tools">
+      <span
+        v-for="(tool, i) in toolBadges"
+        :key="`${tool.name}-${i}`"
+        class="chip tool"
+        :title="tool.full || undefined"
+      >
+        <span class="tool-icon">{{ toolIcon(tool.name) }}</span>{{ tool.name
+        }}<span v-if="tool.hint" class="tool-hint">{{ tool.hint }}</span>
       </span>
     </div>
 
@@ -158,11 +177,24 @@ function onClick() {
   align-items: center;
   gap: 0.2rem;
   color: var(--accent-live);
+  max-width: 100%;
 }
 
 .tool-icon {
   font-size: 0.8rem;
   line-height: 1;
+}
+
+/* indizio dell'argomento del tool: tono leggero, troncato (integrale nel title) */
+.tool-hint {
+  color: var(--muted);
+  font-weight: 400;
+  font-style: italic;
+  margin-left: 0.25rem;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .snippet {
