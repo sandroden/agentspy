@@ -3,6 +3,8 @@ import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // servito dal collector sotto /ui/ (vedi server/agentspy_server/app.py)
+  base: '/ui/',
   plugins: [vue()],
   server: {
     proxy: {

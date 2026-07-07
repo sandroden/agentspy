@@ -18,7 +18,7 @@ import httpx
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
@@ -159,7 +159,17 @@ def create_app(db_path: str | None = None, upstream: str | None = None) -> Starl
     routes.append(WebSocketRoute("/ws", ws_endpoint))
 
     if FRONTEND_DIST.is_dir():
-        routes.append(Mount("/ui", app=StaticFiles(directory=str(FRONTEND_DIST), html=True), name="ui"))
+        async def ui_spa(request: Request) -> Response:
+            """Statico con fallback SPA: i deep link (/ui/session/<id>) devono
+            servire index.html e lasciare il routing al frontend."""
+            rel = request.path_params.get("path") or "index.html"
+            candidate = (FRONTEND_DIST / rel).resolve()
+            if candidate.is_file() and candidate.is_relative_to(FRONTEND_DIST.resolve()):
+                return FileResponse(candidate)
+            return FileResponse(FRONTEND_DIST / "index.html")
+
+        routes.append(Route("/ui/{path:path}", ui_spa))
+        routes.append(Route("/ui", ui_spa))
     else:
         routes.append(Route("/ui/{path:path}", ui_not_built))
         routes.append(Route("/ui", ui_not_built))
