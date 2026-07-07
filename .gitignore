@@ -27,3 +27,6 @@ dist/
 # stato locale di Claude Code
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# config hook locale con path assoluti (usare hooks/settings-example.json come base)
+hooks.json
