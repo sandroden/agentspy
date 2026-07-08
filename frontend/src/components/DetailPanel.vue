@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Pannello di dettaglio (L4): mostra il payload completo dell'evento
-// selezionato (spy.selectedDetail, lazy-fetch gestito dallo store) in tab
-// orizzontali. Per i round_trip: Sintesi | Richiesta | Risposta | Delta |
-// JSON. Per hook/mcp: Sintesi | (Chiamata, solo mcp) | JSON.
+// Detail panel (L4): shows the full payload of the selected event
+// (spy.selectedDetail, lazy-fetch handled by the store) in horizontal tabs.
+// For round_trip: Summary | Request | Response | Delta | JSON. For hook/mcp:
+// Summary | (Call, mcp only) | JSON.
 import { computed, provide, ref, watch, watchEffect } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import { fetchEventDetail } from '../api/client'
@@ -12,22 +12,30 @@ import Collapsible from './detail/Collapsible.vue'
 import ContentBlock from './detail/ContentBlock.vue'
 import JsonTree from './detail/JsonTree.vue'
 import MessageBlock from './detail/MessageBlock.vue'
-import { compactViewKey } from './detail/detailKeys'
+import { compactViewKey, cwdKey } from './detail/detailKeys'
 
-// -- vista compatta system-reminder ------------------------------------------
-// Collassa le sezioni <system-reminder> nei blocchi text (vedi
-// SystemReminderText.vue). Persistita in localStorage e fornita ai discendenti.
+// -- compact system-reminder view ------------------------------------------
+// Collapses <system-reminder> sections inside text blocks (see
+// SystemReminderText.vue). Persisted in localStorage and provided to descendants.
 const COMPACT_KEY = 'agentspy.compactView'
 const compactView = ref(localStorage.getItem(COMPACT_KEY) === '1')
 provide(compactViewKey, compactView)
 watch(compactView, (v) => localStorage.setItem(COMPACT_KEY, v ? '1' : '0'))
 
 type AnyRecord = Record<string, any>
-type TabId = 'sintesi' | 'richiesta' | 'risposta' | 'delta' | 'chiamata' | 'json'
+type TabId = 'summary' | 'request' | 'response' | 'delta' | 'call' | 'json'
 
 const spy = useSpyStore()
 
 const detail = computed<EventDetail | null>(() => spy.selectedDetail)
+
+// session cwd of the selected event, made available to descendants
+// (JsonTree, ContentBlock, MessageBlock, SystemReminderText) to relativize
+// file paths shown in the payload.
+const cwd = computed<string | null | undefined>(() =>
+  detail.value?.session_id ? spy.sessions[detail.value.session_id]?.cwd : null
+)
+provide(cwdKey, cwd)
 
 function asRecord(v: unknown): AnyRecord {
   return v !== null && typeof v === 'object' ? (v as AnyRecord) : {}
@@ -35,50 +43,76 @@ function asRecord(v: unknown): AnyRecord {
 
 const payload = computed<AnyRecord>(() => asRecord(detail.value?.payload))
 
-// -- tab -------------------------------------------------------------------
+// -- tabs -------------------------------------------------------------------
 
-const activeTab = ref<TabId>('sintesi')
+const activeTab = ref<TabId>('summary')
 
-// Cambiando evento la tab attiva resta quella corrente (es. Delta per
-// confrontare round trip successivi); si torna a Sintesi solo se la tab
-// non esiste per il nuovo tipo di evento (es. da round_trip a hook).
+// Changing event keeps the current tab (e.g. Delta, to compare consecutive
+// round trips); it only resets to Summary if the tab doesn't exist for the
+// new event type (e.g. from round_trip to hook).
 watch(
   () => [spy.selectedEventId, detail.value?.kind] as const,
   () => {
     if (!detail.value) return
-    if (!tabs.value.some((t) => t.id === activeTab.value)) activeTab.value = 'sintesi'
+    if (!tabs.value.some((t) => t.id === activeTab.value)) activeTab.value = 'summary'
   }
 )
 
-const tabs = computed<{ id: TabId; label: string }[]>(() => {
+/** Icon shown for each tab; the label becomes a hover tooltip instead of on-button text. */
+const TAB_ICON: Record<TabId, string> = {
+  summary: '☰',
+  request: '↑',
+  response: '↓',
+  delta: '±',
+  call: '⇄',
+  json: '{ }',
+}
+
+function withIcons(list: { id: TabId; label: string }[]): { id: TabId; label: string; icon: string }[] {
+  return list.map((t) => ({ ...t, icon: TAB_ICON[t.id] }))
+}
+
+const tabs = computed<{ id: TabId; label: string; icon: string }[]>(() => {
   const kind = detail.value?.kind
   if (kind === 'round_trip') {
-    return [
-      { id: 'sintesi', label: 'Sintesi' },
-      { id: 'richiesta', label: 'Richiesta' },
-      { id: 'risposta', label: 'Risposta' },
+    return withIcons([
+      { id: 'summary', label: 'Summary' },
+      { id: 'request', label: 'Request' },
+      { id: 'response', label: 'Response' },
       { id: 'delta', label: 'Delta' },
       { id: 'json', label: 'JSON' },
-    ]
+    ])
   }
   if (kind === 'mcp') {
-    return [
-      { id: 'sintesi', label: 'Sintesi' },
-      { id: 'chiamata', label: 'Chiamata' },
+    return withIcons([
+      { id: 'summary', label: 'Summary' },
+      { id: 'call', label: 'Call' },
       { id: 'json', label: 'JSON' },
-    ]
+    ])
   }
-  return [
-    { id: 'sintesi', label: 'Sintesi' },
+  return withIcons([
+    { id: 'summary', label: 'Summary' },
     { id: 'json', label: 'JSON' },
-  ]
+  ])
 })
 
-// -- sintesi -----------------------------------------------------------------
+// -- summary -----------------------------------------------------------------
 
 const rawUsage = computed<AnyRecord>(() => asRecord(payload.value.response).usage ?? {})
 
-/** Campi principali del payload hook, esclusi quelli già mostrati nell'header. */
+/** Position of this round trip among the round trips of the same turn (n/total), for the header badge. */
+const roundTripPosition = computed<{ index: number; total: number } | null>(() => {
+  const d = detail.value
+  if (!d || d.kind !== 'round_trip' || d.turn_index == null) return null
+  const sameTurn = spy.events.filter(
+    (e) => e.kind === 'round_trip' && e.session_id === d.session_id && e.turn_index === d.turn_index
+  )
+  const idx = sameTurn.findIndex((e) => e.id === d.id)
+  if (idx === -1) return null
+  return { index: idx + 1, total: sameTurn.length }
+})
+
+/** Main hook payload fields, excluding those already shown in the header. */
 const hookFields = computed<[string, unknown][]>(() => {
   if (detail.value?.kind !== 'hook') return []
   return Object.entries(payload.value).filter(([k]) => k !== 'tag' && k !== 'hook_event_name')
@@ -88,7 +122,7 @@ function isPrimitive(v: unknown): boolean {
   return v === null || (typeof v !== 'object' && !Array.isArray(v))
 }
 
-// -- richiesta -----------------------------------------------------------------
+// -- request -----------------------------------------------------------------
 
 const requestBody = computed<AnyRecord>(() => asRecord(payload.value.request).body)
 
@@ -103,7 +137,7 @@ const systemBlocks = computed<{ text: string }[]>(() => {
 const tools = computed<AnyRecord[]>(() => requestBody.value.tools ?? [])
 const messages = computed<AnyRecord[]>(() => requestBody.value.messages ?? [])
 
-// -- risposta -----------------------------------------------------------------
+// -- response -----------------------------------------------------------------
 
 const response = computed<AnyRecord>(() => payload.value.response ?? {})
 const responseMessage = computed<AnyRecord>(() => asRecord(response.value.message ?? response.value.body))
@@ -116,7 +150,7 @@ const responseContent = computed<AnyRecord[]>(() =>
 const prevDetailCache = ref<Record<number, EventDetail>>({})
 const prevLoading = ref(false)
 
-/** round trip precedente della stessa sessione, per ts_start. */
+/** Previous round trip of the same session, by ts_start. */
 const previousEvent = computed<EventSummary | null>(() => {
   const d = detail.value
   if (!d || d.kind !== 'round_trip') return null
@@ -192,7 +226,7 @@ function fmtDelta(n: number | null | undefined): string {
   return n > 0 ? `+${s}` : s
 }
 
-// -- chiamata (mcp) --------------------------------------------------------------
+// -- call (mcp) --------------------------------------------------------------
 
 const mcpParams = computed(() => payload.value.params)
 const mcpResult = computed(() => payload.value.result)
@@ -211,32 +245,35 @@ async function copyJson() {
       copied.value = false
     }, 1500)
   } catch {
-    // clipboard non disponibile (es. contesto non sicuro): ignora silenziosamente
+    // clipboard unavailable (e.g. insecure context): fail silently
   }
 }
 </script>
 
 <template>
   <div class="detail-panel">
-    <p v-if="spy.selectedEventId == null" class="placeholder">Nessun evento selezionato</p>
+    <p v-if="spy.selectedEventId == null" class="placeholder">No event selected</p>
     <div v-else-if="spy.detailLoading || !detail" class="spinner-wrap">
       <span class="spinner"></span>
-      caricamento dettaglio…
+      loading detail…
     </div>
     <template v-else>
       <header class="header">
         <div class="title-row">
-          <span class="kind-badge" :class="detail.kind">{{ detail.kind }}</span>
+          <span v-if="roundTripPosition" class="kind-badge round_trip">
+            round trip #{{ roundTripPosition.index }}/{{ roundTripPosition.total }}
+          </span>
+          <span v-else class="kind-badge" :class="detail.kind">{{ detail.kind }}</span>
           <span v-if="detail.subkind" class="subkind">{{ detail.subkind }}</span>
-          <button class="close-btn" title="chiudi" @click="spy.clearSelection()">✕</button>
+          <button class="close-btn" title="close" @click="spy.clearSelection()">✕</button>
         </div>
         <div class="meta-row">
+          <span v-if="detail.turn_index != null">turn {{ detail.turn_index }}</span>
           <span>{{ formatTime(detail.ts_start) }}</span>
           <span>{{ formatDuration(detail.duration_s) }}</span>
-          <span v-if="detail.turn_index != null">turno {{ detail.turn_index }}</span>
-          <label v-if="detail.kind === 'round_trip'" class="compact-toggle" title="collassa le sezioni system-reminder">
+          <label v-if="detail.kind === 'round_trip'" class="compact-toggle" title="collapse system-reminder sections">
             <input type="checkbox" v-model="compactView" />
-            <span>vista compatta</span>
+            <span>compact view</span>
           </label>
         </div>
       </header>
@@ -246,20 +283,21 @@ async function copyJson() {
           v-for="t in tabs"
           :key="t.id"
           :class="{ active: activeTab === t.id }"
+          :title="t.label"
           @click="activeTab = t.id"
         >
-          {{ t.label }}
+          {{ t.icon }}
         </button>
       </nav>
 
       <div class="tab-content">
-        <!-- SINTESI -->
-        <section v-if="activeTab === 'sintesi'" class="tab-sintesi">
+        <!-- SUMMARY -->
+        <section v-if="activeTab === 'summary'" class="tab-summary">
           <template v-if="detail.kind === 'round_trip'">
             <table class="kv">
               <tbody>
                 <tr>
-                  <td>modello</td>
+                  <td>model</td>
                   <td>{{ detail.model ?? '—' }}</td>
                 </tr>
                 <tr>
@@ -275,7 +313,7 @@ async function copyJson() {
                   <td>{{ formatDuration(detail.ttfb_s) }}</td>
                 </tr>
                 <tr>
-                  <td>durata totale</td>
+                  <td>total duration</td>
                   <td>{{ formatDuration(detail.duration_s) }}</td>
                 </tr>
               </tbody>
@@ -285,7 +323,7 @@ async function copyJson() {
             <table class="kv">
               <tbody>
                 <tr>
-                  <td>input (nuovo)</td>
+                  <td>input (new)</td>
                   <td>{{ formatTokens(detail.usage.input_tokens) }}</td>
                 </tr>
                 <tr>
@@ -303,10 +341,10 @@ async function copyJson() {
               </tbody>
             </table>
 
-            <div class="section-title">Usage completo (grezzo API)</div>
+            <div class="section-title">Full usage (raw API)</div>
             <JsonTree :value="rawUsage" />
 
-            <div v-if="detail.tool_names.length" class="section-title">Tool chiamati</div>
+            <div v-if="detail.tool_names.length" class="section-title">Tools called</div>
             <div v-if="detail.tool_names.length" class="chips">
               <span v-for="name in detail.tool_names" :key="name" class="chip">{{ name }}</span>
             </div>
@@ -325,7 +363,7 @@ async function copyJson() {
                 </tr>
               </tbody>
             </table>
-            <div class="section-title">Campi payload</div>
+            <div class="section-title">Payload fields</div>
             <table class="kv">
               <tbody>
                 <tr v-for="[k, v] in hookFields" :key="k">
@@ -355,7 +393,7 @@ async function copyJson() {
                   <td>{{ payload.rpc_id ?? '—' }}</td>
                 </tr>
                 <tr>
-                  <td>durata</td>
+                  <td>duration</td>
                   <td>{{ formatDuration(detail.duration_s) }}</td>
                 </tr>
               </tbody>
@@ -363,28 +401,28 @@ async function copyJson() {
           </template>
         </section>
 
-        <!-- RICHIESTA (solo round_trip) -->
-        <section v-else-if="activeTab === 'richiesta'" class="tab-richiesta">
-          <div class="section-title">System (campo della richiesta)</div>
-          <p v-if="systemBlocks.length === 0" class="placeholder">nessun system prompt</p>
+        <!-- REQUEST (round_trip only) -->
+        <section v-else-if="activeTab === 'request'" class="tab-request">
+          <div class="section-title">System (request field)</div>
+          <p v-if="systemBlocks.length === 0" class="placeholder">no system prompt</p>
           <Collapsible
             v-for="(b, i) in systemBlocks"
             :key="i"
-            :title="systemBlocks.length > 1 ? `blocco ${i + 1}/${systemBlocks.length}` : 'system'"
-            :meta="`${b.text.length.toLocaleString('it-IT')} caratteri`"
+            :title="systemBlocks.length > 1 ? `block ${i + 1}/${systemBlocks.length}` : 'system'"
+            :meta="`${b.text.length.toLocaleString('en-US')} characters`"
           >
             <pre class="pre-wrap">{{ b.text }}</pre>
           </Collapsible>
 
           <div class="section-title">Tools ({{ tools.length }})</div>
-          <p v-if="tools.length === 0" class="placeholder">nessun tool disponibile</p>
+          <p v-if="tools.length === 0" class="placeholder">no tools available</p>
           <Collapsible
             v-for="(t, i) in tools"
             :key="i"
             :title="t.name ?? `tool ${i}`"
-            :meta="`schema ${JSON.stringify(t.input_schema ?? {}).length.toLocaleString('it-IT')} char`"
+            :meta="`schema ${JSON.stringify(t.input_schema ?? {}).length.toLocaleString('en-US')} chars`"
           >
-            <p class="pre-wrap">{{ t.description ?? '(nessuna descrizione)' }}</p>
+            <p class="pre-wrap">{{ t.description ?? '(no description)' }}</p>
             <div class="label">input_schema</div>
             <JsonTree :value="t.input_schema" />
           </Collapsible>
@@ -393,13 +431,13 @@ async function copyJson() {
           <MessageBlock v-for="(m, i) in messages" :key="i" :message="m" collapsible />
         </section>
 
-        <!-- RISPOSTA (solo round_trip) -->
-        <section v-else-if="activeTab === 'risposta'" class="tab-risposta">
+        <!-- RESPONSE (round_trip only) -->
+        <section v-else-if="activeTab === 'response'" class="tab-response">
           <div v-if="response.error" class="error-box">
-            Errore: {{ response.error }}
+            Error: {{ response.error }}
           </div>
           <template v-else>
-            <p v-if="responseContent.length === 0" class="placeholder">nessun contenuto</p>
+            <p v-if="responseContent.length === 0" class="placeholder">no content</p>
             <ContentBlock v-for="(b, i) in responseContent" :key="i" :block="b" />
             <div class="section-title">Usage &amp; stop</div>
             <table class="kv">
@@ -414,21 +452,21 @@ async function copyJson() {
           </template>
         </section>
 
-        <!-- DELTA (solo round_trip) -->
+        <!-- DELTA (round_trip only) -->
         <section v-else-if="activeTab === 'delta'" class="tab-delta">
           <p v-if="!previousEvent" class="placeholder">
-            Prima richiesta della conversazione — tutto il contesto è nuovo.
+            First request of the conversation — all context is new.
           </p>
           <div v-else-if="prevLoading || !previousDetail" class="spinner-wrap">
             <span class="spinner"></span>
-            caricamento round trip precedente…
+            loading previous round trip…
           </div>
           <template v-else>
-            <div class="section-title">Differenze rispetto al giro precedente</div>
+            <div class="section-title">Differences from the previous round trip</div>
             <table class="kv delta">
               <tbody>
                 <tr>
-                  <td>input (nuovo)</td>
+                  <td>input (new)</td>
                   <td>{{ fmtDelta(tokenDelta?.input) }}</td>
                 </tr>
                 <tr>
@@ -458,27 +496,27 @@ async function copyJson() {
               </tbody>
             </table>
 
-            <div class="section-title">Messaggi aggiunti ({{ addedMessages.length }})</div>
+            <div class="section-title">Added messages ({{ addedMessages.length }})</div>
             <p v-if="addedMessages.length === 0" class="placeholder">
-              nessun nuovo messaggio rispetto al giro precedente
+              no new messages compared to the previous round trip
             </p>
             <MessageBlock v-for="(m, i) in addedMessages" :key="i" :message="m" />
           </template>
         </section>
 
-        <!-- CHIAMATA (solo mcp) -->
-        <section v-else-if="activeTab === 'chiamata'" class="tab-chiamata">
-          <div v-if="mcpError" class="error-box">Errore: <JsonTree :value="mcpError" /></div>
+        <!-- CALL (mcp only) -->
+        <section v-else-if="activeTab === 'call'" class="tab-call">
+          <div v-if="mcpError" class="error-box">Error: <JsonTree :value="mcpError" /></div>
           <div class="section-title">Params</div>
           <JsonTree :value="mcpParams ?? {}" />
           <div class="section-title">Result</div>
-          <p v-if="mcpResult === undefined" class="placeholder">nessun risultato (in attesa o fallita)</p>
+          <p v-if="mcpResult === undefined" class="placeholder">no result (pending or failed)</p>
           <JsonTree v-else :value="mcpResult" />
         </section>
 
-        <!-- JSON grezzo -->
+        <!-- raw JSON -->
         <section v-else-if="activeTab === 'json'" class="tab-json">
-          <button class="copy-btn" @click="copyJson">{{ copied ? 'copiato!' : 'copia' }}</button>
+          <button class="copy-btn" @click="copyJson">{{ copied ? 'copied!' : 'copy' }}</button>
           <JsonTree :value="detail.payload" />
         </section>
       </div>
@@ -497,6 +535,19 @@ async function copyJson() {
   color: var(--muted);
   font-style: italic;
   padding: 1rem;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.82em;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.hint code {
+  font-family: var(--mono, monospace);
+  background: var(--surface, #f0f0f0);
+  padding: 0 3px;
+  border-radius: 3px;
 }
 
 .spinner-wrap {
@@ -548,7 +599,7 @@ async function copyJson() {
 }
 
 .kind-badge.mcp {
-  color: #d98cd9;
+  color: var(--c-assistant);
 }
 
 .subkind {
@@ -600,20 +651,26 @@ async function copyJson() {
 
 .tabs {
   display: flex;
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  margin: 0.6rem 0.75rem;
+  background-color: var(--panel);
+  border-radius: 9px;
+  padding: 4px;
   overflow-x: auto;
 }
 
 .tabs button {
-  flex: none;
+  flex: 1;
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-radius: 6px;
   color: var(--muted);
-  padding: 0.5rem 0.7rem;
-  font-size: 0.78rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  text-align: center;
 }
 
 .tabs button:hover {
@@ -621,8 +678,9 @@ async function copyJson() {
 }
 
 .tabs button.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text);
+  background-color: var(--panel-alt);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .tab-content {
@@ -636,7 +694,7 @@ async function copyJson() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--muted);
+  color: var(--muted-faint);
   margin: 0.9rem 0 0.4rem;
 }
 
@@ -694,7 +752,7 @@ async function copyJson() {
 }
 
 .error-box {
-  background-color: rgba(229, 83, 75, 0.12);
+  background-color: rgba(224, 87, 74, 0.12);
   border: 1px solid var(--danger);
   color: var(--danger);
   border-radius: 4px;

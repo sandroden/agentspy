@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// Albero JSON ricorsivo e interattivo per la tab "JSON" del DetailPanel (e per
-// blocchi tool_use/input_schema altrove). Ogni nodo oggetto/array è
-// collassabile; il primo livello (depth 0, il nodo radice passato dal
-// chiamante) è aperto di default, i livelli più interni nascono chiusi.
-// Le stringhe lunghe sono troncate con espansione al click.
-import { computed, ref } from 'vue'
+// Recursive, interactive JSON tree for the DetailPanel's "JSON" tab (and for
+// tool_use/input_schema blocks elsewhere). Every object/array node is
+// collapsible; the first level (depth 0, the root node passed by the
+// caller) is open by default, deeper levels start closed.
+// Long strings are truncated with expansion on click.
+import { computed, inject, ref } from 'vue'
+import { cwdKey } from './detailKeys'
+import { relativizeText } from '../../utils/toolIcon'
 
 defineOptions({ name: 'JsonTree' })
 
@@ -16,6 +18,8 @@ const props = withDefaults(
   }>(),
   { depth: 0 }
 )
+
+const cwd = inject(cwdKey, ref(null))
 
 const STRING_LIMIT = 240
 
@@ -32,12 +36,17 @@ const entries = computed<[string | number, unknown][]>(() => {
     : Object.entries(props.value as Record<string, unknown>)
 })
 
+/** props.value relativized to the session cwd, when it's a string. */
+const stringValue = computed(() =>
+  typeof props.value === 'string' ? relativizeText(props.value, cwd.value) : ''
+)
+
 const isLongString = computed(
-  () => typeof props.value === 'string' && props.value.length > STRING_LIMIT
+  () => typeof props.value === 'string' && stringValue.value.length > STRING_LIMIT
 )
 
 const displayString = computed(() => {
-  const s = props.value as string
+  const s = stringValue.value
   if (!isLongString.value || stringExpanded.value) return s
   return `${s.slice(0, STRING_LIMIT)}…`
 })
@@ -55,13 +64,13 @@ function toggleString() {
       <span v-if="label !== undefined" class="colon">:</span>
       <template v-if="!expanded">
         <span class="preview" @click="expanded = true">
-          {{ isArray ? '[' : '{' }} {{ entries.length }} {{ isArray ? 'elementi' : 'chiavi' }}
+          {{ isArray ? '[' : '{' }} {{ entries.length }} {{ isArray ? 'items' : 'keys' }}
           {{ isArray ? ']' : '}' }}
         </span>
       </template>
       <template v-else>
         <span class="brace">{{ isArray ? '[' : '{' }}</span>
-        <span v-if="entries.length === 0" class="empty">vuoto</span>
+        <span v-if="entries.length === 0" class="empty">empty</span>
         <div v-else class="children">
           <div v-for="[k, v] in entries" :key="String(k)" class="child-row">
             <JsonTree :value="v" :label="k" :depth="depth + 1" />

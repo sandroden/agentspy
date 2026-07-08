@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// Un messaggio della conversazione (role + content). content è stringa o
-// array di content block (text/tool_use/tool_result/...). Messaggi lunghi
-// vengono troncati con un bottone "mostra tutto". Con `collapsible` il
-// messaggio parte chiuso (solo header con anteprima) e si apre dal header.
-import { computed, ref } from 'vue'
+// A conversation message (role + content). content is a string or an array
+// of content blocks (text/tool_use/tool_result/...). Long messages get
+// truncated with a "show all" button. With `collapsible`, the message
+// starts closed (header with preview only) and opens from the header.
+import { computed, inject, ref } from 'vue'
 import ContentBlock from './ContentBlock.vue'
+import { cwdKey } from './detailKeys'
+import { relativizeText } from '../../utils/toolIcon'
 
 const props = withDefaults(
   defineProps<{
@@ -15,11 +17,18 @@ const props = withDefaults(
   { limit: 1500, collapsible: false }
 )
 
+const cwd = inject(cwdKey, ref(null))
+
 const open = ref(!props.collapsible)
 
 const expanded = ref(false)
 
 const isStringContent = computed(() => typeof props.message.content === 'string')
+
+/** string content relativized to the session cwd. */
+const stringContent = computed(() =>
+  isStringContent.value ? relativizeText(props.message.content as string, cwd.value) : ''
+)
 
 const totalChars = computed(() => {
   const c = props.message.content
@@ -34,22 +43,22 @@ const totalChars = computed(() => {
 const truncated = computed(() => !expanded.value && totalChars.value > props.limit)
 
 const displayString = computed(() => {
-  const c = props.message.content as string
+  const c = stringContent.value
   if (!truncated.value) return c
   return `${c.slice(0, props.limit)}…`
 })
 
-/** limite per-blocco quando il messaggio è troncato e non espanso. */
+/** per-block limit when the message is truncated and not expanded. */
 const blockMaxChars = computed(() => (truncated.value ? props.limit : undefined))
 
 const blocks = computed(() =>
   Array.isArray(props.message.content) ? (props.message.content as Record<string, any>[]) : []
 )
 
-/** Anteprima a una riga per il messaggio chiuso: primo testo o tipi di blocco. */
+/** One-line preview for the closed message: first text or block types. */
 const preview = computed(() => {
   const c = props.message.content
-  if (typeof c === 'string') return c.slice(0, 90)
+  if (typeof c === 'string') return stringContent.value.slice(0, 90)
   if (Array.isArray(c)) {
     const firstText = c.find((b) => b?.type === 'text' && b.text)
     if (firstText) return String(firstText.text).slice(0, 90)
@@ -70,7 +79,7 @@ function toggle() {
       <span v-if="collapsible" class="chevron">{{ open ? '▾' : '▸' }}</span>
       <span class="role">{{ message.role }}</span>
       <span v-if="!open" class="preview">{{ preview }}</span>
-      <span class="chars">{{ totalChars.toLocaleString('it-IT') }} caratteri</span>
+      <span class="chars">{{ totalChars.toLocaleString('en-US') }} characters</span>
     </div>
     <template v-if="open">
       <template v-if="isStringContent">
@@ -79,7 +88,7 @@ function toggle() {
       <template v-else>
         <ContentBlock v-for="(b, i) in blocks" :key="i" :block="b" :max-chars="blockMaxChars" />
       </template>
-      <button v-if="truncated" class="show-all" @click="expanded = true">mostra tutto</button>
+      <button v-if="truncated" class="show-all" @click="expanded = true">show all</button>
     </template>
   </div>
 </template>
@@ -105,8 +114,8 @@ function toggle() {
   border-left: 3px solid var(--accent-live);
 }
 
-/* messaggio con role "system" DENTRO messages[]: iniezione a livello di
-   conversazione, distinta dal campo `system` della richiesta */
+/* message with role "system" INSIDE messages[]: conversation-level
+   injection, distinct from the request's `system` field */
 .role-system {
   border-left: 3px solid #a78bfa;
 }

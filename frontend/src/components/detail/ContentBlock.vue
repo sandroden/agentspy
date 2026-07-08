@@ -1,37 +1,46 @@
 <script setup lang="ts">
-// Renderizza un singolo blocco di contenuto Anthropic (text / thinking /
-// tool_use / tool_result / image / altro). Usato sia per i messaggi in
-// "Richiesta"/"Delta" (via MessageBlock) sia per il content della risposta in
-// "Risposta". maxChars, se presente, tronca i blocchi testuali (il toggle
-// "mostra tutto" vive nel chiamante, es. MessageBlock).
-import { computed } from 'vue'
+// Renders a single Anthropic content block (text / thinking / tool_use /
+// tool_result / image / other). Used both for messages in "Request"/"Delta"
+// (via MessageBlock) and for the response content in "Response". maxChars,
+// if present, truncates text blocks (the "show all" toggle lives in the
+// caller, e.g. MessageBlock).
+import { computed, inject, ref } from 'vue'
 import JsonTree from './JsonTree.vue'
 import Collapsible from './Collapsible.vue'
 import SystemReminderText from './SystemReminderText.vue'
+import { cwdKey } from './detailKeys'
+import { relativizeText } from '../../utils/toolIcon'
 
 const props = defineProps<{
   block: Record<string, any>
   maxChars?: number
 }>()
 
+const cwd = inject(cwdKey, ref(null))
+
 function truncate(text: string): { text: string; truncated: boolean } {
   if (!props.maxChars || text.length <= props.maxChars) return { text, truncated: false }
   return { text: `${text.slice(0, props.maxChars)}…`, truncated: true }
 }
 
-const thinkingOut = computed(() => truncate(String(props.block.thinking ?? '')))
+const thinkingOut = computed(() => truncate(relativizeText(String(props.block.thinking ?? ''), cwd.value)))
 
 const toolInputJson = computed(() => {
+  let json: string
   try {
-    return JSON.stringify(props.block.input ?? {}, null, 2)
+    json = JSON.stringify(props.block.input ?? {}, null, 2)
   } catch {
-    return String(props.block.input)
+    json = String(props.block.input)
   }
+  return relativizeText(json, cwd.value)
 })
 
-/** tool_result.content può essere stringa o array di blocchi (text/image). */
+/** tool_result.content can be a string or an array of blocks (text/image). */
 const resultContent = computed(() => props.block.content)
 const resultIsString = computed(() => typeof resultContent.value === 'string')
+const resultText = computed(() =>
+  resultIsString.value ? relativizeText(resultContent.value as string, cwd.value) : ''
+)
 const resultChars = computed(() => {
   const c = resultContent.value
   if (typeof c === 'string') return c.length
@@ -61,16 +70,16 @@ const resultChars = computed(() => {
 
     <template v-else-if="block.type === 'tool_result'">
       <Collapsible
-        :title="`tool_result${block.is_error ? ' (errore)' : ''}`"
-        :meta="`${resultChars} caratteri`"
+        :title="`tool_result${block.is_error ? ' (error)' : ''}`"
+        :meta="`${resultChars} characters`"
       >
-        <pre v-if="resultIsString" class="pre-wrap" :class="{ error: block.is_error }">{{ resultContent }}</pre>
+        <pre v-if="resultIsString" class="pre-wrap" :class="{ error: block.is_error }">{{ resultText }}</pre>
         <JsonTree v-else :value="resultContent" />
       </Collapsible>
     </template>
 
     <template v-else-if="block.type === 'image'">
-      <div class="label">immagine ({{ block.source?.media_type ?? '?' }})</div>
+      <div class="label">image ({{ block.source?.media_type ?? '?' }})</div>
     </template>
 
     <template v-else>
