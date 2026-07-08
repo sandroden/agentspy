@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * Griglia di metriche chiave della sessione in evidenza (featured), più i
- * totali dei subagenti. Solo dati reali: nessuna stima controfattuale.
+ * Grid of key metrics for the featured session, plus sub-agent totals. Real
+ * data only: no counterfactual estimates.
  */
 import { computed } from 'vue'
 import type { Session, StatsItem, Usage } from '../../types'
@@ -19,12 +19,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: 'jump-subagents'): void }>()
 
-/** Token "in contesto" per un round trip: input nuovo + cache letta + cache scritta. */
+/** Tokens "in context" for a round trip: new input + cache read + cache write. */
 function contextTokens(s: StatsItem): number {
   return s.input_tokens + s.cache_read_tokens + s.cache_write_tokens
 }
 
-/** Token consumati (contributo all'integrale): contesto + output. */
+/** Tokens consumed (contribution to the integral): context + output. */
 function consumedTokens(s: StatsItem): number {
   return contextTokens(s) + s.output_tokens
 }
@@ -41,7 +41,7 @@ const ratio = computed(() =>
 
 const roundTrips = computed(() => props.stats.length)
 
-/** Round trip totali della run: featured + tutti i subagenti. */
+/** Total round trips of the run: featured + all sub-agents. */
 const roundTripsInclSub = computed(() =>
   props.subagents.reduce((sum, s) => sum + s.round_trips, roundTrips.value)
 )
@@ -53,10 +53,10 @@ const subagentTokens = computed(() =>
   }, 0)
 )
 
-/** Totale consumato includendo i subagenti: il vero integrale della run. */
+/** Total consumed including sub-agents: the run's true integral. */
 const totalConsumedInclSub = computed(() => totalConsumed.value + subagentTokens.value)
 
-/** Costo dei subagenti, ognuno col tariffario del proprio modello. */
+/** Sub-agent cost, each priced with its own model's rates. */
 const subagentCost = computed(() =>
   props.subagents.reduce((sum, s) => sum + estimateCost(s.usage, s.model ?? props.model), 0)
 )
@@ -78,64 +78,96 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
 
 <template>
   <div class="metric-cards">
+    <span class="group-label">Session</span>
     <div class="card">
-      <div class="value">{{ formatTokens(peakContext) }}</div>
-      <div class="label">contesto di picco</div>
+      <span class="label">peak context</span>
+      <span class="value">{{ formatTokens(peakContext) }}</span>
     </div>
     <div class="card">
-      <div class="value">{{ formatTokens(totalConsumed) }}</div>
-      <div class="label">token consumati (integrale)</div>
-      <div v-if="subagents.length" class="sub">
-        incl. subagenti {{ formatTokens(totalConsumedInclSub) }}
-      </div>
+      <span class="label">tokens consumed (integral)</span>
+      <span class="value">{{ formatTokens(totalConsumed) }}</span>
     </div>
     <div class="card">
-      <div class="value">{{ ratio > 0 ? ratio.toFixed(1) + '×' : '—' }}</div>
-      <div class="label">consumo / picco</div>
+      <span class="label">consumption / peak</span>
+      <span class="value">{{ ratio > 0 ? ratio.toFixed(1) + '×' : '—' }}</span>
     </div>
     <div class="card">
-      <div class="value">{{ promptCount }}</div>
-      <div class="label">prompt utente</div>
+      <span class="label">user prompts</span>
+      <span class="value">{{ promptCount }}</span>
     </div>
     <div class="card">
-      <div class="value">{{ roundTrips }}</div>
-      <div class="label">round trip</div>
-      <div v-if="subagents.length" class="sub">incl. subagenti {{ roundTripsInclSub }}</div>
+      <span class="label">round trips</span>
+      <span class="value">{{ roundTrips }}</span>
     </div>
     <div
       class="card"
       :class="{ clickable: subagents.length > 0 }"
       @click="subagents.length > 0 && emit('jump-subagents')"
     >
-      <div class="value">{{ subagents.length }}</div>
-      <div class="label">
-        subagenti<template v-if="subagents.length">
-          · {{ formatTokens(subagentTokens) }} tok</template
-        >
-      </div>
+      <span class="label">
+        sub-agents<template v-if="subagents.length"> · {{ formatTokens(subagentTokens) }} tok</template>
+      </span>
+      <span class="value">{{ subagents.length }}</span>
     </div>
     <div class="card">
-      <div class="value">{{ formatCost(cost) }}</div>
-      <div class="label">costo stimato (featured)</div>
-      <div v-if="subagents.length" class="sub">
-        incl. subagenti {{ formatCost(cost + subagentCost) }}
-      </div>
+      <span class="label">estimated cost (featured)</span>
+      <span class="value">{{ formatCost(cost) }}</span>
     </div>
+
+    <template v-if="subagents.length">
+      <span class="group-label group-label--sub">+ sub-agents</span>
+      <div class="card card--sub">
+        <span class="label">tokens consumed (integral)</span>
+        <span class="value">{{ formatTokens(totalConsumedInclSub) }}</span>
+      </div>
+      <div class="card card--sub">
+        <span class="label">round trips</span>
+        <span class="value">{{ roundTripsInclSub }}</span>
+      </div>
+      <div class="card card--sub">
+        <span class="label">estimated cost</span>
+        <span class="value">{{ formatCost(cost + subagentCost) }}</span>
+      </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .metric-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.group-label {
+  font: 700 0.65rem system-ui;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-faint);
+  margin-right: 0.1rem;
+}
+
+.group-label--sub {
+  flex-basis: 100%;
+  margin-top: 0.4rem;
 }
 
 .card {
-  background-color: var(--panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  background-color: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.9rem 1rem;
+  padding: 0.3rem 0.6rem;
+  min-width: 90px;
+}
+
+.card--sub {
+  opacity: 0.65;
+  padding: 0.25rem 0.5rem;
+  min-width: auto;
 }
 
 .card.clickable {
@@ -147,24 +179,17 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
 }
 
 .value {
-  font-size: 1.6rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text);
-  line-height: 1.1;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .label {
-  margin-top: 0.35rem;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-/* seconda riga: stesso valore ma includendo i subagenti (il totale "vero") */
-.sub {
-  margin-top: 0.25rem;
-  font-size: 0.75rem;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted-faint);
 }
 </style>

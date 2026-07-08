@@ -1,25 +1,23 @@
 <script setup lang="ts">
 /**
- * Dashboard grafica: punto d'ingresso per l'analisi del consumo di contesto.
- * Mostra una sessione "in evidenza" (featured: la live se esiste, altrimenti la
- * più recente) con metriche e grafici SVG, i subagenti, e in fondo l'elenco
- * sessioni + il quickstart. Solo dati reali.
+ * Charts dashboard: entry point for analyzing context consumption. Shows a
+ * "featured" session (the live one if any, otherwise the most recent) with
+ * metrics and SVG charts, its sub-agents, and at the bottom the session list
+ * + quickstart. Real data only.
  */
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useSpyStore, type SessionNode } from '../stores/spy'
 import { fetchSessionEvents } from '../api/client'
 import type { EventSummary, Session } from '../types'
-import { formatDuration, formatTokens } from '../utils/format'
 import MetricCards from '../components/dashboard/MetricCards.vue'
 import ContextChart from '../components/dashboard/ContextChart.vue'
 import CompositionChart from '../components/dashboard/CompositionChart.vue'
 import CumulativeChart from '../components/dashboard/CumulativeChart.vue'
 import SubagentBars from '../components/dashboard/SubagentBars.vue'
+import ViewToggle from '../components/ViewToggle.vue'
 
 const spy = useSpyStore()
-const router = useRouter()
 
 const topLevelSessions = computed(() =>
   Object.values(spy.sessions)
@@ -28,7 +26,7 @@ const topLevelSessions = computed(() =>
     .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
 )
 
-// -- parentele ---------------------------------------------------------------
+// -- parentage ---------------------------------------------------------------
 const childrenMap = computed(() => {
   const byParent = new Map<string, Session[]>()
   for (const s of Object.values(spy.sessions)) {
@@ -40,7 +38,7 @@ const childrenMap = computed(() => {
   return byParent
 })
 
-/** Discendenti (ricorsivi) di una sessione, in ordine di visita. */
+/** (Recursive) descendants of a session, in visit order. */
 function descendantsOf(id: string): Session[] {
   const out: Session[] = []
   const walk = (cur: string) => {
@@ -53,7 +51,7 @@ function descendantsOf(id: string): Session[] {
   return out
 }
 
-/** Capostipite top-level risalendo la catena dei parent. */
+/** Top-level ancestor, walking up the parent chain. */
 function rootAncestorOf(id: string): string {
   let cur = id
   let parent = spy.sessions[cur]?.parent_session_id ?? null
@@ -64,10 +62,10 @@ function rootAncestorOf(id: string): string {
   return cur
 }
 
-// -- sessione in evidenza ----------------------------------------------------
-// Vive nello store (featuredSessionId): così il click in sidebar mentre si è
-// già in dashboard può cambiarla senza navigare, e sopravvive ai cambi route.
-// Può essere anche un subagente: i grafici mostrano i SUOI round trip.
+// -- featured session ----------------------------------------------------
+// Lives in the store (featuredSessionId): so a sidebar click while already on
+// the dashboard can change it without navigating, and it survives route
+// changes. It can also be a sub-agent: the charts then show ITS round trips.
 const { featuredSessionId: featuredId } = storeToRefs(spy)
 
 watch(
@@ -85,7 +83,7 @@ const featured = computed<Session | null>(() =>
   featuredId.value ? (spy.sessions[featuredId.value] ?? null) : null
 )
 
-/** Opzioni del select in evidenza: albero appiattito, subagenti indentati. */
+/** Options for the featured-session select: flattened tree, sub-agents indented. */
 const sessionOptions = computed(() => {
   const out: { id: string; label: string }[] = []
   const walk = (nodes: SessionNode[], depth: number) => {
@@ -103,8 +101,8 @@ const sessionOptions = computed(() => {
   return out
 })
 
-// -- caricamento stats per tutte le sessioni (con refresh sulle live) --------
-// Anche i subagenti: hanno round trip propri e possono essere featured.
+// -- loading stats for all sessions (refreshed for live ones) --------
+// Sub-agents too: they have their own round trips and can be featured.
 const loadedRoundTrips = new Map<string, number>()
 
 watch(
@@ -122,9 +120,8 @@ watch(
 )
 
 /**
- * Serie dei grafici: le top-level più i discendenti della famiglia in
- * evidenza (tratteggiati), così il lavoro dei subagenti è visibile accanto
- * a quello dell'orchestratore.
+ * Chart series: the top-level sessions plus the descendants of the featured
+ * family (dashed), so sub-agent work is visible next to the orchestrator's.
  */
 const series = computed(() => {
   const out = topLevelSessions.value.map((s) => ({
@@ -150,7 +147,7 @@ const featuredStats = computed(() =>
   featuredId.value ? (spy.statsBySession[featuredId.value] ?? []) : []
 )
 
-// -- eventi della featured: prompt utente (hook UserPromptSubmit) ------------
+// -- featured session's events: user prompt (hook UserPromptSubmit) ------------
 const featuredEvents = ref<EventSummary[]>([])
 let eventsToken = 0
 
@@ -186,39 +183,36 @@ const userPromptTurns = computed(() => {
   return set
 })
 
-// -- subagenti (discendenti della featured) ----------------------------------
+// -- sub-agents (descendants of the featured session) ----------------------------------
 const subagents = computed<Session[]>(() =>
   featuredId.value ? descendantsOf(featuredId.value) : []
 )
 
-// -- navigazione -------------------------------------------------------------
-function openSession(id: string) {
-  void router.push(`/session/${id}`)
-}
-
-/** Click su una barra subagente: lo mette in evidenza (i grafici diventano i suoi). */
+// -- navigation -------------------------------------------------------------
+/** Click on a sub-agent bar: features it (the charts become its own). */
 const rootEl = ref<HTMLElement | null>(null)
 function featureSession(id: string) {
   featuredId.value = id
-  // lo scroll avviene su main.center, non su window: si risale col root
+  // scrolling happens on main.center, not window: scroll up via the root
   rootEl.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+/**
+ * Click on a chart point: open the event detail in the right panel *in place*,
+ * without leaving the charts (the detail sidebar would otherwise never show
+ * here). Also feature the clicked session so the charts follow it.
+ */
 function jumpToEvent(sessionId: string, eventId: number) {
-  void router.push(`/session/${sessionId}`)
+  featuredId.value = sessionId
   void spy.select(eventId)
 }
 
-// -- scroll ai subagenti dal metric card -------------------------------------
+// -- scroll to sub-agents from the metric card -------------------------------------
 const subagentPanel = ref<HTMLElement | null>(null)
 function scrollToSubagents() {
   subagentPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-function totalTokens(s: Session): number {
-  const u = s.usage_incl_children
-  return u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
-}
 </script>
 
 <template>
@@ -230,17 +224,20 @@ function totalTokens(s: Session): number {
           Come Claude Code riempie il contesto: token in gioco, composizione e consumo cumulativo.
         </p>
       </div>
-      <label v-if="topLevelSessions.length" class="featured-select">
-        <span>sessione in evidenza</span>
-        <select v-model="featuredId">
-          <option v-for="o in sessionOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
-        </select>
-      </label>
+      <div class="header-right">
+        <ViewToggle />
+        <label v-if="topLevelSessions.length" class="featured-select">
+          <span>featured session</span>
+          <select v-model="featuredId">
+            <option v-for="o in sessionOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+          </select>
+        </label>
+      </div>
     </header>
 
     <p v-if="topLevelSessions.length === 0" class="empty-hero">
-      Nessuna sessione ancora. Avvia il server e una sessione Claude Code (vedi Avvio rapido in
-      fondo) per popolare la dashboard.
+      No sessions yet. Start the server and a Claude Code session (see the “?” help at the
+      bottom-left) to populate the dashboard.
     </p>
 
     <template v-else>
@@ -254,11 +251,11 @@ function totalTokens(s: Session): number {
 
       <section class="panel">
         <div class="panel-head">
-          <h2>Contesto per round trip</h2>
+          <h2>Context per round trip</h2>
           <p class="panel-sub">
-            Quanti token viaggiano a ogni chiamata. Ogni linea è una sessione (tratteggiata = un
-            subagente della famiglia in evidenza); i marker verdi sono i round trip aperti da un tuo
-            prompt. La linea rossa è il tetto pratico di ~200k.
+            How many tokens travel on each call. Each line is a session (dashed = a sub-agent
+            belonging to the featured family); the green markers are round trips opened by one of
+            your prompts. The red line is the practical ceiling of ~200k.
           </p>
         </div>
         <ContextChart :series="series" :user-prompt-turns="userPromptTurns" @jump="jumpToEvent" />
@@ -266,10 +263,10 @@ function totalTokens(s: Session): number {
 
       <section class="panel">
         <div class="panel-head">
-          <h2>Di cosa è fatto il contesto</h2>
+          <h2>What the context is made of</h2>
           <p class="panel-sub">
-            La stessa spesa scomposta: cache riletta (fredda), cache scritta, testo nuovo e output.
-            La cache è ciò che rende sostenibili i round trip lunghi.
+            The same spend broken down: cache re-read (cold), cache written, new text and output.
+            Cache is what makes long round trips sustainable.
           </p>
         </div>
         <CompositionChart :stats="featuredStats" :session-id="featuredId" @jump="jumpToEvent" />
@@ -277,10 +274,10 @@ function totalTokens(s: Session): number {
 
       <section class="panel">
         <div class="panel-head">
-          <h2>Consumo cumulativo (integrale)</h2>
+          <h2>Cumulative consumption (integral)</h2>
           <p class="panel-sub">
-            Il totale bruciato che si accumula: è questo, non il picco, a determinare il costo.
-            Trascina per misurare quanto è costato un tratto di conversazione.
+            The accumulating total burned: this — not the peak — is what determines the cost. Drag
+            to measure how much a stretch of the conversation cost.
           </p>
         </div>
         <CumulativeChart :series="series" :featured-model="featured?.model ?? null" />
@@ -288,54 +285,16 @@ function totalTokens(s: Session): number {
 
       <section v-if="subagents.length" ref="subagentPanel" class="panel">
         <div class="panel-head">
-          <h2>Subagenti</h2>
+          <h2>Sub-agents</h2>
           <p class="panel-sub">
-            I subagenti lavorano su un contesto separato: qui i token totali di ciascuno, per capire
-            dove va la spesa nascosta al thread principale. Click su una barra per mettere in
-            evidenza il subagente e vederne i grafici.
+            Sub-agents work on a separate context: here are each one's total tokens, to see where
+            spending hidden from the main thread goes. Click a bar to feature that sub-agent and see
+            its charts.
           </p>
         </div>
         <SubagentBars :subagents="subagents" @open="featureSession" />
       </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Tutte le sessioni</h2>
-        </div>
-        <div class="cards">
-          <div
-            v-for="s in topLevelSessions"
-            :key="s.id"
-            class="card"
-            :class="{ featured: s.id === featuredId }"
-            @click="openSession(s.id)"
-          >
-            <div class="card-header">
-              <span class="dot" :class="{ live: s.live }"></span>
-              <strong>{{ s.title || s.id }}</strong>
-            </div>
-            <div class="card-meta">
-              <span v-if="s.tag" class="chip">{{ s.tag }}</span>
-              <span>{{ s.model }}</span>
-              <span>{{ formatDuration(s.duration_s) }}</span>
-              <span>{{ formatTokens(totalTokens(s)) }} tok</span>
-            </div>
-          </div>
-        </div>
-      </section>
     </template>
-
-    <details class="quickstart">
-      <summary>Avvio rapido</summary>
-      <ol>
-        <li><code>cd server && uv run agentspy</code></li>
-        <li><code>ANTHROPIC_BASE_URL=http://127.0.0.1:8082 claude</code></li>
-        <li>
-          Per taggare una raccolta (separare run diverse):
-          <code>ANTHROPIC_CUSTOM_HEADERS="x-agentspy-tag: mio-tag" claude</code>
-        </li>
-      </ol>
-    </details>
   </div>
 </template>
 
@@ -366,6 +325,12 @@ h1 {
   color: var(--muted);
   font-size: 0.9rem;
   max-width: 60ch;
+}
+
+.header-right {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
 }
 
 .featured-select {
@@ -413,86 +378,4 @@ h1 {
   max-width: 70ch;
 }
 
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.75rem;
-}
-
-.card {
-  background-color: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.75rem;
-  cursor: pointer;
-}
-
-.card:hover {
-  border-color: var(--accent);
-}
-
-.card.featured {
-  border-color: var(--accent);
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.4rem;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--muted);
-}
-
-.dot.live {
-  background-color: var(--accent-live);
-}
-
-.card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.chip {
-  background-color: var(--panel);
-  padding: 0.1rem 0.4rem;
-  border-radius: 3px;
-  color: var(--text);
-}
-
-.quickstart {
-  background-color: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem 1.25rem;
-}
-
-.quickstart summary {
-  cursor: pointer;
-  color: var(--text);
-  font-weight: 600;
-}
-
-.quickstart ol {
-  padding-left: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-top: 0.6rem;
-}
-
-code {
-  background-color: var(--panel-alt);
-  padding: 0.15rem 0.4rem;
-  border-radius: 3px;
-  font-size: 0.85rem;
-}
 </style>
