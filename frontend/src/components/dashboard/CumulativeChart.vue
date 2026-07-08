@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * "Consumo cumulativo (integrale)": somma progressiva dei token consumati per
- * round trip della featured (input + cache + output). Trascinando orizzontalmente
- * si seleziona una banda: il readout mostra i token consumati nell'intervallo
- * (differenza della cumulativa) e la stima di costo. Checkbox per sovrapporre le
- * altre sessioni top-level.
+ * "Cumulative consumption (integral)": running sum of tokens consumed per
+ * round trip of the featured session (input + cache + output). Dragging
+ * horizontally selects a band: the readout shows tokens consumed in that
+ * interval (difference of the cumulative) and the cost estimate. Checkbox to
+ * overlay the other top-level sessions.
  */
 import { computed, ref } from 'vue'
 import type { Session, StatsItem, Usage } from '../../types'
@@ -16,7 +16,7 @@ interface Series {
   session: Session
   stats: StatsItem[]
   featured: boolean
-  /** discendenti della famiglia in evidenza: sempre visibili, tratteggiati. */
+  /** descendants of the featured family: always visible, dashed. */
   subagent?: boolean
 }
 
@@ -38,7 +38,7 @@ function consumed(s: StatsItem): number {
 
 const featured = computed(() => props.series.find((s) => s.featured) ?? null)
 
-/** cumulative[i] = somma dei consumi fino al round trip i incluso. */
+/** cumulative[i] = sum of consumption up to and including round trip i. */
 function cumulativeOf(stats: StatsItem[]): number[] {
   const out: number[] = []
   let acc = 0
@@ -49,8 +49,8 @@ function cumulativeOf(stats: StatsItem[]): number[] {
   return out
 }
 
-/** La featured e i subagenti della sua famiglia sono sempre visibili; le
- * altre sessioni top-level solo col checkbox. */
+/** The featured session and its family's subagents are always visible; other
+ * top-level sessions only show up with the checkbox. */
 const shownSeries = computed(() =>
   props.series.filter(
     (s) => (s.featured || s.subagent || showOthers.value) && s.stats.length > 0
@@ -89,7 +89,7 @@ const lines = computed(() => {
       featured: s.featured,
       total: cum.at(-1) ?? 0,
       color: s.featured
-        ? 'var(--accent)'
+        ? 'var(--c-user)'
         : s.subagent
           ? subagentPalette[subIdx++ % subagentPalette.length]
           : attenuatedPalette[attIdx++ % attenuatedPalette.length],
@@ -109,7 +109,7 @@ const yTicks = computed(() => {
   })
 })
 
-// -- selezione drag ----------------------------------------------------------
+// -- drag selection -----------------------------------------------------------
 const drag = ref<{ active: boolean; start: number; cur: number }>({ active: false, start: 0, cur: 0 })
 
 function svgX(ev: MouseEvent): number {
@@ -185,21 +185,21 @@ const hasOthers = computed(() =>
 <template>
   <div ref="el" class="chart-wrap">
     <p v-if="!hasData" class="empty">
-      Nessun round trip: qui vedrai il totale dei token bruciati accumularsi round trip dopo round trip.
+      No round trips: here you'll see the total tokens burned pile up round trip after round trip.
     </p>
     <template v-else>
       <div class="controls">
         <label v-if="hasOthers" class="toggle">
           <input v-model="showOthers" type="checkbox" />
-          confronta con le altre sessioni
+          compare with other sessions
         </label>
         <span class="readout">
           <template v-if="selection">
             round trip {{ selection.i0 }}–{{ selection.i1 }}:
-            <b>{{ formatTokens(selection.tokens) }}</b> token ·
+            <b>{{ formatTokens(selection.tokens) }}</b> tokens ·
             <b>{{ formatCost(selection.cost) }}</b>
           </template>
-          <template v-else>trascina sul grafico per misurare un intervallo</template>
+          <template v-else>drag over the chart to measure an interval</template>
         </span>
       </div>
 
@@ -307,9 +307,9 @@ const hasOthers = computed(() =>
 }
 
 .selection {
-  fill: var(--accent);
+  fill: var(--c-user);
   fill-opacity: 0.14;
-  stroke: var(--accent);
+  stroke: var(--c-user);
   stroke-opacity: 0.5;
   stroke-width: 1;
 }

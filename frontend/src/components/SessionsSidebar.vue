@@ -2,12 +2,14 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSpyStore, type SessionNode } from '../stores/spy'
+import { useTheme } from '../composables/useTheme'
 import { formatTokens } from '../utils/format'
 import type { Session } from '../types'
 
 const spy = useSpyStore()
 const router = useRouter()
 const route = useRoute()
+const { theme, setTheme } = useTheme()
 
 interface FlatRow {
   session: SessionNode
@@ -25,13 +27,13 @@ function flatten(nodes: SessionNode[], depth: number): FlatRow[] {
 
 const rows = computed(() => flatten(spy.sessionTree, 0))
 
-// -- modalità selezione / eliminazione ------------------------------------
+// -- selection / delete mode -----------------------------------------------
 const selectionMode = ref(false)
-/** id esplicitamente spuntati (le radici della selezione). */
+/** explicitly checked ids (the roots of the selection). */
 const selected = ref<Set<string>>(new Set())
 
-/** true se una sessione antenata è già selezionata: allora questa riga è
- * coperta dalla cascata e la sua checkbox è spuntata ma bloccata. */
+/** true if an ancestor session is already selected: this row is then covered
+ * by the cascade and its checkbox is checked but locked. */
 function coveredByAncestor(id: string): boolean {
   let parent = spy.sessions[id]?.parent_session_id ?? null
   while (parent) {
@@ -49,7 +51,7 @@ function isLocked(id: string): boolean {
   return coveredByAncestor(id)
 }
 
-/** tutti gli id che spariranno (radici + discendenti visibili spuntati). */
+/** all ids that will disappear (checked roots + visible checked descendants). */
 const effectiveIds = computed(() => rows.value.map((r) => r.session.id).filter(isChecked))
 
 function toggleSelectionMode() {
@@ -64,7 +66,7 @@ function toggleRow(id: string) {
     next.delete(id)
   } else {
     next.add(id)
-    // rimuove selezioni esplicite di discendenti ora ridondanti.
+    // drop explicit selections of descendants now made redundant.
     for (const other of [...next]) {
       if (other !== id && hasAncestor(other, id)) next.delete(other)
     }
@@ -72,7 +74,7 @@ function toggleRow(id: string) {
   selected.value = next
 }
 
-/** true se `ancestor` è antenato di `id` risalendo la catena dei parent. */
+/** true if `ancestor` is an ancestor of `id` walking up the parent chain. */
 function hasAncestor(id: string, ancestor: string): boolean {
   let parent = spy.sessions[id]?.parent_session_id ?? null
   while (parent) {
@@ -87,7 +89,7 @@ function cancelSelection() {
   selected.value = new Set()
 }
 
-/** id delle sessioni top-level (le figlie seguono in cascata). */
+/** ids of the top-level sessions (children follow in cascade). */
 const topLevelIds = computed(() =>
   rows.value.filter((r) => r.depth === 0).map((r) => r.session.id)
 )
@@ -96,8 +98,8 @@ const allSelected = computed(
   () => topLevelIds.value.length > 0 && topLevelIds.value.every((id) => selected.value.has(id))
 )
 
-/** Seleziona tutte le top-level (caso tipico: cancellare tutto tranne poche
- * da tenere, che si de-spuntano dopo). Se già tutte selezionate, azzera. */
+/** Select all top-level sessions (typical case: delete everything except a
+ * few to keep, unchecked afterwards). If all are already selected, clears. */
 function toggleAll() {
   selected.value = allSelected.value ? new Set() : new Set(topLevelIds.value)
 }
@@ -105,18 +107,18 @@ function toggleAll() {
 async function confirmDelete() {
   const ids = effectiveIds.value
   if (ids.length === 0) return
-  const plural = ids.length === 1 ? 'la sessione selezionata' : `${ids.length} sessioni selezionate`
+  const plural = ids.length === 1 ? 'the selected session' : `${ids.length} selected sessions`
   const msg =
-    `Eliminare ${plural}? Verranno rimosse in cascata anche le eventuali ` +
-    `sessioni figlie (subagenti) e tutti i loro eventi. L'operazione è definitiva.`
+    `Delete ${plural}? Any child sessions (sub-agents) and all their events ` +
+    `will be removed in cascade. This cannot be undone.`
   if (!window.confirm(msg)) return
   const currentDeleted = spy.currentSessionId != null && ids.includes(spy.currentSessionId)
   try {
     await spy.deleteSessions(ids)
   } catch (err) {
     window.alert(
-      `Eliminazione fallita: ${err instanceof Error ? err.message : err}.\n` +
-        `Se il collector è stato avviato con una versione precedente del codice, riavvialo.`
+      `Delete failed: ${err instanceof Error ? err.message : err}.\n` +
+        `If the collector was started with an older version of the code, restart it.`
     )
     return
   }
@@ -124,7 +126,7 @@ async function confirmDelete() {
   if (currentDeleted) router.push('/')
 }
 
-/** Modello abbreviato per non affollare la riga (es. claude-sonnet-4-5-20250929 -> sonnet-4.5). */
+/** Shortened model name to avoid crowding the row (e.g. claude-sonnet-4-5-20250929 -> sonnet-4.5). */
 function abbreviateModel(model: string | null): string {
   if (!model) return '—'
   const m = model.match(/claude-([a-z]+)-(\d+)(?:-(\d+))?/)
@@ -135,7 +137,7 @@ function abbreviateModel(model: string | null): string {
   return model.length > 16 ? `${model.slice(0, 16)}…` : model
 }
 
-/** Colore chip stabile derivato dal nome del tag (hash semplice). */
+/** Stable chip color derived from the tag name (simple hash). */
 function tagColor(tag: string): string {
   let hash = 0
   for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0
@@ -150,11 +152,7 @@ function totalTokens(s: Session): number {
 
 const onDashboard = computed(() => route.path === '/')
 
-/** Destinazione del toggle quando si è sui grafici: l'ultima sessione aperta
- * nella timeline, o in mancanza quella in evidenza nei grafici. */
-const backSessionId = computed(() => spy.currentSessionId ?? spy.featuredSessionId)
-
-/** Riga evidenziata: in dashboard è la featured, altrove la sessione aperta. */
+/** Highlighted row: on the dashboard it's the featured session, elsewhere the open one. */
 function isActiveRow(id: string): boolean {
   if (selectionMode.value) return false
   if (onDashboard.value) return id === spy.featuredSessionId
@@ -166,8 +164,8 @@ function onRowClick(id: string) {
     toggleRow(id)
     return
   }
-  // In dashboard il click non naviga: mette in evidenza la sessione cliccata
-  // (anche un subagente: i grafici mostrano i suoi round trip).
+  // On the dashboard a click doesn't navigate: it just features the clicked
+  // session (even a sub-agent: the charts then show its round trips).
   if (onDashboard.value) {
     spy.featuredSessionId = id
     return
@@ -178,36 +176,28 @@ function onRowClick(id: string) {
 function externalHref(id: string): string {
   return `/ui/session/${id}`
 }
+
+// -- settings popover (theme) -------------------------------------------------
+const settingsOpen = ref(false)
+const helpOpen = ref(false)
 </script>
 
 <template>
   <nav class="sessions-sidebar">
     <div class="toolbar">
-      <router-link v-if="!onDashboard" to="/" class="home-link" title="passa alla vista Grafici">
-        📊 Grafici
-      </router-link>
-      <router-link
-        v-else-if="backSessionId"
-        :to="`/session/${backSessionId}`"
-        class="home-link"
-        title="torna alla Timeline della sessione"
-      >
-        🕒 Timeline
-      </router-link>
-      <span v-else class="home-link disabled" title="nessuna sessione aperta">🕒 Timeline</span>
       <button
         type="button"
         class="edit-toggle"
         :class="{ active: selectionMode }"
-        :title="selectionMode ? 'esci dalla modalità selezione' : 'seleziona sessioni da eliminare'"
+        :title="selectionMode ? 'exit selection mode' : 'select sessions to delete'"
         @click="toggleSelectionMode"
       >
-        {{ selectionMode ? '✕ Fine' : '🗑 Modifica' }}
+        🗑
       </button>
     </div>
 
     <div class="list">
-      <p v-if="rows.length === 0" class="empty">Nessuna sessione</p>
+      <p v-if="rows.length === 0" class="empty">No sessions</p>
       <div
         v-for="row in rows"
         :key="row.session.id"
@@ -227,39 +217,46 @@ function externalHref(id: string): string {
           class="check"
           :checked="isChecked(row.session.id)"
           :disabled="isLocked(row.session.id)"
-          :title="isLocked(row.session.id) ? 'eliminata in cascata col genitore' : ''"
+          :title="isLocked(row.session.id) ? 'deleted in cascade with its parent' : ''"
         />
-        <span class="dot" :class="{ live: row.session.live }"></span>
-        <span v-if="row.session.live" class="live-chip">LIVE</span>
-        <span v-if="row.session.tag" class="chip" :style="{ backgroundColor: tagColor(row.session.tag) }">
-          {{ row.session.tag }}
-        </span>
-        <span class="title">{{ row.session.title || row.session.id }}</span>
-        <span class="rt" :title="`${row.session.round_trips} round trip`">
-          {{ row.session.round_trips }}
-        </span>
-        <span class="model">{{ abbreviateModel(row.session.model) }}</span>
-        <span class="tokens">{{ formatTokens(totalTokens(row.session)) }}</span>
-        <span v-if="!selectionMode && spy.unseenCounts[row.session.id]" class="badge">
-          {{ spy.unseenCounts[row.session.id] }}
-        </span>
-        <a
-          v-if="!selectionMode"
-          class="external"
-          :href="externalHref(row.session.id)"
-          target="_blank"
-          rel="noopener"
-          title="apri in un'altra scheda"
-          @click.stop
-        >
-          ↗
-        </a>
+        <div class="row-lines">
+          <div class="line1">
+            <span v-if="row.depth > 0" class="connector">↳</span>
+            <span class="dot" :class="{ live: row.session.live }"></span>
+            <span v-if="row.session.live" class="live-chip">LIVE</span>
+            <span v-if="row.session.tag" class="chip" :style="{ backgroundColor: tagColor(row.session.tag) }">
+              {{ row.session.tag }}
+            </span>
+            <span class="rt" :title="`${row.session.round_trips} round trips`">
+              {{ row.session.round_trips }}
+            </span>
+          </div>
+          <div class="line2">
+            <span class="title">{{ row.session.title || row.session.id }}</span>
+            <span class="model">{{ abbreviateModel(row.session.model) }}</span>
+            <span class="tokens">{{ formatTokens(totalTokens(row.session)) }}</span>
+            <span v-if="!selectionMode && spy.unseenCounts[row.session.id]" class="badge">
+              {{ spy.unseenCounts[row.session.id] }}
+            </span>
+            <a
+              v-if="!selectionMode"
+              class="external"
+              :href="externalHref(row.session.id)"
+              target="_blank"
+              rel="noopener"
+              title="open in another tab"
+              @click.stop
+            >
+              ↗
+            </a>
+          </div>
+        </div>
       </div>
     </div>
 
     <div v-if="selectionMode" class="delete-bar">
       <button type="button" class="cancel-btn" @click="toggleAll">
-        {{ allSelected ? 'Nessuna' : 'Tutte' }}
+        {{ allSelected ? 'Select none' : 'Select all' }}
       </button>
       <button
         type="button"
@@ -267,11 +264,69 @@ function externalHref(id: string): string {
         :disabled="effectiveIds.length === 0"
         @click="confirmDelete"
       >
-        Elimina {{ effectiveIds.length }}
-        {{ effectiveIds.length === 1 ? 'sessione' : 'sessioni' }}
+        Delete {{ effectiveIds.length }}
+        {{ effectiveIds.length === 1 ? 'session' : 'sessions' }}
       </button>
-      <button type="button" class="cancel-btn" @click="cancelSelection">Annulla</button>
     </div>
+
+    <div class="footer">
+      <div v-if="settingsOpen" class="settings-panel">
+        <div class="settings-title">Customize</div>
+        <div class="settings-row">
+          <span>Theme</span>
+          <div class="theme-toggle">
+            <button
+              class="theme-opt"
+              :class="{ active: theme === 'light' }"
+              @click="setTheme('light')"
+            >
+              ☀️ Light
+            </button>
+            <button class="theme-opt" :class="{ active: theme === 'dark' }" @click="setTheme('dark')">
+              🌙 Dark
+            </button>
+          </div>
+        </div>
+        <div class="settings-hint">More customization options will land here.</div>
+      </div>
+      <div class="footer-row">
+        <button
+          type="button"
+          class="help-btn"
+          title="Quick start / help"
+          @click="helpOpen = true"
+        >
+          ?
+        </button>
+        <button type="button" class="settings-btn" @click="settingsOpen = !settingsOpen">
+          <span class="settings-ic">⚙️</span>Customize
+        </button>
+      </div>
+    </div>
+
+    <Teleport to="body">
+      <div v-if="helpOpen" class="help-overlay" @click.self="helpOpen = false">
+        <div class="help-modal">
+          <header class="help-header">
+            <span class="help-title">Quick start</span>
+            <button type="button" class="help-close" title="close" @click="helpOpen = false">✕</button>
+          </header>
+          <div class="help-body">
+            <ol>
+              <li>Avvia il collector:<br /><code>cd server &amp;&amp; uv run agentspy</code></li>
+              <li>
+                Fai passare Claude Code dal proxy:<br />
+                <code>ANTHROPIC_BASE_URL=http://127.0.0.1:8082 claude</code>
+              </li>
+              <li>
+                Per taggare una raccolta (separare run diverse):<br />
+                <code>ANTHROPIC_CUSTOM_HEADERS="x-agentspy-tag: my-tag" claude</code>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </nav>
 </template>
 
@@ -287,44 +342,23 @@ function externalHref(id: string): string {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--border);
 }
 
-.home-link {
-  color: var(--muted);
-  text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.15rem 0.5rem;
-  font-size: 0.72rem;
-}
-
-.home-link:hover {
-  color: var(--text);
-  border-color: var(--muted);
-}
-
-/* toggle spento: sui grafici senza nessuna sessione da riaprire */
-.home-link.disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.home-link.disabled:hover {
-  color: var(--muted);
-  border-color: var(--border);
-}
-
 .edit-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
-  border-radius: 4px;
-  padding: 0.15rem 0.5rem;
-  font-size: 0.72rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
   cursor: pointer;
 }
 
@@ -334,7 +368,8 @@ function externalHref(id: string): string {
 }
 
 .edit-toggle.active {
-  color: var(--danger);
+  color: #fff;
+  background-color: var(--danger);
   border-color: var(--danger);
 }
 
@@ -357,9 +392,9 @@ function externalHref(id: string): string {
 
 .check {
   flex: none;
-  margin: 0;
+  margin: 0.15rem 0 0;
   accent-color: var(--danger);
-  /* il click è gestito dalla riga: la checkbox è solo un indicatore visuale. */
+  /* the row handles the click: the checkbox is just a visual indicator. */
   pointer-events: none;
 }
 
@@ -368,11 +403,11 @@ function externalHref(id: string): string {
 }
 
 .row.checked {
-  background-color: rgba(229, 83, 75, 0.12);
+  background-color: rgba(224, 87, 74, 0.12);
 }
 
 .row.checked:hover {
-  background-color: rgba(229, 83, 75, 0.18);
+  background-color: rgba(224, 87, 74, 0.18);
 }
 
 .delete-bar {
@@ -423,12 +458,13 @@ function externalHref(id: string): string {
 
 .row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.4rem;
-  padding: 0.4rem 0.6rem;
+  padding: 0.35rem 0.6rem;
   cursor: pointer;
   font-size: 0.8rem;
-  border-left: 2px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: 0 8px 8px 0;
 }
 
 .row:hover {
@@ -438,29 +474,49 @@ function externalHref(id: string): string {
 .row.active {
   background-color: var(--panel-alt);
   border-left-color: var(--accent);
-  border-left-width: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-/* live vince sulla selezione: bordo verde + sfondo acceso + chip */
+/* live: just a green accent border (the pulsing dot + LIVE chip already say
+   it loud); no background wash, or a page full of live sessions turns into
+   a wall of green and the actually-open one stops standing out. */
 .row.live {
-  background-color: rgba(62, 207, 110, 0.1);
   border-left-color: var(--accent-live);
-  border-left-width: 3px;
 }
 
-.row.live:hover {
-  background-color: rgba(62, 207, 110, 0.16);
-}
-
-/* la sessione APERTA nella pagina vince su tutto (anche su live): con molte
-   sessioni live il verde è ovunque e senza questo non si capisce quale si
-   sta guardando */
+/* the session OPEN in the page wins over live: tinted background + border,
+   the one unambiguous "you are here" signal. */
 .row.active,
 .row.live.active {
-  background-color: rgba(79, 157, 255, 0.18);
+  background-color: rgba(124, 79, 209, 0.14);
   border-left-color: var(--accent);
-  border-left-width: 3px;
-  box-shadow: inset 0 0 0 1px rgba(79, 157, 255, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(124, 79, 209, 0.3);
+}
+
+.row-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.line1 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.line2 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.connector {
+  color: var(--muted-faint);
+  font-size: 0.75rem;
+  margin-right: -0.1rem;
 }
 
 .live-chip {
@@ -479,7 +535,7 @@ function externalHref(id: string): string {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: var(--muted);
+  background-color: var(--muted-faint);
 }
 
 .dot.live {
@@ -489,32 +545,37 @@ function externalHref(id: string): string {
 
 .chip {
   flex: none;
-  padding: 0.05rem 0.35rem;
-  border-radius: 3px;
-  font-size: 0.7rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 99px;
+  font-size: 0.68rem;
+  font-weight: 600;
   color: #fff;
 }
 
 .title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
 }
 
-/* cerchietto azzurro accanto al nome: numero di round trip */
+/* round-trip count badge next to the name */
 .rt {
   flex: none;
-  background-color: var(--accent);
+  margin-left: auto;
+  background-color: var(--danger);
   color: #fff;
-  border-radius: 8px;
-  padding: 0 0.35rem;
+  border-radius: 99px;
+  padding: 0 0.4rem;
   font-size: 0.65rem;
   line-height: 1.3;
   font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
-/* può comprimersi (con ellissi) prima di far sbordare la riga */
+/* can shrink (with ellipsis) before overflowing the row */
 .model {
   flex: 0 1 auto;
   min-width: 0;
@@ -522,14 +583,14 @@ function externalHref(id: string): string {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
 }
 
 .tokens {
   flex: none;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
 }
 
 .badge {
@@ -544,6 +605,7 @@ function externalHref(id: string): string {
 
 .external {
   flex: none;
+  margin-left: auto;
   color: var(--muted);
   text-decoration: none;
   padding: 0 0.15rem;
@@ -551,6 +613,193 @@ function externalHref(id: string): string {
 
 .external:hover {
   color: var(--accent);
+}
+
+.footer {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: 0.5rem;
+  position: relative;
+}
+
+.footer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.settings-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.4rem;
+  border-radius: 7px;
+  cursor: pointer;
+  font: 600 0.78rem 'Inter', sans-serif;
+  color: var(--muted);
+}
+
+.settings-btn:hover {
+  background-color: var(--panel-alt);
+}
+
+.help-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background-color: var(--panel-alt);
+  color: var(--muted);
+  font: 700 0.9rem 'Inter', sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.help-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* -- help modal (quick start) -- */
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 1000;
+}
+
+.help-modal {
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 560px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.help-header {
+  display: flex;
+  align-items: center;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.help-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
+}
+
+.help-close:hover {
+  color: var(--danger);
+}
+
+.help-body {
+  padding: 0.9rem 1rem 1.1rem;
+}
+
+.help-body ol {
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.help-body code {
+  display: inline-block;
+  margin-top: 0.25rem;
+  background-color: var(--panel-alt);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.settings-ic {
+  font-size: 0.95rem;
+}
+
+.settings-panel {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: calc(100% + 0.4rem);
+  background-color: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 5;
+}
+
+.settings-title {
+  font: 700 0.65rem system-ui;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-faint);
+  margin-bottom: 0.5rem;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.theme-toggle {
+  display: flex;
+  background-color: var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.theme-opt {
+  font: 600 0.72rem 'Inter', sans-serif;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.theme-opt.active {
+  background-color: var(--panel-alt);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.settings-hint {
+  font-size: 0.65rem;
+  color: var(--muted-faint);
+  margin-top: 0.5rem;
 }
 
 @keyframes pulse {

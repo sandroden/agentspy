@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * "Contesto per round trip": una polyline per sessione top-level. Y = token in
- * contesto (input + cache_read + cache_write), X = indice round trip. La
- * featured è in accent e più spessa, le altre attenuate. Marker verdi sui
- * round trip innescati da un prompt utente (solo featured). Click su un punto:
- * naviga alla sessione e seleziona l'evento.
+ * "Context per round trip": one polyline per top-level session. Y = tokens in
+ * context (input + cache_read + cache_write), X = round-trip index. The
+ * featured session is in accent and thicker, the others dimmed. Green markers
+ * on round trips triggered by a user prompt (featured only). Clicking a
+ * point navigates to the session and selects the event.
  */
 import { computed, ref } from 'vue'
 import type { Session, StatsItem } from '../../types'
@@ -15,13 +15,13 @@ interface Series {
   session: Session
   stats: StatsItem[]
   featured: boolean
-  /** true per i discendenti della famiglia in evidenza: linea tratteggiata. */
+  /** true for descendants of the featured family: dashed line. */
   subagent?: boolean
 }
 
 const props = defineProps<{
   series: Series[]
-  /** turn_index dei round trip innescati da un prompt utente (featured). */
+  /** turn_index of round trips triggered by a user prompt (featured). */
   userPromptTurns: Set<number>
 }>()
 
@@ -95,7 +95,7 @@ const seriesViews = computed<SeriesView[]>(() => {
   const views = props.series.map((s): SeriesView => {
     const featured = s.featured
     const color = featured
-      ? 'var(--accent)'
+      ? 'var(--c-user)'
       : s.subagent
         ? subagentPalette[subIdx++ % subagentPalette.length]
         : attenuatedPalette[attIdx++ % attenuatedPalette.length]
@@ -123,7 +123,7 @@ const seriesViews = computed<SeriesView[]>(() => {
   return views.sort((a, b) => Number(a.featured) - Number(b.featured))
 })
 
-/** Marker verticali dei prompt utente: primo round trip di ogni turno-prompt della featured. */
+/** Vertical user-prompt markers: first round trip of each prompt-turn of the featured session. */
 const promptMarkers = computed<number[]>(() => {
   const featured = props.series.find((s) => s.featured)
   if (!featured) return []
@@ -175,7 +175,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
 <template>
   <div ref="el" class="chart-wrap">
     <p v-if="!hasData" class="empty">
-      Nessun round trip da mostrare: apri o avvia una sessione per vedere come cresce il contesto.
+      No round trips to show yet: open or start a session to see how context grows.
     </p>
     <template v-else>
       <svg :viewBox="`0 0 ${width} ${height}`" :height="height" width="100%" role="img">
@@ -199,7 +199,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
             class="limit-line"
           />
           <text :x="width - margin.right" :y="limitY - 5" class="limit-label" text-anchor="end">
-            limite 200k
+            200k limit
           </text>
         </g>
 
@@ -251,8 +251,8 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
         :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
       >
         <strong>{{ tooltip.title }}</strong>
-        <span>turno {{ tooltip.turn ?? '—' }}</span>
-        <span>{{ formatTokens(tooltip.tokens) }} token in contesto</span>
+        <span>turn {{ tooltip.turn ?? '—' }}</span>
+        <span>{{ formatTokens(tooltip.tokens) }} tokens in context</span>
       </div>
     </template>
   </div>

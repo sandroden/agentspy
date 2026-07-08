@@ -4,9 +4,11 @@ import { storeToRefs } from 'pinia'
 import SessionsSidebar from './components/SessionsSidebar.vue'
 import DetailPanel from './components/DetailPanel.vue'
 import { useSpyStore } from './stores/spy'
+import { useTheme } from './composables/useTheme'
 
 const spy = useSpyStore()
 const { selectedEventId, wsConnected } = storeToRefs(spy)
+useTheme().init()
 
 // -- larghezza colonna dettaglio (ridimensionabile col mouse) ----------------
 const DETAIL_WIDTH_KEY = 'agentspy.detailWidth'
@@ -32,7 +34,7 @@ let startX = 0
 let startWidth = 0
 
 function onDragMove(e: MouseEvent) {
-  // La maniglia è sul bordo sinistro: trascinare a sinistra allarga.
+  // The handle is on the left edge: dragging left widens the panel.
   detailWidth.value = clampWidth(startWidth - (e.clientX - startX))
 }
 
@@ -71,7 +73,7 @@ onBeforeUnmount(() => {
     :style="layoutStyle"
   >
     <aside class="sidebar">
-      <div class="ws-indicator" :title="wsConnected ? 'connesso' : 'disconnesso'">
+      <div class="ws-indicator" :title="wsConnected ? 'connected' : 'disconnected'">
         <span class="dot" :class="{ connected: wsConnected }"></span>
         <span class="label">{{ wsConnected ? 'live' : 'offline' }}</span>
       </div>
@@ -84,7 +86,7 @@ onBeforeUnmount(() => {
       <div
         class="resize-handle"
         :class="{ active: dragging }"
-        title="trascina per ridimensionare"
+        title="drag to resize"
         @mousedown="startDrag"
       ></div>
       <DetailPanel />
@@ -93,17 +95,44 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+/* Light theme (default) — "readable" palette from the AgentSpy design direction.
+   Dark theme below overrides the same variable names, so most components
+   (which only ever reference these vars) restyle automatically. */
 :root {
+  --bg: #fbfaf7;
+  --panel: #f5f2ea;
+  --panel-alt: #ffffff;
+  --border: #eae4d6;
+  --text: #20242c;
+  --muted: #6b6455;
+  --muted-faint: #8a8370;
+  --accent: #7c4fd1;
+  --accent-live: #34d399;
+  --danger: #e0574a;
+  /* series colors shared by the timeline swimlane and the dashboard charts */
+  --c-user: #4e8fff;
+  --c-assistant: #c084fc;
+  --c-tool: #f5a623;
+  /* the LLM (Claude) card in the timeline: green, per the Claude Design palette */
+  --c-llm: #1f9d76;
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+:root[data-theme='dark'] {
   --bg: #111318;
   --panel: #181b22;
   --panel-alt: #1f232c;
   --border: #2a2e38;
   --text: #e4e6eb;
   --muted: #8b93a3;
-  --accent: #4f9dff;
+  --muted-faint: #6b7480;
+  --accent: #a78bfa;
   --accent-live: #3ecf6e;
   --danger: #e5534b;
-  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --c-user: #4e8fff;
+  --c-assistant: #c084fc;
+  --c-tool: #f5a623;
+  --c-llm: #3ecf8e;
 }
 
 * {
