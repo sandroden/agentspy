@@ -218,6 +218,30 @@ def test_tool_hints_in_summary(tmp_path):
     store.close()
 
 
+def test_command_snippet_in_input_snippet(tmp_path):
+    """Un messaggio user che espande uno slash-command / skill dà uno snippet
+    pulito `/nome args`, non l'XML del wrapper né lo SKILL.md iniettato."""
+    from agentspy_server.store import Store
+
+    store = Store(str(tmp_path / "t.db"))
+    store.upsert_session("s1", started_at=1.0)
+    injected = (
+        "<command-message>okf:okf</command-message>\n"
+        "<command-name>/okf:okf</command-name>\n"
+        "<command-args>produce .okf</command-args>\n"
+        "Base directory for this skill: /x\n\n" + "# corpo skill\n" * 200
+    )
+    rt = store.insert_event(
+        session_id="s1", kind="round_trip", ts_start=2.0,
+        payload={"request": {"body": {"messages": [
+            {"role": "user", "content": [{"type": "text", "text": injected}]},
+        ]}}, "response": {"message": {"content": []}}},
+    )
+    events = {e["id"]: e for e in store.get_session_events("s1")}
+    assert events[rt]["input_snippet"] == "/okf:okf produce .okf"
+    store.close()
+
+
 def test_reassign_session_recomputes_turns_from_prompts(tmp_path):
     """Gli eventi fusi da una sessione sintetica ereditano il turno del
     UserPromptSubmit della sessione reale che li precede; quelli davvero

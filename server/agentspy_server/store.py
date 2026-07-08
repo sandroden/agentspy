@@ -16,6 +16,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .context_artifacts import extract_artifacts
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -92,6 +94,60 @@ def _snippet_from_payload(kind: str, subkind: str | None, payload: dict | None) 
             return subkind or ""
         if kind == "mcp":
             return subkind or ""
+    except Exception:
+        return ""
+    return ""
+
+
+def _extract_tag(text: str, tag: str) -> str | None:
+    open_t, close_t = f"<{tag}>", f"</{tag}>"
+    i = text.find(open_t)
+    if i == -1:
+        return None
+    j = text.find(close_t, i + len(open_t))
+    if j == -1:
+        return None
+    return text[i + len(open_t) : j].strip()
+
+
+def _command_snippet(text: str) -> str | None:
+    """Se il testo è l'espansione di uno slash-command / skill
+    (`<command-name>…`), restituisce uno snippet pulito `/nome args` invece
+    dell'XML del wrapper + lo SKILL.md iniettato. Altrimenti None."""
+    if "<command-name>" not in text:
+        return None
+    name = _extract_tag(text, "command-name")
+    if not name:
+        return None
+    args = _extract_tag(text, "command-args") or ""
+    return f"{name} {args}".strip()[:160]
+
+
+def _input_snippet_from_payload(kind: str, payload: dict | None) -> str:
+    """Testo del *primo* user message della request di un round trip: per un
+    subagente è il task che il padre gli ha delegato; per il traffico di
+    servizio è l'input iniziale. Diverso da `_snippet_from_payload`, che per i
+    round trip restituisce la *risposta* (o l'ultimo messaggio). Salta i blocchi
+    `<system-reminder>` iniettati da Claude Code. Best-effort, "" se assente."""
+    if not payload or kind != "round_trip":
+        return ""
+    try:
+        body = (payload.get("request") or {}).get("body") or {}
+        for message in body.get("messages") or []:
+            if message.get("role") != "user":
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                return content.strip()[:160]
+            if isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict) or block.get("type") != "text":
+                        continue
+                    text = (block.get("text") or "").strip()
+                    if not text or text.startswith("<system-reminder>"):
+                        continue
+                    return _command_snippet(text) or text[:160]
+            return ""  # primo user message trovato ma senza testo utile
     except Exception:
         return ""
     return ""
@@ -442,6 +498,7 @@ class Store:
                 else ""
             ),
             "snippet": _snippet_from_payload(row["kind"], row["subkind"], payload),
+            "input_snippet": _input_snippet_from_payload(row["kind"], payload),
         }
 
     def get_session_events(self, session_id: str) -> list[dict[str, Any]]:
@@ -461,6 +518,9 @@ class Store:
         d = dict(row)
         d["payload"] = json.loads(d["payload"]) if d["payload"] else None
         d["tool_names"] = json.loads(d["tool_names"]) if d["tool_names"] else []
+        # Inventario degli elementi del contesto per la vista per-round-trip.
+        request = (d["payload"] or {}).get("request") or {} if isinstance(d["payload"], dict) else {}
+        d["artifacts"] = extract_artifacts(request.get("body"))
         return d
 
     def get_session_stats(self, session_id: str) -> list[dict[str, Any]]:
@@ -473,7 +533,8 @@ class Store:
         stats = []
         for row in rows:
             payload = json.loads(row["payload"]) if row["payload"] else {}
-            analysis = (payload.get("request") or {}).get("analysis") or {}
+            request = payload.get("request") or {}
+            analysis = request.get("analysis") or {}
             stats.append(
                 {
                     "event_id": row["id"],
@@ -491,6 +552,9 @@ class Store:
                     "system_chars": analysis.get("system_chars"),
                     "tools_chars": (analysis.get("tools") or {}).get("chars"),
                     "messages_chars": (analysis.get("messages") or {}).get("chars"),
+                    # Inventario didattico degli elementi entrati nel contesto,
+                    # calcolato lazy dal body: funziona sui dati già catturati.
+                    "artifacts": extract_artifacts(request.get("body")),
                 }
             )
         return stats

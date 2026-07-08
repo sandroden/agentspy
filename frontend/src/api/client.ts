@@ -1,9 +1,9 @@
-import type { EventDetail, EventSummary, Session, StatsItem, Usage, WsMessage } from '../types'
+import type { ContextArtifact, EventDetail, EventSummary, Session, StatsItem, Usage, WsMessage } from '../types'
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url)
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status} su ${url}`)
+    throw new Error(`HTTP ${response.status} for ${url}`)
   }
   return (await response.json()) as T
 }
@@ -27,8 +27,8 @@ export async function fetchSessions(): Promise<Session[]> {
 
 export async function fetchSessionEvents(id: string): Promise<EventSummary[]> {
   const rows = await getJson<EventSummary[]>(`/api/sessions/${id}/events`)
-  // le colonne token possono essere NULL in DB per eventi hook/mcp: normalizza
-  // a 0 perché il resto della UI tratta Usage come sempre numerico.
+  // token columns can be NULL in the DB for hook/mcp events: normalize to 0
+  // because the rest of the UI treats Usage as always numeric.
   return rows.map((r) => ({ ...r, usage: normalizeUsage(r.usage) }))
 }
 
@@ -37,8 +37,8 @@ export async function fetchSessionStats(id: string): Promise<StatsItem[]> {
 }
 
 /**
- * Elimina le sessioni indicate (con le loro discendenti, in cascata lato
- * server). Ritorna l'elenco completo degli id effettivamente rimossi.
+ * Deletes the given sessions (with their descendants, cascading server-side).
+ * Returns the full list of ids actually removed.
  */
 export async function deleteSessions(ids: string[]): Promise<string[]> {
   const response = await fetch('/api/sessions/delete', {
@@ -47,18 +47,18 @@ export async function deleteSessions(ids: string[]): Promise<string[]> {
     body: JSON.stringify({ ids }),
   })
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status} su /api/sessions/delete`)
+    throw new Error(`HTTP ${response.status} for /api/sessions/delete`)
   }
   const body = (await response.json()) as { deleted: string[] }
   return body.deleted ?? []
 }
 
 /**
- * Forma grezza restituita da GET /api/events/:id (Store.get_event): è la riga
- * DB "piatta", con i token come colonne separate (non un oggetto usage), senza
- * duration_s e senza snippet precalcolato. fetchEventDetail la normalizza
- * nella forma EventDetail = EventSummary & {ts_end, payload} per uniformità
- * con fetchSessionEvents.
+ * Raw shape returned by GET /api/events/:id (Store.get_event): it's the
+ * "flat" DB row, with tokens as separate columns (not a usage object),
+ * without duration_s and without a precomputed snippet. fetchEventDetail
+ * normalizes it into the EventDetail = EventSummary & {ts_end, payload}
+ * shape for consistency with fetchSessionEvents.
  */
 interface RawEventRow {
   id: number
@@ -79,9 +79,10 @@ interface RawEventRow {
   cache_write_tokens: number | null
   tool_names: string[] | null
   payload: unknown
+  artifacts?: ContextArtifact[]
 }
 
-/** Ricalca Store._snippet_from_payload lato client, perché get_event non la include. */
+/** Mirrors Store._snippet_from_payload client-side, since get_event doesn't include it. */
 function extractSnippet(kind: string, subkind: string | null, payload: unknown): string {
   if (!payload || typeof payload !== 'object') return ''
   const p = payload as Record<string, any>
@@ -100,6 +101,42 @@ function extractSnippet(kind: string, subkind: string | null, payload: unknown):
       return ''
     }
     if (kind === 'hook' || kind === 'mcp') return subkind ?? ''
+  } catch {
+    return ''
+  }
+  return ''
+}
+
+/** Mirrors Store._command_snippet: a clean "/name args" for an expanded
+ *  slash-command / skill, instead of the wrapper XML + injected SKILL.md. */
+function commandSnippet(text: string): string | null {
+  if (!text.includes('<command-name>')) return null
+  const name = text.match(/<command-name>\s*([\s\S]*?)\s*<\/command-name>/)?.[1]?.trim()
+  if (!name) return null
+  const args = text.match(/<command-args>\s*([\s\S]*?)\s*<\/command-args>/)?.[1]?.trim() ?? ''
+  return `${name} ${args}`.trim().slice(0, 160)
+}
+
+/** Mirrors Store._input_snippet_from_payload client-side (first user message of
+ *  the request, skipping <system-reminder> blocks — the delegated task). */
+function extractInputSnippet(kind: string, payload: unknown): string {
+  if (!payload || typeof payload !== 'object' || kind !== 'round_trip') return ''
+  const p = payload as Record<string, any>
+  try {
+    for (const message of p.request?.body?.messages ?? []) {
+      if (message?.role !== 'user') continue
+      const content = message.content
+      if (typeof content === 'string') return content.trim().slice(0, 160)
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block?.type !== 'text') continue
+          const text = String(block.text ?? '').trim()
+          if (!text || text.startsWith('<system-reminder>')) continue
+          return commandSnippet(text) ?? text.slice(0, 160)
+        }
+      }
+      return ''
+    }
   } catch {
     return ''
   }
@@ -127,7 +164,9 @@ export async function fetchEventDetail(id: number): Promise<EventDetail> {
     usage: normalizeUsage(raw),
     tool_names: raw.tool_names ?? [],
     snippet: extractSnippet(raw.kind, raw.subkind, raw.payload),
+    input_snippet: extractInputSnippet(raw.kind, raw.payload),
     payload: raw.payload,
+    artifacts: raw.artifacts ?? [],
   }
 }
 
@@ -136,13 +175,13 @@ export interface StreamHandle {
 }
 
 /**
- * Apre il WebSocket /ws con riconnessione automatica (backoff 1s→10s max).
- * Alla riconnessione il server rimanda un 'hello' con l'elenco sessioni
- * completo: onMessage lo riceve come un messaggio normale, nessuna gestione
- * speciale richiesta lato chiamante.
+ * Opens the /ws WebSocket with automatic reconnection (backoff 1s→10s max).
+ * On reconnection the server resends a 'hello' with the full session list:
+ * onMessage receives it as a normal message, no special handling required
+ * on the caller's side.
  *
- * onStatusChange (opzionale) segnala connesso/disconnesso, utile per
- * l'indicatore WS in UI.
+ * onStatusChange (optional) signals connected/disconnected, useful for the
+ * WS indicator in the UI.
  */
 export function openStream(
   onMessage: (message: WsMessage) => void,
@@ -174,7 +213,7 @@ export function openStream(
       try {
         onMessage(JSON.parse(ev.data) as WsMessage)
       } catch (err) {
-        console.error('openStream: messaggio WS non valido', err)
+        console.error('openStream: invalid WS message', err)
       }
     })
     ws.addEventListener('close', () => {

@@ -62,6 +62,39 @@ def user_msg(prompt: str) -> dict:
     }
 
 
+# Corpo SKILL.md iniettato da Claude Code quando si invoca /okf:okf: è costo di
+# contesto reale, ed è ciò che le nuove viste (badge trigger + chip nel
+# dettaglio) mettono in evidenza e misurano.
+SKILL_BODY = (
+    "# Open Knowledge Format (OKF) skill\n\n"
+    "OKF represents knowledge as a directory of markdown files with YAML "
+    "frontmatter.\n\n## The one hard rule\n\nA bundle is conformant iff every "
+    "non-reserved `.md` file has a parseable YAML frontmatter block with a "
+    "non-empty `type` field.\n\n## Conventions\n\n" + "- one concept = one file. "
+    "The file path (minus `.md`) is the concept ID.\n" * 30
+)
+
+
+def command_user_msg(name: str, args: str, body: str) -> dict:
+    """Messaggio user come lo compone Claude Code per uno slash-command: il
+    wrapper <command-*> seguito dallo SKILL.md iniettato, tutto in un blocco
+    text (più il solito system-reminder di contesto)."""
+    injected = (
+        f"<command-message>{name}</command-message>\n"
+        f"<command-name>/{name}</command-name>\n"
+        f"<command-args>{args}</command-args>\n"
+        f"Base directory for this skill: /home/sandro/.claude/plugins/okf\n\n"
+        f"{body}\n\nARGUMENTS: {args}"
+    )
+    return {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": REMINDER_1},
+            {"type": "text", "text": injected},
+        ],
+    }
+
+
 def rt_payload(model: str, messages: list, resp_blocks: list, usage: dict, stop: str,
                t0: float, dur: float, tag: str | None = None) -> dict:
     body = {"model": model, "max_tokens": 32000, "stream": True,
@@ -189,6 +222,34 @@ for turn, prompt in enumerate(prompts, start=1):
         t = st + 2
     add_hook(A, "Stop", turn, t)
     t += 20
+
+# turno 5: invocazione di una skill via slash-command (/okf:okf) — esercita
+# il badge trigger "🎓 Command" e la chip che misura lo SKILL.md iniettato; il
+# primo round trip delega a un'altra skill col tool Skill (badge 🎓 nei Tools).
+add_hook(A, "UserPromptSubmit", 5, t, {"prompt": "/okf:okf produce .okf"})
+t += 1
+msgs = msgs + [command_user_msg("okf:okf", "produce .okf", SKILL_BODY)]
+skill_usage = {"input_tokens": 320, "output_tokens": 600,
+               "cache_read_input_tokens": cache_read, "cache_creation_input_tokens": 2200}
+skill_blocks = [
+    {"type": "text", "text": "Per produrre il bundle mi appoggio alla skill dei documenti."},
+    {"type": "tool_use", "id": "toolu_5_0", "name": "Skill",
+     "input": {"skill": "document-skills:pdf", "args": "estrai struttura"}},
+]
+add_rt(A, 5, t, model_a, msgs, skill_blocks, skill_usage, ["Skill"], stop="tool_use")
+add_hook(A, "PreToolUse", 5, t + 6.2, {"tool_name": "Skill", "tool_input": {"skill": "document-skills:pdf"}})
+msgs = msgs + [
+    {"role": "assistant", "content": skill_blocks},
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_5_0",
+                                  "content": "skill document-skills:pdf caricata"}]},
+]
+t += 9
+final5 = [{"type": "text", "text": "Bundle OKF prodotto in .okf/ e validato."}]
+add_rt(A, 5, t, model_a, msgs, final5,
+       {"input_tokens": 260, "output_tokens": 380,
+        "cache_read_input_tokens": cache_read + 3000, "cache_creation_input_tokens": 300}, [])
+msgs = msgs + [{"role": "assistant", "content": final5}]
+add_hook(A, "Stop", 5, t + 6)
 
 # evento MCP nella sessione A
 store.insert_event(

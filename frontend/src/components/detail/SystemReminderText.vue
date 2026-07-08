@@ -1,14 +1,18 @@
 <script setup lang="ts">
-// Renderizza un blocco di testo di un messaggio distinguendo le sezioni
-// <system-reminder>…</system-reminder> (iniettate da Claude Code) dal testo
-// utente reale. Due modalità, controllate dal flag `compactView` iniettato
-// dal DetailPanel:
-//  - espansa: i reminder diventano riquadri evidenziati; il testo normale
-//    resta troncato a maxChars (comportamento storico).
-//  - compatta: ogni reminder è un chip cliccabile che apre un modal col
-//    contenuto completo; il testo utente resta visibile per intero.
+// Renders a message's text block, distinguishing three things Claude Code
+// injects into the "user" slot from the actual user text:
+//  - <system-reminder>…</system-reminder> sections;
+//  - a slash-command / skill invocation (the <command-*> wrapper plus the
+//    SKILL.md body it injects — real, measurable context cost).
+// Two modes, controlled by the `compactView` flag injected by DetailPanel:
+//  - expanded: injections become highlighted boxes; normal text stays
+//    truncated at maxChars (legacy behavior).
+//  - compact: each injection is a clickable chip (with its char count) that
+//    opens a modal with the full content; the user text stays fully visible.
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
-import { compactViewKey } from './detailKeys'
+import { compactViewKey, cwdKey } from './detailKeys'
+import { relativizeText } from '../../utils/toolIcon'
+import { splitCommandInjection } from '../../utils/command'
 
 const props = defineProps<{
   text: string
@@ -16,20 +20,24 @@ const props = defineProps<{
 }>()
 
 const compactView = inject(compactViewKey, ref(false))
+const cwd = inject(cwdKey, ref(null))
+
+const relativizedText = computed(() => relativizeText(props.text, cwd.value))
 
 interface Segment {
-  kind: 'text' | 'reminder'
+  kind: 'text' | 'reminder' | 'command'
   content: string
+  label?: string // command: nome della skill/comando (es. /okf:okf)
 }
 
 const OPEN = '<system-reminder>'
 const CLOSE = '</system-reminder>'
 
 /**
- * Divide il testo in segmenti alternati testo/reminder. Gestisce reminder
- * non chiusi (fino a fine testo) e testo senza reminder (un solo segmento).
+ * Splits text into alternating text/reminder segments. Handles unclosed
+ * reminders (to end of text) and text with no reminders (a single segment).
  */
-function parseSegments(text: string): Segment[] {
+function parseReminderSegments(text: string): Segment[] {
   const segments: Segment[] = []
   let i = 0
   while (i < text.length) {
@@ -48,20 +56,35 @@ function parseSegments(text: string): Segment[] {
     segments.push({ kind: 'reminder', content: text.slice(contentStart, end) })
     i = end + CLOSE.length
   }
-  return segments.filter((s) => s.kind === 'reminder' || s.content.length > 0)
+  return segments
 }
 
-const segments = computed(() => parseSegments(props.text))
+/**
+ * A slash-command wrapper (if present) runs to the end of the block: split it
+ * off as its own segment and parse only the preceding text for reminders.
+ */
+function parseSegments(text: string): Segment[] {
+  const injection = splitCommandInjection(text)
+  const segments = injection
+    ? [
+        ...parseReminderSegments(injection.before),
+        { kind: 'command' as const, content: injection.injected, label: injection.command.name },
+      ]
+    : parseReminderSegments(text)
+  return segments.filter((s) => s.kind !== 'text' || s.content.length > 0)
+}
 
-/** Nessun reminder presente: percorso identico al vecchio <pre>. */
-const hasReminders = computed(() => segments.value.some((s) => s.kind === 'reminder'))
+const segments = computed(() => parseSegments(relativizedText.value))
+
+/** No injection present: same path as the old <pre>. */
+const hasReminders = computed(() => segments.value.some((s) => s.kind !== 'text'))
 
 function truncate(text: string): string {
   if (!props.maxChars || text.length <= props.maxChars) return text
   return `${text.slice(0, props.maxChars)}…`
 }
 
-/** In vista espansa il testo normale segue il troncamento storico. */
+/** In expanded view, normal text follows the legacy truncation. */
 function textFor(content: string): string {
   return compactView.value ? content : truncate(content)
 }
@@ -74,9 +97,11 @@ function charLabel(n: number): string {
 // -- modal (vista compatta) --------------------------------------------------
 
 const modalContent = ref<string | null>(null)
+const modalTitle = ref('system-reminder')
 
-function openModal(content: string) {
+function openModal(content: string, title = 'system-reminder') {
   modalContent.value = content
+  modalTitle.value = title
 }
 
 function closeModal() {
@@ -87,7 +112,7 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') closeModal()
 }
 
-// Ascolta Esc a livello di finestra solo mentre il modal è aperto.
+// Listen for Esc at the window level only while the modal is open.
 watch(modalContent, (v) => {
   if (v !== null) window.addEventListener('keydown', onKeydown)
   else window.removeEventListener('keydown', onKeydown)
@@ -98,15 +123,38 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <template v-for="(seg, i) in segments" :key="i">
-    <!-- testo utente reale -->
+    <!-- actual user text -->
     <pre v-if="seg.kind === 'text'" class="pre-wrap">{{ textFor(seg.content) }}</pre>
 
-    <!-- reminder, vista compatta: chip -->
+    <!-- command/skill, compact view: chip -->
+    <button
+      v-else-if="seg.kind === 'command' && compactView"
+      type="button"
+      class="reminder-chip command-chip"
+      :title="'open skill / command payload'"
+      @click="openModal(seg.content, seg.label || 'command')"
+    >
+      <span class="gear">🎓</span>
+      <span>{{ seg.label || 'command' }}</span>
+      <span class="chip-meta">{{ charLabel(seg.content.length) }} iniettati</span>
+    </button>
+
+    <!-- command/skill, expanded view: highlighted box -->
+    <div v-else-if="seg.kind === 'command'" class="reminder-box command-box">
+      <div class="reminder-label command-label">
+        <span class="gear">🎓</span>
+        <span>skill / command · {{ seg.label }}</span>
+        <span class="reminder-meta">{{ charLabel(seg.content.length) }} iniettati</span>
+      </div>
+      <pre class="pre-wrap reminder-text">{{ textFor(seg.content) }}</pre>
+    </div>
+
+    <!-- reminder, compact view: chip -->
     <button
       v-else-if="compactView"
       type="button"
       class="reminder-chip"
-      :title="'apri system-reminder'"
+      :title="'open system-reminder'"
       @click="openModal(seg.content)"
     >
       <span class="gear">⚙</span>
@@ -114,7 +162,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <span class="chip-meta">{{ charLabel(seg.content.length) }}</span>
     </button>
 
-    <!-- reminder, vista espansa: riquadro evidenziato -->
+    <!-- reminder, expanded view: highlighted box -->
     <div v-else class="reminder-box">
       <div class="reminder-label">
         <span class="gear">⚙</span>
@@ -125,7 +173,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </div>
   </template>
 
-  <!-- placeholder: testo interamente vuoto senza reminder -->
+  <!-- placeholder: entirely empty text with no reminders -->
   <pre v-if="segments.length === 0 && !hasReminders" class="pre-wrap"></pre>
 
   <Teleport to="body">
@@ -136,10 +184,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     >
       <div class="reminder-modal">
         <header class="modal-header">
-          <span class="gear">⚙</span>
-          <span class="modal-title">system-reminder</span>
+          <span class="gear">{{ modalTitle === 'system-reminder' ? '⚙' : '🎓' }}</span>
+          <span class="modal-title">{{ modalTitle }}</span>
           <span class="modal-meta">{{ charLabel(modalContent.length) }}</span>
-          <button type="button" class="modal-close" title="chiudi" @click="closeModal">✕</button>
+          <button type="button" class="modal-close" title="close" @click="closeModal">✕</button>
         </header>
         <div class="modal-body">
           <pre class="pre-wrap">{{ modalContent }}</pre>
@@ -161,7 +209,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-size: 0.8em;
 }
 
-/* -- vista espansa: riquadro reminder -- */
+/* -- expanded view: reminder box -- */
 .reminder-box {
   background-color: rgba(217, 140, 217, 0.08);
   border-left: 3px solid #d98cd9;
@@ -192,7 +240,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--muted);
 }
 
-/* -- vista compatta: chip -- */
+/* -- compact view: chip -- */
 .reminder-chip {
   display: inline-flex;
   align-items: center;
@@ -210,6 +258,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 .reminder-chip:hover {
   border-color: #d98cd9;
+}
+
+/* -- command/skill: teal, distinto dal reminder viola -- */
+.command-box {
+  background-color: rgba(58, 176, 162, 0.08);
+  border-left-color: #3ab0a2;
+}
+
+.command-label {
+  color: #3ab0a2;
+}
+
+.command-chip {
+  color: #3ab0a2;
+}
+
+.command-chip:hover {
+  border-color: #3ab0a2;
 }
 
 /* -- modal -- */
