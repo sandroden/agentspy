@@ -69,6 +69,18 @@ def analyze_request_body(body: dict) -> dict:
     return info
 
 
+# I token del prompt (input, cache read/creation) sono fissati quando la
+# richiesta parte: message_start li riporta corretti e rappresentano l'occupancy
+# reale della finestra di contesto. Su turni con extended/interleaved thinking,
+# message_delta ne riporta un cumulativo (cache-read *throughput*: il prompt
+# riletto più volte durante il turno), che NON è l'occupancy e gonfierebbe il
+# gauge. Teniamo quindi i campi di prompt da message_start; da message_delta
+# prendiamo solo l'output (output_tokens, che cresce durante lo streaming).
+_PROMPT_USAGE_KEYS = frozenset(
+    {"input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "cache_creation"}
+)
+
+
 class SSECollector:
     """Ricostruisce il messaggio assistant dagli eventi SSE e ne estrae usage/timing."""
 
@@ -105,7 +117,7 @@ class SSECollector:
         if event_type == "message_start":
             msg = payload.get("message", {})
             self.message = {k: v for k, v in msg.items() if k != "content"}
-            self.usage.update(msg.get("usage", {}))
+            self._merge_usage(msg.get("usage", {}))
         elif event_type == "content_block_start":
             block_data = dict(payload.get("content_block", {}))
             block_data.setdefault("text", "")
@@ -124,10 +136,22 @@ class SSECollector:
                 elif kind == "thinking_delta":
                     b["thinking"] = b.get("thinking", "") + delta.get("thinking", "")
         elif event_type == "message_delta":
-            self.usage.update(payload.get("usage", {}))
+            self._merge_usage(payload.get("usage", {}))
             self.stop_reason = payload.get("delta", {}).get("stop_reason")
         elif event_type == "error":
             self.error = payload
+
+    def _merge_usage(self, new: dict) -> None:
+        """Fonde una usage nello stato accumulato preservando i token di prompt.
+
+        I campi in _PROMPT_USAGE_KEYS, una volta noti da message_start, non
+        vengono più sovrascritti: message_delta può riportarne un cumulativo
+        (throughput) che falsa l'occupancy della finestra di contesto.
+        """
+        for key, value in new.items():
+            if key in _PROMPT_USAGE_KEYS and key in self.usage:
+                continue
+            self.usage[key] = value
 
     def finalize(self) -> dict:
         content = []

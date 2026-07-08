@@ -10,7 +10,12 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from agentspy_server.proxy import ProxyForwarder, analyze_request_body, redact_headers
+from agentspy_server.proxy import (
+    ProxyForwarder,
+    SSECollector,
+    analyze_request_body,
+    redact_headers,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -105,6 +110,62 @@ async def test_proxy_streams_identical_bytes_and_reconstructs_message():
     assert response["message"]["content"][0]["text"] == "Ciao mondo"
     assert record["timing"]["ttfb_s"] is not None
     assert record["timing"]["total_s"] is not None
+
+
+def _feed_events(collector: SSECollector, events: list[tuple[str, dict]]) -> None:
+    for event_type, data in events:
+        collector.feed(f"event: {event_type}\ndata: {json.dumps(data)}\n\n".encode())
+
+
+def test_prompt_usage_taken_from_message_start_not_cumulative_delta():
+    """Su un turno con extended thinking, message_delta riporta un cache_read
+    cumulativo (throughput). L'occupancy della finestra deve restare quella del
+    prompt (message_start), non il valore gonfiato del delta. Riproduce il caso
+    reale rt19: start cache_read=86747, delta cache_read=181909."""
+    collector = SSECollector()
+    _feed_events(
+        collector,
+        [
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg_thinking",
+                        "role": "assistant",
+                        "usage": {
+                            "input_tokens": 159,
+                            "output_tokens": 1,
+                            "cache_read_input_tokens": 86747,
+                            "cache_creation_input_tokens": 8415,
+                        },
+                    },
+                },
+            ),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "tool_use"},
+                    "usage": {
+                        "output_tokens": 7251,
+                        "cache_read_input_tokens": 181909,
+                        "cache_creation_input_tokens": 11522,
+                    },
+                },
+            ),
+            ("message_stop", {"type": "message_stop"}),
+        ],
+    )
+    result = collector.finalize()
+    usage = result["usage"]
+    # prompt (occupancy): dal message_start, non il cumulativo del delta
+    assert usage["cache_read_input_tokens"] == 86747
+    assert usage["cache_creation_input_tokens"] == 8415
+    assert usage["input_tokens"] == 159
+    # output: dal message_delta (cresce durante lo streaming)
+    assert usage["output_tokens"] == 7251
+    assert result["stop_reason"] == "tool_use"
 
 
 def test_redact_headers_never_leaks_secrets():
