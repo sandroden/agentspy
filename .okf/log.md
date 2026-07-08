@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-07-08
+* **Update**: [frontend](/components/frontend.md) — rifiniture dashboard: click sui grafici apre il dettaglio in place, rimossi elenco sessioni e box quick start (quest'ultimo dietro il bottone "?" nel footer della sidebar), bolla Claude/LLM in timeline portata a verde (token `--c-llm`).
+* **Creation**: [Riconoscimento di skill e slash-command](/design/skill-recognition.md) — badge 🎓 per il tool `Skill`, trigger di turno per gli slash-command e chip nel dettaglio che misura lo SKILL.md iniettato; aggiornato [frontend](/components/frontend.md) (`utils/command.ts`, icona Skill, SystemReminderText esteso).
+
 ## 2026-07-07
 * **Update**: [Frontend](/components/frontend.md) — nomi delle due viste (Grafici = dashboard grafica, Timeline = flusso interazioni) e bottone della sidebar diventato toggle bidirezionale fra le due; documentato anche il badge coi round trip nella sidebar.
 * **Initialization**: Creato il bundle OKF derivandolo da README.md, PLAN.md e dal codice sorgente.
