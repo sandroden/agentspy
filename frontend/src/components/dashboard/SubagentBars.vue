@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * Barre orizzontali dei subagenti (sessioni figlie): lunghezza = token totali
- * usati (usage della sola sessione), colore per modello. Click apre la sessione.
- * Il pannello si nasconde se non ci sono figli.
+ * Horizontal bars for subagents (child sessions): length = total tokens used
+ * (usage of that session alone), color by model. Click opens the session.
+ * The panel hides itself if there are no children.
  */
 import { computed } from 'vue'
 import type { Session } from '../../types'

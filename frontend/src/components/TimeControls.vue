@@ -11,8 +11,8 @@ const currentIndex = computed(() => Math.min(Math.max(spy.cursor, 0), maxIndex.v
 const currentEvent = computed(() => spy.events[currentIndex.value] ?? null)
 
 const label = computed(() => {
-  if (total.value === 0) return 'nessun evento'
-  return `evento ${currentIndex.value + 1}/${total.value} — ${formatTime(currentEvent.value?.ts_start)}`
+  if (total.value === 0) return 'no events'
+  return `event ${currentIndex.value + 1}/${total.value} — ${formatTime(currentEvent.value?.ts_start)}`
 })
 
 function onSlider(e: Event) {
@@ -44,11 +44,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <div class="time-controls">
     <button class="live-btn" :class="{ live: spy.live }" @click="toggleLive">
-      {{ spy.live ? '● LIVE' : '❚❚ PAUSA' }}
+      {{ spy.live ? '● LIVE' : '❚❚ PAUSED' }}
     </button>
 
-    <button :disabled="total === 0" title="inizio" @click="spy.setCursor(0)">⏮</button>
-    <button :disabled="total === 0" title="indietro" @click="spy.step(-1)">◀</button>
+    <button :disabled="total === 0" title="start" @click="spy.setCursor(0)">⏮</button>
+    <button :disabled="total === 0" title="back" @click="spy.step(-1)">◀</button>
     <input
       class="scrubber"
       type="range"
@@ -58,8 +58,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       :disabled="total === 0"
       @input="onSlider"
     />
-    <button :disabled="total === 0" title="avanti" @click="spy.step(1)">▶</button>
-    <button :disabled="total === 0" title="fine" @click="spy.setCursor(maxIndex)">⏭</button>
+    <button :disabled="total === 0" title="forward" @click="spy.step(1)">▶</button>
+    <button :disabled="total === 0" title="end" @click="spy.setCursor(maxIndex)">⏭</button>
 
     <span class="label">{{ label }}</span>
   </div>

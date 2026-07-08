@@ -1,10 +1,10 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 
 /**
- * Osserva la larghezza di `el` con ResizeObserver e la restituisce reattiva.
- * Usata dai grafici SVG per ricalcolare il viewBox su resize mantenendo
- * width:100%. Il componente crea e possiede la template ref (`const el =
- * ref()` + `ref="el"`) e la passa qui, così Volar la riconosce come usata.
+ * Observes `el`'s width with ResizeObserver and returns it reactively.
+ * Used by SVG charts to recompute the viewBox on resize while keeping
+ * width:100%. The component creates and owns the template ref (`const el =
+ * ref()` + `ref="el"`) and passes it here, so Volar recognizes it as used.
  */
 export function useElementWidth(el: Ref<HTMLElement | null>, fallback = 640): Ref<number> {
   const width = ref(fallback)

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Card compatta per un evento MCP: subkind "<server>:<metodo>", durata
-// request->response (già corretta lato backend: ts_start/ts_end di un evento
-// mcp sono ts_request/ts_response, vedi ingest.py). Accento cromatico diverso
-// da EventCard/HookMarker per distinguerla a colpo d'occhio.
+// Compact card for an MCP event: subkind "<server>:<method>", request->response
+// duration (already corrected server-side: an mcp event's ts_start/ts_end are
+// ts_request/ts_response, see ingest.py). Its own accent color makes it
+// recognizable at a glance among the round-trip swimlane rows.
 import { computed } from 'vue'
 import { useSpyStore } from '../../stores/spy'
 import { formatDuration, formatTime } from '../../utils/format'

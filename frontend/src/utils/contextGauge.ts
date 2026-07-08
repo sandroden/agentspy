@@ -1,31 +1,31 @@
 /**
- * Replica del criterio della statusline (~/.claude/scripts/thx-statusline.sh):
- * la barra ha 12 blocchi ma il riempimento NON è lineare rispetto alla
- * percentuale di contesto usato. Le percentuali sono divise in zone
- * (verde/ambra/giallo/rosso) con soglie che dipendono dalla dimensione del
- * contesto del modello, e ogni zona occupa un numero fisso di blocchi
- * (4/8/11 su 12): dentro la zona l'interpolazione è lineare, fra le zone no.
- * Logica: contesto piccolo -> si può usare di più (soglie alte); contesto
- * grande -> conviene cambiare sessione prima (soglie basse).
+ * Replica of the statusline's criterion (~/.claude/scripts/thx-statusline.sh):
+ * the bar has 12 blocks but the fill is NOT linear with respect to the
+ * percentage of context used. Percentages are split into zones
+ * (green/amber/yellow/red) with thresholds that depend on the model's
+ * context size, and each zone occupies a fixed number of blocks
+ * (4/8/11 out of 12): interpolation is linear within a zone, not across
+ * zones. Rationale: small context -> can use more of it (higher thresholds);
+ * large context -> better to switch sessions sooner (lower thresholds).
  */
 
-/** "context_max:t1:t2:t3" della statusline, ordinati dal più piccolo. */
+/** "context_max:t1:t2:t3" from the statusline, ordered from smallest. */
 const PROFILES: { max: number; thresholds: [number, number, number] }[] = [
   { max: 300_000, thresholds: [30, 50, 75] },
   { max: 2_000_000, thresholds: [12, 25, 60] },
 ]
 
 export const BLOCKS_TOTAL = 12
-/** Blocchi cumulativi occupati al termine di ogni zona (ZONE_BLOCKS). */
+/** Cumulative blocks filled at the end of each zone (ZONE_BLOCKS). */
 const ZONE_BLOCKS = [4, 8, 11]
 
-/** verde, ambra (chiaro), giallo (scuro), rosso — come i colori ANSI 32/93/33/31. */
+/** green, amber (light), yellow (dark), red — like ANSI colors 32/93/33/31. */
 export const ZONE_COLORS = ['#3fb950', '#f0e14a', '#c9a227', '#f85149'] as const
 export const ZONE_NAMES = ['green', 'amber', 'yellow', 'red'] as const
 
 /**
- * Finestra di contesto per modello: sonnet-5 ha 1M (con o senza il marker
- * "[1m]" nell'id); per gli altri si assume la finestra classica da 200k.
+ * Context window per model: sonnet-5 has 1M (with or without the "[1m]"
+ * marker in the id); for others, the classic 200k window is assumed.
  */
 export function contextSizeFor(model: string | null | undefined): number {
   if (!model) return 200_000
@@ -41,13 +41,13 @@ function selectThresholds(contextSize: number): [number, number, number] {
 }
 
 export interface Gauge {
-  /** blocchi pieni su BLOCKS_TOTAL (interpolazione per zona, come la statusline) */
+  /** blocks filled out of BLOCKS_TOTAL (per-zone interpolation, like the statusline) */
   filled: number
-  /** colore della zona corrente */
+  /** color of the current zone */
   color: string
-  /** indice zona: 0 verde, 1 ambra, 2 giallo, 3 rosso */
+  /** zone index: 0 green, 1 amber, 2 yellow, 3 red */
   zone: number
-  /** percentuale intera usata per il calcolo */
+  /** integer percentage used for the calculation */
   pct: number
 }
 

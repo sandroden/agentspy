@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Vista "riempimento del contesto": una barra orizzontale impilata per ogni
-// round trip della sessione aperta (spy.stats), in ordine temporale come la
-// timeline. La larghezza totale è proporzionale a input+cache_read+cache_write
-// (scala comune = max della sessione); segmenti cache_read/cache_write/nuovo
-// più una tacca separata per l'output. Click su una barra -> spy.select(id).
+// "Context fill" view: a stacked horizontal bar for each round trip of the
+// open session (spy.stats), in chronological order like the timeline. Total
+// width is proportional to input+cache_read+cache_write (common scale = the
+// session's max); cache_read/cache_write/new segments plus a separate tick
+// for output. Click on a bar -> spy.select(id).
 import { computed } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import type { StatsItem } from '../types'
@@ -28,7 +28,7 @@ function outputPct(n: number): string {
   return `${((n / maxOutput.value) * 100).toFixed(3)}%`
 }
 
-/** Modello abbreviato per non affollare l'etichetta laterale (vedi SessionsSidebar). */
+/** Abbreviated model so it doesn't crowd the side label (see SessionsSidebar). */
 function abbreviateModel(model: string | null): string {
   if (!model) return '—'
   const m = model.match(/claude-([a-z]+)-(\d+)(?:-(\d+))?/)
@@ -41,18 +41,18 @@ function abbreviateModel(model: string | null): string {
 
 function tooltip(s: StatsItem): string {
   const lines = [
-    `input nuovo: ${s.input_tokens} token`,
-    `cache_read: ${s.cache_read_tokens} token`,
-    `cache_write: ${s.cache_write_tokens} token`,
-    `output: ${s.output_tokens} token`,
+    `new input: ${s.input_tokens} tokens`,
+    `cache_read: ${s.cache_read_tokens} tokens`,
+    `cache_write: ${s.cache_write_tokens} tokens`,
+    `output: ${s.output_tokens} tokens`,
   ]
-  if (s.system_chars != null) lines.push(`system: ~${s.system_chars} char`)
-  if (s.tools_chars != null) lines.push(`tools: ~${s.tools_chars} char`)
-  if (s.messages_chars != null) lines.push(`messages: ~${s.messages_chars} char`)
+  if (s.system_chars != null) lines.push(`system: ~${s.system_chars} chars`)
+  if (s.tools_chars != null) lines.push(`tools: ~${s.tools_chars} chars`)
+  if (s.messages_chars != null) lines.push(`messages: ~${s.messages_chars} chars`)
   return lines.join('\n')
 }
 
-// -- totali di sessione ------------------------------------------------------
+// -- session totals -----------------------------------------------------------
 
 const totalOutput = computed(() => stats.value.reduce((sum, s) => sum + s.output_tokens, 0))
 const totalNewInput = computed(() => stats.value.reduce((sum, s) => sum + s.input_tokens, 0))
@@ -69,25 +69,25 @@ function select(eventId: number) {
 <template>
   <div class="context-fill-panel">
     <p v-if="stats.length === 0" class="empty">
-      Nessun round trip ancora in questa sessione.
+      No round trips yet in this session.
     </p>
     <template v-else>
       <div class="summary">
         <div class="summary-row">
-          <span>output totale <b>{{ formatTokens(totalOutput) }}</b></span>
-          <span>input nuovo totale <b>{{ formatTokens(totalNewInput) }}</b></span>
-          <span>contesto attuale <b>{{ formatTokens(lastContext) }}</b></span>
+          <span>total output <b>{{ formatTokens(totalOutput) }}</b></span>
+          <span>total new input <b>{{ formatTokens(totalNewInput) }}</b></span>
+          <span>current context <b>{{ formatTokens(lastContext) }}</b></span>
         </div>
         <p class="hint">
-          La parte fredda (cache_read) è già servita dalla cache: costa e pesa meno di rigenerarla;
-          la parte accesa è testo nuovo mandato per la prima volta.
+          The cold part (cache_read) is already served from cache: it costs and weighs less than
+          regenerating it; the hot part is new text sent for the first time.
         </p>
       </div>
 
       <div class="legend">
         <span class="legend-item"><i class="swatch cache-read"></i>cache_read</span>
         <span class="legend-item"><i class="swatch cache-write"></i>cache_write</span>
-        <span class="legend-item"><i class="swatch new"></i>nuovo</span>
+        <span class="legend-item"><i class="swatch new"></i>new</span>
         <span class="legend-item"><i class="swatch output"></i>output</span>
       </div>
 

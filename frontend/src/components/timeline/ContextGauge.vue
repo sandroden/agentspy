@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Mini-barra "statusline": riempimento del contesto al momento di un round
-// trip, con lo stesso criterio (non lineare) della statusline del terminale.
-// Il contesto usato è input + cache_read + cache_write della richiesta.
+// "Statusline" mini-bar: context fill at the time of a round trip, using the
+// same (non-linear) criterion as the terminal statusline.
+// The context used is input + cache_read + cache_write of the request.
 import { computed } from 'vue'
 import { BLOCKS_TOTAL, contextGauge, contextSizeFor } from '../../utils/contextGauge'
 import { formatTokens } from '../../utils/format'
@@ -23,7 +23,7 @@ const cells = computed(() =>
 
 const title = computed(
   () =>
-    `contesto ${gauge.value.pct}% (${formatTokens(usedTokens.value)}/${formatTokens(size.value)}) — barra non lineare, stesso criterio della statusline`
+    `context ${gauge.value.pct}% (${formatTokens(usedTokens.value)}/${formatTokens(size.value)}) — non-linear bar, same criterion as the statusline`
 )
 </script>
 

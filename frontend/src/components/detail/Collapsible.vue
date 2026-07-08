@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Sezione collassabile generica: header cliccabile (titolo + meta opzionale,
-// es. conteggio caratteri) + corpo con lo slot di default. Usata per i blocchi
-// System, i tool in "Richiesta" e i tool_result nei content block.
+// Generic collapsible section: clickable header (title + optional meta,
+// e.g. character count) + body with the default slot. Used for the System
+// blocks, the tools in "Request", and tool_result in content blocks.
 import { ref } from 'vue'
 
 const props = withDefaults(

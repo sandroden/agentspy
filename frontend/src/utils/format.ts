@@ -1,4 +1,4 @@
-/** Formattazione numeri/durate/orari per la UI. */
+/** Formatting of numbers/durations/times for the UI. */
 
 export function formatTokens(n: number | null | undefined): string {
   const value = n ?? 0
@@ -17,7 +17,7 @@ export function formatDuration(s: number | null | undefined): string {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`
 }
 
-/** Orario locale HH:MM:SS da un timestamp epoch in secondi. */
+/** Local HH:MM:SS time from an epoch timestamp in seconds. */
 export function formatTime(ts: number | null | undefined): string {
   if (ts == null) return '--:--:--'
   const d = new Date(ts * 1000)

@@ -1,8 +1,8 @@
-/** Utility per riconoscere la famiglia di modello e assegnarle un colore. */
+/** Utility to recognize the model family and assign it a color. */
 
 export type ModelFamily = 'opus' | 'sonnet' | 'haiku' | 'fable' | 'unknown'
 
-/** Estrae la famiglia ("opus", "sonnet"…) da una stringa modello Anthropic. */
+/** Extracts the family ("opus", "sonnet"...) from an Anthropic model string. */
 export function modelFamily(model: string | null | undefined): ModelFamily {
   if (!model) return 'unknown'
   const m = model.match(/claude-([a-z]+)/i)
@@ -14,8 +14,8 @@ export function modelFamily(model: string | null | undefined): ModelFamily {
 }
 
 /**
- * Colore identificativo per modello, usato nelle barre subagente e nelle
- * legende. `unknown` cade sull'accent globale.
+ * Identifying color per model, used in subagent bars and legends.
+ * `unknown` falls back to the global accent.
  */
 export function modelColor(model: string | null | undefined): string {
   switch (modelFamily(model)) {
@@ -33,9 +33,9 @@ export function modelColor(model: string | null | undefined): string {
 }
 
 /**
- * Etichetta compatta "famiglia-major.minor" (es. "opus-4.8"). Duplicata nei
- * tre componenti timeline/sidebar/context-fill: qui è la versione condivisa per
- * i componenti nuovi della dashboard.
+ * Compact "family-major.minor" label (e.g. "opus-4.8"). Duplicated across
+ * the timeline/sidebar/context-fill components: this is the shared version
+ * for the newer dashboard components.
  */
 export function abbreviateModel(model: string | null | undefined): string {
   if (!model) return '—'

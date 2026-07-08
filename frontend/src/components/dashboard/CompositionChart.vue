@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * "Di cosa è fatto il contesto" (featured): area impilata per round trip con 4
- * serie — cache_read, cache_write, input nuovo, output. Hover: tooltip con la
- * ripartizione; click: naviga alla sessione e seleziona l'evento.
+ * "What the context is made of" (featured): stacked area per round trip with 4
+ * series — cache_read, cache_write, new input, output. Hover: tooltip with the
+ * breakdown; click: navigate to the session and select the event.
  */
 import { computed, ref } from 'vue'
 import type { StatsItem } from '../../types'
@@ -19,7 +19,7 @@ const emit = defineEmits<{ (e: 'jump', sessionId: string, eventId: number): void
 const LAYERS = [
   { key: 'cache_read_tokens', label: 'cache_read', color: '#4f9dff' },
   { key: 'cache_write_tokens', label: 'cache_write', color: '#a78bfa' },
-  { key: 'input_tokens', label: 'input nuovo', color: '#3ecf6e' },
+  { key: 'input_tokens', label: 'new input', color: '#3ecf6e' },
   { key: 'output_tokens', label: 'output', color: '#f0883e' },
 ] as const
 
@@ -46,10 +46,10 @@ function yFor(v: number): number {
   return margin.top + innerH - (v / yMax.value) * innerH
 }
 
-/** Colonne x con i limiti cumulativi delle 4 serie. Colonna singola -> due bordi. */
+/** X columns with the cumulative bounds of the 4 series. Single column -> two edges. */
 interface Column {
   x: number
-  bounds: number[] // 5 valori: 0, cumulativo dopo ogni layer
+  bounds: number[] // 5 values: 0, cumulative after each layer
 }
 
 const columns = computed<Column[]>(() => {
@@ -64,7 +64,7 @@ const columns = computed<Column[]>(() => {
     return { x, bounds }
   }
   if (props.stats.length === 1) {
-    // Banda piatta a tutta larghezza per rendere visibile l'unico round trip.
+    // Full-width flat band to make the single round trip visible.
     return [
       build(0, margin.left),
       build(0, width.value - margin.right),
@@ -133,7 +133,7 @@ const hasData = computed(() => props.stats.length > 0)
 <template>
   <div ref="el" class="chart-wrap">
     <p v-if="!hasData" class="empty">
-      Nessun round trip: qui vedrai quanta parte del contesto è cache fredda, testo nuovo o output.
+      No round trips: here you'll see how much of the context is cold cache, new text, or output.
     </p>
     <template v-else>
       <div class="legend">
@@ -181,7 +181,7 @@ const hasData = computed(() => props.stats.length > 0)
         class="tooltip"
         :style="{ left: tooltip.x + 'px' }"
       >
-        <strong>turno {{ tooltip.item.turn_index ?? '—' }}</strong>
+        <strong>turn {{ tooltip.item.turn_index ?? '—' }}</strong>
         <span v-for="l in LAYERS" :key="l.key" class="row">
           <i class="swatch" :style="{ backgroundColor: l.color }"></i>
           {{ l.label }}: {{ formatTokens(tooltip.item[l.key]) }}

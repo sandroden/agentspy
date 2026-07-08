@@ -1,32 +1,32 @@
 /**
- * Stima del costo API a partire dai token reali.
+ * API cost estimate from actual tokens.
  *
- * I prezzi sono espressi in micro-dollari per token (µ$/token), cioè
- * dollari per milione di token: 5 µ$/token = 5 $/Mtoken. Valori didattici
- * per confrontare l'impatto delle strategie, non un tariffario ufficiale.
+ * Prices are expressed in micro-dollars per token (µ$/token), i.e.
+ * dollars per million tokens: 5 µ$/token = $5/Mtoken. Didactic values
+ * to compare the impact of strategies, not an official price list.
  */
 import type { Usage } from '../types'
 import { modelFamily } from './model'
 
 export interface Pricing {
-  /** µ$/token per input nuovo. */
+  /** µ$/token for new input. */
   input: number
-  /** µ$/token per output generato. */
+  /** µ$/token for generated output. */
   output: number
-  /** µ$/token per lettura dalla cache (parte fredda). */
+  /** µ$/token for cache reads (cold part). */
   cache_read: number
-  /** µ$/token per scrittura in cache. */
+  /** µ$/token for cache writes. */
   cache_write: number
 }
 
 const PRICING: Record<string, Pricing> = {
-  // Opus: base di riferimento.
+  // Opus: reference baseline.
   opus: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 },
   // Sonnet: cache_read = 0.1×input, cache_write = 1.25×input.
   sonnet: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 },
   // Haiku: cache_read = 0.1×input, cache_write = 1.25×input.
   haiku: { input: 1, output: 5, cache_read: 0.1, cache_write: 1.25 },
-  // Fable: tariffario non pubblicato qui; usiamo la fascia Opus come stima.
+  // Fable: pricing not published here; we use the Opus tier as an estimate.
   fable: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 },
 }
 
@@ -36,7 +36,17 @@ export function pricingFor(model: string | null | undefined): Pricing {
   return PRICING[modelFamily(model)] ?? DEFAULT_PRICING
 }
 
-/** Costo stimato in dollari per un dato Usage e modello. */
+/**
+ * Estimated cost in dollars for a given Usage and model.
+ *
+ * NB: the token columns carry *context occupancy* (the prompt as seen at
+ * message_start), which is what the gauge and the fill charts need. On turns
+ * with extended thinking the API bills a larger cache-read *throughput* (the
+ * prompt re-read across passes, reported in message_delta); on those rare turns
+ * the cost here is therefore approximated on the prompt size, slightly below the
+ * billed figure. A deliberate trade-off for a didactic tool — see the
+ * _PROMPT_USAGE_KEYS note in server/agentspy_server/proxy.py.
+ */
 export function estimateCost(usage: Usage, model: string | null | undefined): number {
   const p = pricingFor(model)
   const microDollars =
@@ -47,7 +57,7 @@ export function estimateCost(usage: Usage, model: string | null | undefined): nu
   return microDollars / 1_000_000
 }
 
-/** Formatta un costo in dollari con precisione adeguata alla scala. */
+/** Formats a cost in dollars with precision suited to its scale. */
 export function formatCost(dollars: number): string {
   if (dollars <= 0) return '$0'
   if (dollars < 0.01) return `$${dollars.toFixed(4)}`
