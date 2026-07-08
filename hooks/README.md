@@ -6,6 +6,11 @@ Hook per Claude Code che invia telemetria degli eventi di sessione a un server A
 
 Copia la sezione `hooks` da `settings-example.json` nel tuo `.claude/settings.json` e sostituisci il placeholder `/PATH/TO/agentspy` con il percorso assoluto della directory agentspy.
 
+In alternativa, `install.sh` (Linux/macOS) o `install.ps1` (Windows) nella
+root del repo automatizzano questo passaggio e aggiungono una funzione
+shell `claude-spy [tag]` che usa direttamente il file generato — vedi il
+paragrafo "Install" del README principale.
+
 Esempio:
 ```json
 {
