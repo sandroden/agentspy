@@ -45,6 +45,37 @@ Note: if `ANTHROPIC_API_KEY` is present in the environment it takes
 precedence over the claude.ai login: `env -u ANTHROPIC_API_KEY
 ANTHROPIC_BASE_URL=... claude`.
 
+### Install (the `claude-spy` shell function)
+
+`install.sh` (Linux/macOS) and `install.ps1` (Windows PowerShell) automate
+the steps above: they generate `~/.config/agentspy/hooks.json` from
+`hooks/settings-example.json` (with the real path to this checkout in place
+of `/PATH/TO/agentspy`) and add a `claude-spy [tag]` function to your shell
+so a session is spied on with one command:
+
+```bash
+git clone <this repo> && cd agentspy
+bash install.sh          # or: chmod +x install.sh && ./install.sh
+# open a new shell (or: source ~/.bashrc / ~/.zshrc)
+
+cd agentspy && just up
+cd my-project-to-spy
+claude-spy my-tag
+```
+
+On Windows:
+
+```powershell
+.\install.ps1
+# open a new PowerShell (or: . $PROFILE)
+```
+
+Both scripts are idempotent (safe to re-run) and reversible
+(`install.sh --uninstall` / `install.ps1 -Uninstall`); `--no-rc` / `-NoRc`
+writes `hooks.json` only and prints the function instead of touching your
+shell config. `install.ps1` is community-contributed and not covered by CI
+on Windows — please report issues.
+
 ### Trying the UI without real traffic
 
 `scripts/seed_demo.py` generates a demo DB (a live session with tool use, a
