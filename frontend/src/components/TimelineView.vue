@@ -1,13 +1,21 @@
 <script setup lang="ts">
-// Timeline verticale (tempo dall'alto verso il basso), raggruppata per
-// turn_index. Legge SOLO spy.visibleEvents (già filtrato da live/pausa/
-// cursore) + spy.sessions (per individuare i subagenti figli) e spy.detailCache
-// (best-effort, per arricchire l'header di turno col prompt reale quando è
-// già stato caricato da un click precedente).
+// Vertical timeline (time top-to-bottom), grouped by turn_index and rendered
+// as a Trigger | Claude (LLM) | Tools swimlane. Reads ONLY spy.visibleEvents
+// (already filtered by live/pause/cursor) + spy.sessions (to find child
+// sub-agents) and spy.detailCache (best-effort, to enrich the turn header
+// with the real prompt once it has been loaded by a previous click).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import type { EventSummary, Session } from '../types'
+import Glossary from './timeline/Glossary.vue'
+import SessionSummaryBar from './timeline/SessionSummaryBar.vue'
 import TurnGroup from './timeline/TurnGroup.vue'
+
+// Dismissing the glossary tips reveals the session usage summary in its
+// place instead (see SessionSummaryBar.vue); persisted like before.
+const GLOSSARY_KEY = 'agentspy.showGlossary'
+const showGlossary = ref(localStorage.getItem(GLOSSARY_KEY) !== '0')
+watch(showGlossary, (v) => localStorage.setItem(GLOSSARY_KEY, v ? '1' : '0'))
 
 export interface SubagentRowData {
   agentId: string
@@ -17,7 +25,7 @@ export interface SubagentRowData {
 }
 
 export type TimelineRow =
-  | { rowKind: 'event'; event: EventSummary; nextRt?: EventSummary }
+  | { rowKind: 'event'; event: EventSummary }
   | { rowKind: 'subagent'; data: SubagentRowData }
   | { rowKind: 'gap'; seconds: number }
 
@@ -37,23 +45,22 @@ const spy = useSpyStore()
 const GAP_SECONDS = 30
 
 /**
- * Raggruppa spy.visibleEvents per turno in un solo passaggio O(n), evitando
- * lavoro ripetuto nel template. I subagenti sono individuati in due modi
- * (vedi PLAN.md/correlate.py): (a) un evento della sessione corrente porta
- * già un `agent_id` (schema hook non ancora verificato empiricamente per il
- * SubagentStart lato genitore); (b) esiste una sessione figlia
- * (parent_session_id === sessione corrente) il cui agent_id non compare in
- * nessun evento — in tal caso viene inserita come marker temporale in base a
- * `started_at`. In entrambi i casi si mostra solo un blocco di rimando, mai
- * gli eventi del figlio.
+ * Groups spy.visibleEvents by turn in a single O(n) pass, avoiding repeated
+ * work in the template. Sub-agents are detected two ways (see
+ * PLAN.md/correlate.py): (a) an event in the current session already carries
+ * an `agent_id` (hook schema not yet empirically verified for SubagentStart
+ * on the parent side); (b) a child session exists (parent_session_id ===
+ * current session) whose agent_id never shows up in any event — in that case
+ * a time-based marker is inserted from its `started_at`. Either way, only a
+ * pointer block is shown, never the child's own events.
  */
 const groups = computed<TimelineGroup[]>(() => {
-  // nota: i PostToolUse sono già filtrati alla fonte (stores/spy.ts)
+  // note: PostToolUse events are already filtered at the source (stores/spy.ts)
   const evts = spy.visibleEvents
   const parentId = spy.currentSessionId
-  // l'agent_id della sessione APERTA (se essa stessa è un subagente): un
-  // evento che lo riporta è solo l'eco del proprio stato di correlazione
-  // (es. SubagentStart/Stop nella sessione figlia stessa), non un nipote.
+  // agent_id of the OPEN session (if it is itself a sub-agent): an event
+  // reporting it is just the echo of its own correlation state (e.g.
+  // SubagentStart/Stop within the child session itself), not a grandchild.
   const ownAgentId = spy.currentSession?.agent_id ?? null
   const children: Session[] = parentId
     ? Object.values(spy.sessions).filter((s) => s.parent_session_id === parentId && s.agent_id)
@@ -63,9 +70,9 @@ const groups = computed<TimelineGroup[]>(() => {
       .filter((e): e is EventSummary & { agent_id: string } => !!e.agent_id && e.agent_id !== ownAgentId)
       .map((e) => e.agent_id)
   )
-  // in pausa (o con cursore indietro) `evts` copre solo il tempo fino al
-  // cursore: un figlio nato dopo quell'istante non deve ancora comparire,
-  // altrimenti la timeline "anticipa" eventi rispetto al cursore.
+  // while paused (or with the cursor rewound) `evts` only covers time up to
+  // the cursor: a child born after that instant must not show up yet, or the
+  // timeline would "get ahead" of the cursor.
   const maxVisibleTs = evts.reduce(
     (max, e) => Math.max(max, (e.ts_start ?? 0) + (e.duration_s ?? 0)),
     -Infinity
@@ -89,6 +96,15 @@ const groups = computed<TimelineGroup[]>(() => {
   let currentTurn: number | null = null
   let lastAgentId: string | null = null
   let lastEndTs: number | null = null
+  // ts_start of every anchor per group, for the turn header's time/duration —
+  // tracked independently of `rows` since hook anchors (e.g. UserPromptSubmit,
+  // which usually opens the turn) no longer become visible rows.
+  const tsByKey = new Map<string, number[]>()
+  function noteTs(key: string, ts: number) {
+    const arr = tsByKey.get(key)
+    if (arr) arr.push(ts)
+    else tsByKey.set(key, [ts])
+  }
 
   function ensureGroup(turnIndex: number | null, ts: number): TimelineGroup {
     const key = turnIndex === null ? 'none' : String(turnIndex)
@@ -119,6 +135,8 @@ const groups = computed<TimelineGroup[]>(() => {
       group.rows.push({ rowKind: 'gap', seconds: anchor.ts - lastEndTs })
     }
 
+    noteTs(group.key, anchor.ts)
+
     if (anchor.anchorKind === 'subagent') {
       const c = anchor.child
       group.rows.push({
@@ -135,7 +153,7 @@ const groups = computed<TimelineGroup[]>(() => {
 
     if (e.agent_id && e.agent_id !== ownAgentId) {
       if (lastAgentId === e.agent_id) {
-        // estende il blocco subagente già aperto: nessuna nuova riga
+        // extends the already-open sub-agent block: no new row
         lastEndTs = rowEnd
         continue
       }
@@ -150,57 +168,57 @@ const groups = computed<TimelineGroup[]>(() => {
     }
 
     lastAgentId = null
-    group.rows.push({ rowKind: 'event', event: e })
     lastEndTs = rowEnd
+    // Hook events (PreToolUse, UserPromptSubmit, ...) don't get their own
+    // swimlane row: the tool call is already shown via the round trip's own
+    // tool_uses, and having hooks "as such" appear in the timeline would
+    // teach a Claude Code implementation detail nobody asked to learn. They
+    // still contribute data (turn grouping above, prompt snippet below).
     if (e.kind === 'round_trip') {
+      group.rows.push({ rowKind: 'event', event: e })
       group.roundTrips++
       group.outputTokens += e.usage.output_tokens
+    } else if (e.kind === 'mcp') {
+      group.rows.push({ rowKind: 'event', event: e })
     }
-    if (e.kind === 'hook' && e.subkind === 'UserPromptSubmit' && !group.promptSnippet) {
-      const cached = spy.detailCache[e.id]
-      const payload = cached?.payload as Record<string, unknown> | undefined
-      const prompt = payload && typeof payload.prompt === 'string' ? payload.prompt : ''
-      if (prompt) group.promptSnippet = prompt.slice(0, 160)
-    }
-  }
-
-  // Gauge di contesto DOPO ogni tool_use: il contesto "dopo" è esattamente
-  // l'input del round trip successivo (la richiesta che contiene il
-  // tool_result), quindi ogni marker tool_use eredita usage/model di quel
-  // round trip. Scansione all'indietro: nextRt = round trip più vicino che segue.
-  {
-    const eventRows = order
-      .flatMap((k) => (byKey.get(k) as TimelineGroup).rows)
-      .filter((r): r is TimelineRow & { rowKind: 'event' } => r.rowKind === 'event')
-    let nextRt: EventSummary | undefined
-    for (let i = eventRows.length - 1; i >= 0; i--) {
-      const r = eventRows[i]
-      if (r.event.kind === 'round_trip') nextRt = r.event
-      else if (r.event.kind === 'hook' && r.event.subkind === 'PreToolUse') r.nextRt = nextRt
+    if (e.kind === 'hook' && e.subkind === 'UserPromptSubmit' && !group.promptSnippet && e.snippet) {
+      // e.snippet already carries the real prompt text for this hook (see
+      // store.py:_snippet_from_payload) — no need to wait for a click to
+      // populate spy.detailCache, which never happens since UserPromptSubmit
+      // hooks don't render their own row (see comment above).
+      group.promptSnippet = e.snippet
     }
   }
 
   for (const key of order) {
     const g = byKey.get(key) as TimelineGroup
     if (!g.promptSnippet) {
+      // No UserPromptSubmit hook fired for this turn — happens inside a
+      // subagent's session (trigger = the delegated task) and for service
+      // traffic. Use the round trip's *input* (first user message), not its
+      // snippet, which is the response ("tool_use: Bash").
       const firstRoundTrip = g.rows.find(
         (r): r is TimelineRow & { rowKind: 'event' } => r.rowKind === 'event' && r.event.kind === 'round_trip'
       )
-      if (firstRoundTrip) g.promptSnippet = firstRoundTrip.event.snippet
+      if (firstRoundTrip) g.promptSnippet = firstRoundTrip.event.input_snippet
     }
-    const timestamps = g.rows
-      .map((r) => (r.rowKind === 'event' ? r.event.ts_start : r.rowKind === 'subagent' ? r.data.ts : null))
-      .filter((v): v is number => v != null)
+    const timestamps = tsByKey.get(key) ?? []
     if (timestamps.length) {
       g.startTs = Math.min(...timestamps)
       g.durationS = Math.max(...timestamps) - g.startTs
     }
   }
 
-  return order.map((k) => byKey.get(k) as TimelineGroup)
+  // A turn made only of hook events (typically the startup traffic before
+  // the first prompt) now has zero visible rows — or only a 'gap' separator,
+  // which isn't real content either. Skip it rather than showing an empty
+  // header + lanehead with nothing meaningful under it.
+  return order
+    .map((k) => byKey.get(k) as TimelineGroup)
+    .filter((g) => g.rows.some((r) => r.rowKind !== 'gap'))
 })
 
-// -- scroll "segui" -----------------------------------------------------
+// -- "follow" scroll -----------------------------------------------------
 const rootEl = ref<HTMLElement | null>(null)
 const showFollowButton = ref(false)
 let scrollContainer: HTMLElement | null = null
@@ -208,11 +226,11 @@ let stickToBottom = true
 const NEAR_BOTTOM_PX = 150
 
 function findScrollContainer(el: HTMLElement | null): HTMLElement {
-  // Basato solo sullo stile (non su scrollHeight > clientHeight): a
-  // onMounted il contenuto reale non è ancora arrivato (fetch async), quindi
-  // `.center` potrebbe non "traboccare" ancora pur essendo il vero
-  // contenitore di scroll — verificarlo via overflow-y è stabile a
-  // prescindere dal contenuto già caricato.
+  // Based purely on style (not on scrollHeight > clientHeight): at
+  // onMounted the real content hasn't arrived yet (async fetch), so
+  // `.center` might not "overflow" yet despite being the real scroll
+  // container — checking overflow-y is stable regardless of content already
+  // loaded.
   let node = el?.parentElement ?? null
   while (node) {
     const style = getComputedStyle(node)
@@ -245,9 +263,9 @@ function onFollowClick() {
   scrollToBottom(true)
 }
 
-// header sticky "Turno N": misura l'altezza di TimeControls (sticky, sopra
-// la timeline) per evitare che i due sticky si sovrappongano, senza dover
-// toccare quel componente.
+// sticky "Turn N" header: measures TimeControls' height (sticky, above the
+// timeline) to keep the two sticky elements from overlapping, without having
+// to touch that component.
 const stickyOffset = ref(44)
 let resizeObserver: ResizeObserver | null = null
 
@@ -319,21 +337,16 @@ watch(
 
 <template>
   <div ref="rootEl" class="timeline-view">
-    <p v-if="groups.length === 0" class="empty">Nessun evento in questa sessione (ancora).</p>
+    <template v-if="groups.length">
+      <Glossary v-if="showGlossary" v-model="showGlossary" />
+      <SessionSummaryBar v-else @show-tips="showGlossary = true" />
+    </template>
+    <p v-if="groups.length === 0" class="empty">No events in this session (yet).</p>
     <TransitionGroup v-else name="group" tag="div" class="groups">
       <TurnGroup v-for="g in groups" :key="g.key" :group="g" :sticky-offset="stickyOffset" />
     </TransitionGroup>
 
-    <footer v-if="groups.length" class="legend" aria-label="legenda">
-      <span class="item"><span class="swatch" style="background-color: var(--accent)"></span>round trip</span>
-      <span class="item"><span class="glyph" style="color: var(--accent-live)">▶</span>prompt utente</span>
-      <span class="item"><span class="glyph">🔧</span>tool_use</span>
-      <span class="item"><span class="swatch" style="background-color: var(--muted)"></span>hook</span>
-      <span class="item"><span class="glyph">🔌</span>mcp</span>
-      <span class="item"><span class="glyph">🤖</span>subagente</span>
-    </footer>
-
-    <button v-if="showFollowButton" class="follow-btn" @click="onFollowClick">⤓ nuovi eventi</button>
+    <button v-if="showFollowButton" class="follow-btn" @click="onFollowClick">⤓ new events</button>
   </div>
 </template>
 
@@ -354,34 +367,6 @@ watch(
 .groups {
   display: flex;
   flex-direction: column;
-}
-
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1rem;
-  padding: 0.6rem 1.5rem 0;
-  margin-top: 0.4rem;
-  border-top: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-
-.legend .item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.legend .swatch {
-  width: 10px;
-  height: 3px;
-  border-radius: 2px;
-}
-
-.legend .glyph {
-  font-size: 0.78rem;
-  line-height: 1;
 }
 
 .follow-btn {
