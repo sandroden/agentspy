@@ -5,7 +5,9 @@ import { useSpyStore } from '../stores/spy'
 import TimeControls from '../components/TimeControls.vue'
 import TimelineView from '../components/TimelineView.vue'
 import ContextFillPanel from '../components/ContextFillPanel.vue'
-import { formatDuration, formatTokens } from '../utils/format'
+import ContextInventory from '../components/ContextInventory.vue'
+import ViewToggle from '../components/ViewToggle.vue'
+import { formatDuration } from '../utils/format'
 
 const props = defineProps<{
   id: string
@@ -46,34 +48,21 @@ function goTo(id: string) {
   <div class="session-view">
     <header v-if="session" class="session-header">
       <div class="title-row">
-        <!-- il tag (x-agentspy-tag) è il nome parlante scelto dall'utente:
-             è LUI il titolo; l'id di sessione resta come dettaglio accanto -->
-        <h1 v-if="session.tag">
-          {{ session.tag }}<span class="title-id">· {{ session.title || session.id }}</span>
-        </h1>
-        <h1 v-else>{{ session.title || session.id }}</h1>
-        <span class="dot" :class="{ live: session.live }"></span>
+        <div class="title-left">
+          <!-- the tag (x-agentspy-tag) is the human-friendly name chosen by the
+               user: IT is the title; the session id stays as a detail beside it -->
+          <h1 v-if="session.tag">
+            {{ session.tag }}<span class="title-id">· {{ session.title || session.id }}</span>
+          </h1>
+          <h1 v-else>{{ session.title || session.id }}</h1>
+          <span class="dot" :class="{ live: session.live }"></span>
+        </div>
+        <ViewToggle />
       </div>
       <div class="meta-row">
         <span>{{ session.model }}</span>
         <span>{{ formatDuration(session.duration_s) }}</span>
-        <span>{{ session.turns }} turni · {{ session.round_trips }} round trip</span>
-      </div>
-      <div class="usage-row">
-        <div class="usage-block">
-          <span class="usage-label">sessione</span>
-          <span>in {{ formatTokens(session.usage.input_tokens) }}</span>
-          <span>out {{ formatTokens(session.usage.output_tokens) }}</span>
-          <span>cache-r {{ formatTokens(session.usage.cache_read_tokens) }}</span>
-          <span>cache-w {{ formatTokens(session.usage.cache_write_tokens) }}</span>
-        </div>
-        <div class="usage-block incl">
-          <span class="usage-label">incl. subagenti</span>
-          <span>in {{ formatTokens(session.usage_incl_children.input_tokens) }}</span>
-          <span>out {{ formatTokens(session.usage_incl_children.output_tokens) }}</span>
-          <span>cache-r {{ formatTokens(session.usage_incl_children.cache_read_tokens) }}</span>
-          <span>cache-w {{ formatTokens(session.usage_incl_children.cache_write_tokens) }}</span>
-        </div>
+        <span>{{ session.turns }} turns · {{ session.round_trips }} round trips</span>
       </div>
       <div v-if="parent || children.length" class="links-row">
         <span v-if="parent" class="chip link" @click="goTo(parent.id)">
@@ -84,19 +73,21 @@ function goTo(id: string) {
         </span>
       </div>
     </header>
-    <p v-else class="loading">Caricamento sessione…</p>
+    <p v-else class="loading">Loading session…</p>
 
     <TimeControls />
 
     <div class="toggle-row">
       <label>
         <input v-model="showContextFill" type="checkbox" />
-        mostra riempimento contesto
+        show context fill
       </label>
     </div>
 
     <ContextFillPanel v-if="showContextFill" />
     <TimelineView />
+    <!-- modale "cosa si porta dietro il contesto": aperta dal click su una chip -->
+    <ContextInventory />
   </div>
 </template>
 
@@ -115,7 +106,15 @@ function goTo(id: string) {
 .title-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
+}
+
+.title-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .title-row h1 {
@@ -149,30 +148,6 @@ function goTo(id: string) {
   font-size: 0.85rem;
   color: var(--muted);
   margin-top: 0.4rem;
-}
-
-.usage-row {
-  display: flex;
-  gap: 1.5rem;
-  margin-top: 0.6rem;
-  flex-wrap: wrap;
-}
-
-.usage-block {
-  display: flex;
-  gap: 0.6rem;
-  font-size: 0.8rem;
-  align-items: baseline;
-}
-
-.usage-block.incl {
-  color: var(--accent);
-}
-
-.usage-label {
-  color: var(--muted);
-  font-weight: 600;
-  margin-right: 0.2rem;
 }
 
 .chip {

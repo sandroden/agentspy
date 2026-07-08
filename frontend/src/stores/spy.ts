@@ -9,7 +9,12 @@ import {
   openStream,
   type StreamHandle,
 } from '../api/client'
-import type { EventDetail, EventSummary, Session, StatsItem, WsMessage } from '../types'
+import type { ContextArtifact, EventDetail, EventSummary, Session, StatsItem, WsMessage } from '../types'
+
+/** Chiave d'identità di un artefatto per il calcolo "prima comparsa". */
+function artifactKey(a: ContextArtifact): string {
+  return `${a.kind}|${a.path ?? a.label}`
+}
 
 export interface SessionNode extends Session {
   children: SessionNode[]
@@ -19,23 +24,25 @@ export const useSpyStore = defineStore('spy', () => {
   // -- state ------------------------------------------------------------
   const sessions = ref<Record<string, Session>>({})
   const currentSessionId = ref<string | null>(null)
-  /** sessione "in evidenza" nella dashboard; nello store così la sidebar può
-   * impostarla senza cambiare route quando si è già in dashboard. */
+  /** "featured" session in the dashboard; kept in the store so the sidebar
+   * can set it without changing route when already on the dashboard. */
   const featuredSessionId = ref<string | null>(null)
-  /** eventi della sessione aperta, ordinati per ts_start crescente. */
+  /** events of the open session, sorted by ascending ts_start. */
   const events = ref<EventSummary[]>([])
   const stats = ref<StatsItem[]>([])
-  /** cache stats per sessione, usata dalla dashboard (indipendente da `stats`). */
+  /** per-session stats cache, used by the dashboard (independent of `stats`). */
   const statsBySession = ref<Record<string, StatsItem[]>>({})
   const live = ref(true)
-  /** indice (in `events`) dell'ultimo evento visibile. */
+  /** index (in `events`) of the last visible event. */
   const cursor = ref(-1)
   const selectedEventId = ref<number | null>(null)
   const detailCache = ref<Record<number, EventDetail>>({})
   const detailLoading = ref(false)
   const wsConnected = ref(false)
-  /** contatore eventi non visti per sessione (per il badge in sidebar); azzerato aprendo la sessione. */
+  /** unseen event counter per session (for the sidebar badge); reset when opening the session. */
   const unseenCounts = ref<Record<string, number>>({})
+  /** modale "cosa si porta dietro il contesto": aperta al click su una chip. */
+  const contextInventoryOpen = ref(false)
 
   let streamHandle: StreamHandle | null = null
 
@@ -69,15 +76,53 @@ export const useSpyStore = defineStore('spy', () => {
     selectedEventId.value != null ? (detailCache.value[selectedEventId.value] ?? null) : null
   )
 
+  /**
+   * Per ogni round trip, gli elementi del contesto visti per la PRIMA volta in
+   * quel round trip (la "canzone del mercato" resa inline): al primo RT compare
+   * la base del contesto, ai successivi solo le aggiunte. Mappa event_id →
+   * artefatti nuovi, calcolata scorrendo `stats` in ordine cronologico.
+   */
+  const newArtifactsByEvent = computed<Record<number, ContextArtifact[]>>(() => {
+    const seen = new Set<string>()
+    const out: Record<number, ContextArtifact[]> = {}
+    for (const s of stats.value) {
+      const fresh: ContextArtifact[] = []
+      for (const a of s.artifacts ?? []) {
+        const key = artifactKey(a)
+        if (seen.has(key)) continue
+        seen.add(key)
+        fresh.push(a)
+      }
+      if (fresh.length) out[s.event_id] = fresh
+    }
+    return out
+  })
+
+  /** Inventario cumulativo dell'intera sessione, in ordine di prima comparsa. */
+  const cumulativeArtifacts = computed<ContextArtifact[]>(() => {
+    const seen = new Set<string>()
+    const out: ContextArtifact[] = []
+    for (const s of stats.value) {
+      for (const a of s.artifacts ?? []) {
+        const key = artifactKey(a)
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(a)
+      }
+    }
+    return out
+  })
+
   // -- helpers --------------------------------------------------------------
   /**
-   * I PostToolUse non entrano proprio in events: didatticamente la tool call
-   * è UNA (il "tool_use" reso dal PreToolUse); il Post è un dettaglio del
-   * meccanismo hook di Claude Code e, se incluso, produrrebbe scatti "a
-   * vuoto" del player (cursore su eventi che la timeline non mostra).
+   * Pre/PostToolUse hook events never enter `events` at all: didactically the
+   * tool call is ONE thing, already rendered via the round trip's own
+   * tool_uses; the hooks are a detail of Claude Code's mechanism and, if
+   * included, would produce "empty" player steps (cursor landing on events
+   * the timeline doesn't show, with no visible change on screen).
    */
   function isTimelineEvent(e: EventSummary): boolean {
-    return !(e.kind === 'hook' && e.subkind === 'PostToolUse')
+    return !(e.kind === 'hook' && (e.subkind === 'PostToolUse' || e.subkind === 'PreToolUse'))
   }
 
   function replaceSessions(list: Session[]) {
@@ -193,9 +238,9 @@ export const useSpyStore = defineStore('spy', () => {
   }
 
   /**
-   * Rimuove localmente una sessione dallo stato (usata sia dall'azione di
-   * eliminazione sia dal messaggio WS session_removed). Se è quella aperta,
-   * azzera la selezione e gli eventi correnti: la view farà l'eventuale
+   * Removes a session locally from state (used both by the delete action and
+   * by the WS session_removed message). If it's the currently open one,
+   * resets the selection and current events: the view will handle any
    * redirect.
    */
   function removeSessionLocal(id: string) {
@@ -218,27 +263,34 @@ export const useSpyStore = defineStore('spy', () => {
   }
 
   /**
-   * Elimina le sessioni indicate via API (cascata sui figli lato server) e
-   * aggiorna lo stato locale senza dipendere dal WS, che potrebbe non essere
-   * connesso. Ritorna gli id effettivamente rimossi (inclusi i discendenti).
+   * Deletes the given sessions via API (cascading to children server-side)
+   * and updates local state without depending on the WS, which might not be
+   * connected. Returns the ids actually removed (including descendants).
    */
   async function deleteSessions(ids: string[]): Promise<string[]> {
     const deleted = await apiDeleteSessions(ids)
-    // rimuovi sia gli id richiesti sia i discendenti riportati dal server.
+    // remove both the requested ids and the descendants reported by the server.
     for (const id of new Set([...ids, ...deleted])) removeSessionLocal(id)
     return deleted
   }
 
   /**
-   * Carica (con cache) le stats di una sessione per la dashboard, senza
-   * toccare `stats`/`currentSessionId` usati da SessionView. `force` rilegge
-   * ignorando la cache (utile per sessioni live che accumulano round trip).
+   * Loads (with caching) a session's stats for the dashboard, without
+   * touching `stats`/`currentSessionId` used by SessionView. `force` reloads
+   * bypassing the cache (useful for live sessions that accumulate round trips).
    */
   async function loadStatsFor(id: string, force = false): Promise<StatsItem[]> {
     if (!force && statsBySession.value[id]) return statsBySession.value[id]
     const st = await fetchSessionStats(id)
     statsBySession.value = { ...statsBySession.value, [id]: st }
     return st
+  }
+
+  function openContextInventory() {
+    contextInventoryOpen.value = true
+  }
+  function closeContextInventory() {
+    contextInventoryOpen.value = false
   }
 
   return {
@@ -256,11 +308,14 @@ export const useSpyStore = defineStore('spy', () => {
     detailLoading,
     wsConnected,
     unseenCounts,
+    contextInventoryOpen,
     // getters
     sessionTree,
     currentSession,
     visibleEvents,
     selectedDetail,
+    newArtifactsByEvent,
+    cumulativeArtifacts,
     // actions
     init,
     openSession,
@@ -273,5 +328,7 @@ export const useSpyStore = defineStore('spy', () => {
     clearSelection,
     deleteSessions,
     loadStatsFor,
+    openContextInventory,
+    closeContextInventory,
   }
 })

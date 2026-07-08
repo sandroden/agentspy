@@ -1,17 +1,17 @@
 /**
- * Tipi condivisi fra store, client API e componenti.
+ * Types shared between the store, API client, and components.
  *
- * Rispecchiano le forme prodotte da server/agentspy_server/store.py:
+ * They mirror the shapes produced by server/agentspy_server/store.py:
  * - Session <- Store.get_sessions()
- * - EventSummary <- Store._event_summary() (usata da get_session_events)
- * - EventDetail <- Store.get_event() normalizzato dal client (vedi
- *   api/client.ts: la riga grezza del DB è "piatta", senza usage annidato,
- *   duration_s o snippet; il client li ricostruisce per uniformità con
+ * - EventSummary <- Store._event_summary() (used by get_session_events)
+ * - EventDetail <- Store.get_event() normalized by the client (see
+ *   api/client.ts: the raw DB row is "flat", without nested usage,
+ *   duration_s, or snippet; the client rebuilds them for consistency with
  *   EventSummary).
  * - StatsItem <- Store.get_session_stats()
  */
 
-/** Conteggio token di un round trip o aggregato di sessione. */
+/** Token count for a round trip or session aggregate. */
 export interface Usage {
   input_tokens: number
   output_tokens: number
@@ -24,72 +24,97 @@ export interface Session {
   tag: string | null
   title: string | null
   model: string | null
-  /** null per le sessioni top-level (non subagenti). */
+  /** null for top-level sessions (not subagents). */
   parent_session_id: string | null
-  /** id dell'agente/subagente assegnato dal correlatore, se presente. */
+  /** id of the agent/subagent assigned by the correlator, if present. */
   agent_id: string | null
   started_at: number | null
-  /** null finché la sessione è live. */
+  /** null while the session is live. */
   ended_at: number | null
   live: boolean
-  /** working directory della sessione (dagli hook); usata per relativizzare i path. */
+  /** session working directory (from the hooks); used to relativize paths. */
   cwd?: string | null
-  /** numero di turn_index distinti visti negli eventi della sessione. */
+  /** number of distinct turn_index values seen in the session's events. */
   turns: number
   round_trips: number
-  /** max(ts_end) - min(ts_start) fra gli eventi della sessione; null se non calcolabile. */
+  /** max(ts_end) - min(ts_start) across the session's events; null if not computable. */
   duration_s: number | null
-  /** token della sola sessione. */
+  /** tokens for this session alone. */
   usage: Usage
-  /** token della sessione + di tutti i suoi discendenti (subagenti). */
+  /** tokens for this session plus all its descendants (subagents). */
   usage_incl_children: Usage
 }
 
 export type EventKind = 'round_trip' | 'hook' | 'mcp'
 
 /**
- * Riga leggera per le liste evento (timeline, context-fill): niente
- * payload completo, caricato lazy con fetchEventDetail/select().
+ * Lightweight row for event lists (timeline, context-fill): no full
+ * payload, loaded lazily with fetchEventDetail/select().
  */
 export interface EventSummary {
   id: number
   kind: EventKind
-  /** hook_event_name per kind='hook', "<server>:<metodo>" per kind='mcp', null per round_trip. */
+  /** hook_event_name for kind='hook', "<server>:<method>" for kind='mcp', null for round_trip. */
   subkind: string | null
   session_id: string | null
   turn_index: number | null
   agent_id: string | null
   ts_start: number | null
-  /** ts_end - ts_start; null se l'evento non ha ancora un ts_end (in corso). */
+  /** ts_end - ts_start; null if the event has no ts_end yet (in progress). */
   duration_s: number | null
-  /** time-to-first-byte per round trip in streaming; null altrimenti. */
+  /** time-to-first-byte for a streaming round trip; null otherwise. */
   ttfb_s: number | null
   model: string | null
   status: number | null
   stop_reason: string | null
   usage: Usage
   tool_names: string[]
-  /** per i round trip: tool chiamati nella risposta, con un indizio dell'argomento. */
+  /** for round trips: tools called in the response, with an argument hint. */
   tool_uses?: { name: string; hint: string }[]
-  /** per gli hook Pre/PostToolUse: indizio dell'argomento del tool. */
+  /** for Pre/PostToolUse hooks: hint of the tool's argument. */
   tool_hint?: string
-  /** breve estratto testuale (primi ~160 char) per l'anteprima in lista. */
+  /** short text excerpt (first ~160 chars) for the list preview. */
   snippet: string
+  /**
+   * For round trips: the first *user* message of the request — the delegated
+   * task inside a subagent's session, the initial input for service traffic.
+   * Empty for other event kinds. Used as the trigger bubble when no
+   * UserPromptSubmit hook exists (see TimelineView fallback).
+   */
+  input_snippet: string
 }
 
-/** Riga completa (GET /api/events/:id): EventSummary + payload integrale. */
+/** Full row (GET /api/events/:id): EventSummary + full payload. */
+/**
+ * Un elemento che compone la richiesta all'LLM (inventario didattico).
+ * Nessun contenuto: solo identità + dimensione. Calcolato lato server da
+ * context_artifacts.py sul request.body.
+ */
+export type ArtifactKind = 'system' | 'claude-md' | 'memory' | 'image' | 'at-file' | 'tools'
+export interface ContextArtifact {
+  kind: ArtifactKind
+  label: string
+  path?: string | null
+  description?: string | null
+  chars?: number | null
+  count?: number | null
+  media_type?: string | null
+}
+
 export interface EventDetail extends EventSummary {
   ts_end: number | null
   /**
-   * Payload completo del round trip: payload.request.body ha
-   * system/tools/messages così come inviati; payload.response.message è la
-   * risposta ricostruita dallo streaming SSE. Per hook/mcp la forma varia
-   * (vedi ingest.py); trattare come dato grezzo da esplorare in UI.
+   * Full round trip payload: payload.request.body has system/tools/messages
+   * exactly as sent; payload.response.message is the response reconstructed
+   * from SSE streaming. For hook/mcp the shape varies (see ingest.py); treat
+   * it as raw data to explore in the UI.
    */
   payload: unknown
+  /** Inventario degli elementi del contesto della richiesta. */
+  artifacts?: ContextArtifact[]
 }
 
-/** Punto della serie per il pannello di riempimento contesto (un round trip). */
+/** Series point for the context-fill panel (one round trip). */
 export interface StatsItem {
   event_id: number
   turn_index: number | null
@@ -101,10 +126,12 @@ export interface StatsItem {
   output_tokens: number
   cache_read_tokens: number
   cache_write_tokens: number
-  /** stime char (non token) di system/tools/messages della richiesta; null se non disponibili. */
+  /** char (not token) estimates of the request's system/tools/messages; null if unavailable. */
   system_chars: number | null
   tools_chars: number | null
   messages_chars: number | null
+  /** Inventario degli elementi del contesto per questo round trip. */
+  artifacts?: ContextArtifact[]
 }
 
 export type WsMessage =
