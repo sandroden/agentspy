@@ -1,11 +1,11 @@
 # agentspy
 
-Strumento didattico per **spiare e visualizzare in tempo reale** la
-comunicazione fra Claude Code e l'API Anthropic: come è composta ogni
-richiesta (system prompt, tools, messages), cosa risponde il modello
-(usage, cache, thinking, tool use), come lavorano subagenti e server MCP.
+An educational tool to **spy on and visualize in real time** the
+communication between Claude Code and the Anthropic API: how each request is
+composed (system prompt, tools, messages), what the model replies (usage,
+cache, thinking, tool use), and how subagents and MCP servers work.
 
-## Architettura
+## Architecture
 
 ```
 Claude Code --ANTHROPIC_BASE_URL--> [proxy /v1/*] --forward--> api.anthropic.com
@@ -13,42 +13,43 @@ hooks       --POST /ingest/hook -->  [collector]
 wrapper MCP --POST /ingest/mcp  -->      |
                                      SQLite (agentspy.db)
                                          |
-frontend  <--WS /ws (live)  +  REST /api/* (replay)  +  /ui (statico)
+frontend  <--WS /ws (live)  +  REST /api/* (replay)  +  /ui (static)
 ```
 
-Un unico processo (`server/`, Starlette+uvicorn via uv) fa da proxy
-trasparente, raccoglie tutto in SQLite e serve la UI. Tre canali di
-osservazione, tutti opzionali e componibili:
+A single process (`server/`, Starlette+uvicorn via uv) acts as a
+transparent proxy, collects everything into SQLite and serves the UI. Three
+observation channels, all optional and composable:
 
-1. **Proxy** (obbligatorio, il cuore): cattura ogni round trip completo —
-   richiesta integrale e risposta ricostruita dallo stream SSE, con usage
-   esatto (input/output, cache read/write 5m/1h, thinking) e timing.
-2. **Hooks** (consigliato): dà session_id reali, confini dei turni
-   (UserPromptSubmit) e ciclo di vita dei subagenti.
-3. **Wrapper MCP** (per la didattica MCP): relay stdio trasparente che spia
-   il JSON-RPC (initialize, tools/list, tools/call).
+1. **Proxy** (mandatory, the core): captures every complete round trip — the
+   full request and the response reconstructed from the SSE stream, with
+   exact usage (input/output, cache read/write 5m/1h, thinking) and timing.
+2. **Hooks** (recommended): provides real session_ids, turn boundaries
+   (UserPromptSubmit) and the subagent life cycle.
+3. **MCP wrapper** (for MCP teaching): a transparent stdio relay that spies
+   on the JSON-RPC (initialize, tools/list, tools/call).
 
-## Avvio rapido
+## Quick start
 
 ```bash
-# 1. il collector (porta 8082)
+# 1. the collector (port 8082)
 cd server && uv run agentspy
 
-# 2. Claude Code attraverso il proxy
+# 2. Claude Code through the proxy
 ANTHROPIC_BASE_URL=http://127.0.0.1:8082 claude
 
-# 3. la UI
+# 3. the UI
 xdg-open http://127.0.0.1:8082/ui/
 ```
 
-Nota: se nell'ambiente c'è `ANTHROPIC_API_KEY` prende precedenza sul login
-claude.ai: `env -u ANTHROPIC_API_KEY ANTHROPIC_BASE_URL=... claude`.
+Note: if `ANTHROPIC_API_KEY` is present in the environment it takes
+precedence over the claude.ai login: `env -u ANTHROPIC_API_KEY
+ANTHROPIC_BASE_URL=... claude`.
 
-### Provare la UI senza traffico reale
+### Trying the UI without real traffic
 
-`scripts/seed_demo.py` genera un DB dimostrativo (sessione live con tool
-use, subagente ed evento MCP + una sessione breve chiusa), utile per
-esplorare dashboard e pannelli senza consumare token:
+`scripts/seed_demo.py` generates a demo DB (a live session with tool use, a
+subagent and an MCP event + a short closed session), useful to explore the
+dashboard and panels without spending tokens:
 
 ```bash
 cd server
@@ -56,215 +57,215 @@ AGENTSPY_DB=./agentspy-demo.db uv run python ../scripts/seed_demo.py
 AGENTSPY_DB=./agentspy-demo.db uv run agentspy
 ```
 
-### Taggare le run (per confrontare strategie)
+### Tagging runs (to compare strategies)
 
 ```bash
 ANTHROPIC_CUSTOM_HEADERS='x-agentspy-tag: con-okf' \
 ANTHROPIC_BASE_URL=http://127.0.0.1:8082 AGENTSPY_TAG=con-okf claude
 ```
 
-Le due variabili portano lo **stesso tag su due canali diversi**, e
-convergono sullo stesso campo `tag` della sessione:
+The two variables carry the **same tag over two different channels**, and
+converge on the same session `tag` field:
 
-- `ANTHROPIC_CUSTOM_HEADERS` viaggia col traffico API: Claude Code aggiunge
-  l'header `x-agentspy-tag` a ogni richiesta e il proxy lo applica alla
-  sessione a cui attribuisce il round trip;
-- `AGENTSPY_TAG` viaggia con gli hook: lo script la legge dall'ambiente e
-  la manda a `/ingest/hook` (arriva anche alle sessioni figlie dei
-  subagenti).
+- `ANTHROPIC_CUSTOM_HEADERS` travels with the API traffic: Claude Code adds
+  the `x-agentspy-tag` header to every request and the proxy applies it to
+  the session it attributes the round trip to;
+- `AGENTSPY_TAG` travels with the hooks: the script reads it from the
+  environment and sends it to `/ingest/hook` (it also reaches the child
+  sessions of subagents).
 
-A regime ne basta una, purché il suo canale sia attivo: senza hook
-installati serve l'header; con il proxy in mezzo (sempre, quando si spia)
-l'header da solo è sufficiente. Impostarle entrambe è ridondanza a costo
-zero che copre i casi limite: l'header tagga anche processi che ereditano
-l'ambiente ma non hanno hook (es. un `claude -p` lanciato da
-un'automazione), la env tagga anche eventi hook di traffico non ancora
-attribuito dal correlatore.
+At steady state one is enough, as long as its channel is active: without
+installed hooks the header is needed; with the proxy in the middle (always,
+when spying) the header alone is sufficient. Setting both is zero-cost
+redundancy that covers the edge cases: the header also tags processes that
+inherit the environment but have no hooks (e.g. a `claude -p` launched by an
+automation), the env also tags hook events of traffic not yet attributed by
+the correlator.
 
-In UI il tag distingue le raccolte; ogni sessione ha il suo URL
-(`/ui/session/<id>`), quindi due run si aprono in due tab del browser.
+In the UI the tag distinguishes the collections; every session has its own
+URL (`/ui/session/<id>`), so two runs open in two browser tabs.
 
 ### Hooks
 
-Copia la sezione `hooks` di `hooks/settings-example.json` nel
-`.claude/settings.json` del progetto da osservare, sostituendo
-`/PATH/TO/agentspy`. Variabili: `AGENTSPY_URL`, `AGENTSPY_TAG`,
-`AGENTSPY_DEBUG`. Lo script è fire-and-forget (exit 0 sempre, timeout 2s):
-legge il payload JSON che Claude Code gli passa su stdin e lo inoltra tal
-quale a `/ingest/hook`, senza mai bloccare o rallentare la sessione.
+Copy the `hooks` section of `hooks/settings-example.json` into the
+`.claude/settings.json` of the project to observe, replacing
+`/PATH/TO/agentspy`. Variables: `AGENTSPY_URL`, `AGENTSPY_TAG`,
+`AGENTSPY_DEBUG`. The script is fire-and-forget (always exit 0, 2s timeout):
+it reads the JSON payload that Claude Code passes on stdin and forwards it
+as-is to `/ingest/hook`, without ever blocking or slowing down the session.
 
-**Agganciare gli hook "al volo"** (senza toccare il settings del progetto):
-i settings di Claude Code non hanno un meccanismo di include, ma il flag
-`--settings` carica un file (o JSON inline) per la singola invocazione, con
-priorità massima e merge sugli altri livelli. `settings-example.json` è già
-un file settings completo, quindi — dopo averne fatto una copia con il path
-reale al posto di `/PATH/TO/agentspy` — basta:
+**Hooking in "on the fly"** (without touching the project settings): Claude
+Code settings have no include mechanism, but the `--settings` flag loads a
+file (or inline JSON) for a single invocation, with maximum priority and a
+merge over the other levels. `settings-example.json` is already a complete
+settings file, so — after making a copy of it with the real path in place of
+`/PATH/TO/agentspy` — it is enough to:
 
 ```bash
 ANTHROPIC_BASE_URL=http://127.0.0.1:8082 \
-claude --settings /path/reale/agentspy/hooks/settings-example.json
+claude --settings /real/path/agentspy/hooks/settings-example.json
 ```
 
-In alternativa, per osservare *tutti* i progetti senza ripeterlo a ogni
-invocazione, la stessa sezione `hooks` può stare nei settings utente
-globali `~/.claude/settings.json` (gli hook lì valgono ovunque; il
-collector spento non disturba, lo script hook fallisce in silenzio).
+Alternatively, to observe *all* projects without repeating it on every
+invocation, the same `hooks` section can live in the global user settings
+`~/.claude/settings.json` (hooks there apply everywhere; a collector that is
+off does not get in the way, the hook script fails silently).
 
-**Ruolo globale.** Il proxy vede *tutto il contenuto* (richieste e risposte
-integrali) ma non sa *di chi* è quel traffico: le richieste HTTP non
-portano session_id, non distinguono un nuovo prompt utente dalla
-continuazione automatica di un loop di tool, e non dicono se una
-conversazione è un subagente. Gli hook sono il canale "anagrafico" che
-fornisce questa struttura; il correlatore
-(`server/agentspy_server/correlate.py`) usa i due flussi insieme: senza
-hook le sessioni restano sintetiche (`syn-<fingerprint>`) con turni
-euristici, con gli hook diventano sessioni reali con confini di turno
-esatti.
+**Global role.** The proxy sees *all the content* (full requests and
+responses) but does not know *whose* traffic it is: HTTP requests do not
+carry a session_id, do not distinguish a new user prompt from the automatic
+continuation of a tool loop, and do not tell whether a conversation is a
+subagent. Hooks are the "registry" channel that provides this structure; the
+correlator (`server/agentspy_server/correlate.py`) uses the two streams
+together: without hooks the sessions stay synthetic (`syn-<fingerprint>`)
+with heuristic turns, with hooks they become real sessions with exact turn
+boundaries.
 
-Cosa porta ciascun hook:
+What each hook carries:
 
-| Hook | Informazione | Uso in agentspy |
+| Hook | Information | Use in agentspy |
 |---|---|---|
-| `SessionStart` / `SessionEnd` | `session_id` reale, cwd, transcript_path | nasce/termina la sessione in UI, stato LIVE |
-| `UserPromptSubmit` | il prompt dell'utente, `session_id` | avanza il turno in modo autoritativo (raggruppamento della timeline); "binding via prompt": aggancia al session_id reale le conversazioni senza tool call; marker ▶ verde col testo del prompt; conteggio/marker prompt della dashboard |
-| `PreToolUse` / `PostToolUse` | `tool_name`, `tool_use_id`, input/output del tool | la regola di correlazione più forte: il `tool_use_id` compare anche nel round trip catturato dal proxy e lega la conversazione API alla sessione hook; marker 🔧 col nome del tool |
-| `SubagentStart` / `SubagentStop` | `agent_id`, tipo di agente | crea la sessione figlia (`sub-<agent_id>`) con `parent_session_id`, da cui: blocchi subagente nella timeline, barre subagenti e token "incl. subagenti" in dashboard |
-| `Stop` | fine del giro di risposte | marker ■ di chiusura turno |
-| `PreCompact`, `Notification` | compattazione, notifiche | per ora solo tracciati come eventi (la ricucitura post-compattazione non è ancora gestita) |
+| `SessionStart` / `SessionEnd` | real `session_id`, cwd, transcript_path | a session is born/ends in the UI, LIVE state |
+| `UserPromptSubmit` | the user prompt, `session_id` | advances the turn authoritatively (timeline grouping); "binding via prompt": attaches conversations without tool calls to the real session_id; green ▶ marker with the prompt text; prompt count/marker in the dashboard |
+| `PreToolUse` / `PostToolUse` | `tool_name`, `tool_use_id`, tool input/output | the strongest correlation rule: the `tool_use_id` also appears in the round trip captured by the proxy and links the API conversation to the hook session; 🔧 marker with the tool name |
+| `SubagentStart` / `SubagentStop` | `agent_id`, agent type | creates the child session (`sub-<agent_id>`) with `parent_session_id`, from which: subagent blocks in the timeline, subagent bars and "incl. subagents" tokens in the dashboard |
+| `Stop` | end of the response round | ■ turn-close marker |
+| `PreCompact`, `Notification` | compaction, notifications | for now only tracked as events (post-compaction stitching is not yet handled) |
 
-Ogni evento hook porta inoltre il tag (`AGENTSPY_TAG`) e un timestamp, e
-resta visibile in timeline come marker cliccabile col suo payload JSON
-integrale nel pannello di dettaglio.
+Every hook event also carries the tag (`AGENTSPY_TAG`) and a timestamp, and
+stays visible in the timeline as a clickable marker with its full JSON
+payload in the detail panel.
 
-**Senza hook funziona comunque**, in modalità degradata: il fingerprint di
-conversazione (sha256 di system + primo messaggio user) incatena i round
-trip della stessa conversazione, e il nuovo turno viene inferito dal testo
-dell'ultimo messaggio user. Ma i session_id sono sintetici, i subagenti non
-vengono riconosciuti come figli e i confini di turno sono euristici: per
-l'uso didattico pieno (seguire un subagente, contare i round trip di un
-prompt) gli hook sono di fatto necessari.
+**It works without hooks too**, in degraded mode: the conversation
+fingerprint (sha256 of system + first user message) chains the round trips
+of the same conversation, and the new turn is inferred from the text of the
+last user message. But the session_ids are synthetic, subagents are not
+recognized as children and the turn boundaries are heuristic: for full
+educational use (following a subagent, counting the round trips of a prompt)
+hooks are effectively necessary.
 
-### Wrapper MCP
+### MCP wrapper
 
-Nel config MCP sostituisci il comando del server con il wrapper:
+In the MCP config replace the server command with the wrapper:
 
 ```json
 {"mcpServers": {"eco": {
   "command": "/path/agentspy/mcp/agentspy_mcp_wrapper.py",
-  "args": ["--name", "eco", "--", "comando-server-reale", "arg1"]
+  "args": ["--name", "eco", "--", "real-server-command", "arg1"]
 }}}
 ```
 
-Le `tools/call` vengono agganciate alla sessione giusta tramite il
-`claudecode/toolUseId` che Claude Code passa nei `params._meta`.
+The `tools/call` are attached to the right session via the
+`claudecode/toolUseId` that Claude Code passes in `params._meta`.
 
-## La UI
+## The UI
 
 ### Dashboard (home)
 
-Il punto d'ingresso (`/ui/`) è una dashboard di sintesi. Una **sessione in
-evidenza** (di default quella live, o la più recente; selezionabile dal
-menu in alto a destra) guida card e grafici:
+The entry point (`/ui/`) is a summary dashboard. A **highlighted session**
+(by default the live one, or the most recent; selectable from the menu at
+the top right) drives cards and charts:
 
-- **Card metriche**: contesto di picco, token totali consumati
-  ("integrale"), rapporto consumo/picco, prompt utente, round trip,
-  subagenti coi loro token, stima del costo API (pricing per famiglia di
-  modello, solo dati reali — nessuna proiezione ipotetica).
-- **Contesto per round trip**: una linea per sessione (l'evidenziata in
-  blu, le altre attenuate), marker verdi sui round trip aperti da un prompt
-  utente, linea rossa del tetto ~200k quando la scala lo giustifica.
-- **Di cosa è fatto il contesto**: area impilata cache_read / cache_write /
-  input nuovo / output.
-- **Consumo cumulativo**: l'integrale dei token; **trascinando col mouse**
-  si seleziona un intervallo e si leggono token e costo di quel tratto.
-- **Subagenti**: barre orizzontali (colore = modello) con i token di ogni
-  sessione figlia.
+- **Metric cards**: peak context, total tokens consumed ("integral"),
+  consumption/peak ratio, user prompts, round trips, subagents with their
+  tokens, API cost estimate (pricing per model family, real data only — no
+  hypothetical projection).
+- **Context per round trip**: one line per session (the highlighted one in
+  blue, the others dimmed), green markers on round trips opened by a user
+  prompt, red line of the ~200k ceiling when the scale justifies it.
+- **What the context is made of**: stacked area of cache_read / cache_write /
+  new input / output.
+- **Cumulative consumption**: the integral of the tokens; **by dragging with
+  the mouse** you select an interval and read the tokens and cost of that
+  stretch.
+- **Subagents**: horizontal bars (color = model) with the tokens of each
+  child session.
 
-Ogni punto dei grafici è **cliccabile**: porta alla sessione con l'evento
-corrispondente già selezionato. In fondo, la lista delle sessioni e la
-guida di avvio rapido.
+Every point of the charts is **clickable**: it leads to the session with the
+corresponding event already selected. At the bottom, the list of sessions
+and the quick-start guide.
 
-### Timeline di sessione
+### Session timeline
 
-- **Timeline verticale** (il tempo scorre verso il basso), raggruppata per
-  turno utente: card per i round trip (modello, timing, barra usage, badge
-  tool con icona — 📄 Read, ✏️ Edit, 💻 Bash, 🔍 Grep… — e thinking),
-  marker per gli hook (▶ verde con lo snippet del prompt per
-  UserPromptSubmit, 🔧 col nome del tool per Pre/PostToolUse), card viola
-  per le chiamate MCP, card arancio cliccabili per i subagenti (sessioni
-  figlie, token aggregati nella madre). Ogni riga ha un indicatore
-  colorato per tipo; la legenda è in fondo alla timeline.
-- Nella sidebar la **sessione live** è evidenziata (chip LIVE, bordo verde).
-- **Pausa del tempo**: LIVE/PAUSA + scrubber avanti/indietro su tutta la
-  storia (spazio e frecce da tastiera); i dati si raccolgono comunque.
-- **Context-fill**: per ogni round trip una barra impilata cache_read /
-  cache_write / nuovo / output — si vede il contesto riempirsi e quanto è
-  servito dalla cache.
+- **Vertical timeline** (time flows downward), grouped by user turn: cards
+  for the round trips (model, timing, usage bar, tool badge with icon — 📄
+  Read, ✏️ Edit, 💻 Bash, 🔍 Grep… — and thinking), markers for the hooks (▶
+  green with the prompt snippet for UserPromptSubmit, 🔧 with the tool name
+  for Pre/PostToolUse), purple cards for MCP calls, clickable orange cards
+  for subagents (child sessions, tokens aggregated into the parent). Every
+  row has a colored indicator per type; the legend is at the bottom of the
+  timeline.
+- In the sidebar the **live session** is highlighted (LIVE chip, green
+  border).
+- **Time pause**: LIVE/PAUSE + back/forward scrubber over the whole history
+  (space and arrow keys); data is collected regardless.
+- **Context-fill**: for each round trip a stacked bar cache_read /
+  cache_write / new / output — you see the context filling up and how much
+  was served from the cache.
 
-### Pannello di dettaglio (colonna destra)
+### Detail panel (right column)
 
-Click su qualsiasi evento → pannello a tab: Sintesi | Richiesta (system
-prompt integrale a blocchi, tools, messages) | Risposta (thinking, testo,
-tool_use) | **Delta** (cosa è entrato nel contesto rispetto al giro
-precedente) | JSON grezzo.
+Click on any event → tabbed panel: Summary | Request (full system prompt in
+blocks, tools, messages) | Response (thinking, text, tool_use) | **Delta**
+(what entered the context compared to the previous round) | raw JSON.
 
-- La colonna è **ridimensionabile** trascinando il bordo sinistro (la
-  larghezza viene ricordata).
-- I blocchi `<system-reminder>` che Claude Code inserisce accanto al prompt
-  utente hanno due viste, commutabili con la checkbox **"vista compatta"**
-  nell'header: espansa (reminder evidenziati in violetto, distinti dal
-  prompt reale) o compatta (reminder ridotti a chip "⚙ system-reminder ·
-  N char"; click sul chip → popup col contenuto integrale).
+- The column is **resizable** by dragging the left border (the width is
+  remembered).
+- The `<system-reminder>` blocks that Claude Code inserts next to the user
+  prompt have two views, switchable with the **"compact view"** checkbox in
+  the header: expanded (reminders highlighted in violet, distinct from the
+  real prompt) or compact (reminders reduced to "⚙ system-reminder · N char"
+  chips; click on the chip → popup with the full content).
 
-Terminologia: l'unità della timeline è il *round trip* (una
-richiesta/risposta verso `/v1/messages`); il pannello ne mostra il
-*payload*; dentro `messages[]` ogni messaggio è fatto di *content block*
-(`text`, `tool_use`, `tool_result`).
+Terminology: the unit of the timeline is the *round trip* (one
+request/response to `/v1/messages`); the panel shows its *payload*; inside
+`messages[]` each message is made of *content blocks* (`text`, `tool_use`,
+`tool_result`).
 
-### Pulizia delle sessioni
+### Cleaning up sessions
 
-Il pulsante **🗑 Modifica** in testa alla sidebar attiva la modalità
-selezione: ogni sessione mostra una checkbox e, selezionando una madre, le
-figlie (subagenti) risultano spuntate e bloccate perché verranno eliminate
-in cascata. La barra in fondo (**Elimina N sessioni** / **Annulla**) chiede
-conferma e rimuove sessioni ed eventi in modo definitivo; se elimini la
-sessione aperta la UI torna alla dashboard.
+The **🗑 Edit** button at the top of the sidebar activates selection mode:
+each session shows a checkbox and, when selecting a parent, the children
+(subagents) get checked and locked because they will be deleted in cascade.
+The bar at the bottom (**Delete N sessions** / **Cancel**) asks for
+confirmation and removes sessions and events permanently; if you delete the
+open session the UI returns to the dashboard.
 
-Da riga di comando:
+From the command line:
 
 ```bash
-# elimina una sessione (con le sue discendenti)
+# delete a session (with its descendants)
 curl -X DELETE http://127.0.0.1:8082/api/sessions/<id>
 
-# elimina più sessioni in un colpo
+# delete several sessions at once
 curl -X POST http://127.0.0.1:8082/api/sessions/delete \
      -H 'Content-Type: application/json' -d '{"ids": ["id1", "id2"]}'
 ```
 
-Entrambe rispondono `{"deleted": [...]}` con l'elenco completo degli id
-rimossi (incluse le figlie). L'eliminazione è **in cascata** sulle sessioni
-figlie e **definitiva**.
+Both respond `{"deleted": [...]}` with the full list of removed ids
+(children included). Deletion is **cascading** over child sessions and
+**permanent**.
 
-## Sviluppo
+## Development
 
 ```bash
-cd server && uv run pytest          # test collector (19)
-cd mcp && uv run --with pytest pytest tests/   # test wrapper MCP
-cd frontend && npm run dev          # UI con hot reload (proxy verso 8082)
-cd frontend && npm run build        # build servita dal collector su /ui
+cd server && uv run pytest          # collector tests (19)
+cd mcp && uv run --with pytest pytest tests/   # MCP wrapper tests
+cd frontend && npm run dev          # UI with hot reload (proxy to 8082)
+cd frontend && npm run build        # build served by the collector on /ui
 ```
 
-La correlazione traffico↔sessioni (la parte delicata) è in
-`server/agentspy_server/correlate.py`, con le regole e i limiti documentati
-nel docstring. Schema hook reali verificati empiricamente (2026-07-07):
-i tool hook dei subagenti portano `agent_id` ma il `session_id` della madre.
+The traffic↔sessions correlation (the delicate part) is in
+`server/agentspy_server/correlate.py`, with the rules and limits documented
+in the docstring. Real hook schema verified empirically (2026-07-07): the
+subagent tool hooks carry `agent_id` but the parent's `session_id`.
 
-## Limiti noti / prossimi passi
+## Known limitations / next steps
 
-- Stima token per componente (system/tools/messages) via caratteri/4;
-  l'usage reale (esatto) arriva dalla risposta API.
-- Il grafico "classico" (tempo sulle ascisse) è previsto come vista
-  opzionale, non ancora implementato.
-- Confronto affiancato di due run: per ora due tab del browser.
-- `PreCompact`/compattazione: tracciata come evento, la ricucitura della
-  conversazione compattata alla stessa sessione non è ancora gestita.
+- Per-component token estimate (system/tools/messages) via characters/4; the
+  real (exact) usage comes from the API response.
+- The "classic" chart (time on the x-axis) is planned as an optional view,
+  not yet implemented.
+- Side-by-side comparison of two runs: for now two browser tabs.
+- `PreCompact`/compaction: tracked as an event, the re-stitching of the
+  compacted conversation to the same session is not yet handled.
