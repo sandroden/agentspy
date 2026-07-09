@@ -204,7 +204,6 @@ const helpOpen = ref(false)
         class="row"
         :class="{
           active: isActiveRow(row.session.id),
-          live: row.session.live,
           selecting: selectionMode,
           checked: selectionMode && isChecked(row.session.id),
         }"
@@ -219,20 +218,31 @@ const helpOpen = ref(false)
           :disabled="isLocked(row.session.id)"
           :title="isLocked(row.session.id) ? 'deleted in cascade with its parent' : ''"
         />
+        <!-- Left gutter (connector + dot) kept out of the text column so that
+             both lines align with the name/tag, not with the dot. -->
+        <div class="gutter">
+          <span v-if="row.depth > 0" class="connector">↳</span>
+          <span class="dot"></span>
+        </div>
         <div class="row-lines">
           <div class="line1">
-            <span v-if="row.depth > 0" class="connector">↳</span>
-            <span class="dot" :class="{ live: row.session.live }"></span>
-            <span v-if="row.session.live" class="live-chip">LIVE</span>
             <span v-if="row.session.tag" class="chip" :style="{ backgroundColor: tagColor(row.session.tag) }">
               {{ row.session.tag }}
             </span>
-            <span class="rt" :title="`${row.session.round_trips} round trips`">
+            <!-- The raw session id is dropped: the tag already identifies the
+                 row. Only a real, human-readable title is shown as the name. -->
+            <span v-if="row.session.title" class="title">{{ row.session.title }}</span>
+            <!-- The round-trip count doubles as the run-state signal: vivid
+                 while the session is still running, muted once Stop arrived. -->
+            <span
+              class="rt"
+              :class="{ stopped: !row.session.live }"
+              :title="`${row.session.round_trips} round trips${row.session.live ? '' : ' · ended'}`"
+            >
               {{ row.session.round_trips }}
             </span>
           </div>
           <div class="line2">
-            <span class="title">{{ row.session.title || row.session.id }}</span>
             <span class="model">{{ abbreviateModel(row.session.model) }}</span>
             <span class="tokens">{{ formatTokens(totalTokens(row.session)) }}</span>
             <span v-if="!selectionMode && spy.unseenCounts[row.session.id]" class="badge">
@@ -462,7 +472,7 @@ const helpOpen = ref(false)
   gap: 0.4rem;
   padding: 0.35rem 0.6rem;
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   border-left: 3px solid transparent;
   border-radius: 0 8px 8px 0;
 }
@@ -471,26 +481,22 @@ const helpOpen = ref(false)
   background-color: var(--panel-alt);
 }
 
+/* the session OPEN in the page: tinted background + border, the one
+   unambiguous "you are here" signal. */
 .row.active {
-  background-color: var(--panel-alt);
-  border-left-color: var(--accent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-/* live: just a green accent border (the pulsing dot + LIVE chip already say
-   it loud); no background wash, or a page full of live sessions turns into
-   a wall of green and the actually-open one stops standing out. */
-.row.live {
-  border-left-color: var(--accent-live);
-}
-
-/* the session OPEN in the page wins over live: tinted background + border,
-   the one unambiguous "you are here" signal. */
-.row.active,
-.row.live.active {
   background-color: rgba(124, 79, 209, 0.14);
   border-left-color: var(--accent);
   box-shadow: inset 0 0 0 1px rgba(124, 79, 209, 0.3);
+}
+
+/* fixed left gutter: connector + dot live here so both text lines start at the
+   same x (aligned with the tag/name, not the dot). */
+.gutter {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.15rem;
 }
 
 .row-lines {
@@ -507,27 +513,17 @@ const helpOpen = ref(false)
   gap: 0.35rem;
 }
 
+/* line 2 is pure metadata (model · tokens): quieter and smaller than line 1,
+   which now carries the identity (tag + name). */
 .line2 {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
 }
 
 .connector {
   color: var(--muted-faint);
   font-size: 0.75rem;
-  margin-right: -0.1rem;
-}
-
-.live-chip {
-  flex: none;
-  background-color: var(--accent-live);
-  color: #06210f;
-  border-radius: 3px;
-  padding: 0 0.3rem;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
 }
 
 .dot {
@@ -536,11 +532,6 @@ const helpOpen = ref(false)
   height: 7px;
   border-radius: 50%;
   background-color: var(--muted-faint);
-}
-
-.dot.live {
-  background-color: var(--accent-live);
-  animation: pulse 1.4s infinite;
 }
 
 .chip {
@@ -559,9 +550,11 @@ const helpOpen = ref(false)
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
+  font-size: 0.76rem;
 }
 
-/* round-trip count badge next to the name */
+/* round-trip count badge next to the name. Its colour carries the run state:
+   vivid while running, muted (grey) once the session has ended (Stop received). */
 .rt {
   flex: none;
   margin-left: auto;
@@ -575,6 +568,10 @@ const helpOpen = ref(false)
   font-weight: 700;
 }
 
+.rt.stopped {
+  background-color: var(--muted-faint);
+}
+
 /* can shrink (with ellipsis) before overflowing the row */
 .model {
   flex: 0 1 auto;
@@ -582,15 +579,15 @@ const helpOpen = ref(false)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
-  font-size: 0.68rem;
+  color: var(--muted-faint);
+  font-size: 0.64rem;
 }
 
 .tokens {
   flex: none;
-  color: var(--muted);
+  color: var(--muted-faint);
   font-variant-numeric: tabular-nums;
-  font-size: 0.68rem;
+  font-size: 0.64rem;
 }
 
 .badge {
@@ -800,15 +797,5 @@ const helpOpen = ref(false)
   font-size: 0.65rem;
   color: var(--muted-faint);
   margin-top: 0.5rem;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
 }
 </style>
