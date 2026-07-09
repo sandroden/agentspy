@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import SessionsSidebar from './components/SessionsSidebar.vue'
 import DetailPanel from './components/DetailPanel.vue'
@@ -7,8 +8,16 @@ import { useSpyStore } from './stores/spy'
 import { useTheme } from './composables/useTheme'
 
 const spy = useSpyStore()
+const route = useRoute()
 const { selectedEventId, wsConnected } = storeToRefs(spy)
 useTheme().init()
+
+// The right detail panel belongs to the Timeline (SessionView). On the
+// dashboard the round-trip detail is intentionally absent (see the "Direzioni
+// Leggibilità" design, option 2a): a chart click features a session, it does
+// not open a payload panel. Gate on the route so the panel disappears when we
+// switch to the dashboard even if an event stayed selected.
+const showDetail = computed(() => selectedEventId.value != null && route.path !== '/')
 
 // -- larghezza colonna dettaglio (ridimensionabile col mouse) ----------------
 const DETAIL_WIDTH_KEY = 'agentspy.detailWidth'
@@ -69,7 +78,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="app-layout"
-    :class="{ 'has-detail': selectedEventId != null, dragging }"
+    :class="{ 'has-detail': showDetail, dragging }"
     :style="layoutStyle"
   >
     <aside class="sidebar">
@@ -82,7 +91,7 @@ onBeforeUnmount(() => {
     <main class="center">
       <router-view />
     </main>
-    <aside v-if="selectedEventId != null" class="panel">
+    <aside v-if="showDetail" class="panel">
       <div
         class="resize-handle"
         :class="{ active: dragging }"
