@@ -100,6 +100,40 @@ const tabs = computed<{ id: TabId; label: string; icon: string }[]>(() => {
 
 const rawUsage = computed<AnyRecord>(() => asRecord(payload.value.response).usage ?? {})
 
+/**
+ * Token distribution for the Summary donut: the four usage buckets as pie
+ * slices plus the share of the input context that came from cache. Colours are
+ * theme tokens (no hardcoded dark), so the donut follows light/dark like the
+ * dashboard charts.
+ */
+const usageDonut = computed(() => {
+  const u = detail.value?.usage
+  if (!u || detail.value?.kind !== 'round_trip') return null
+  const slices = [
+    { key: 'cache_read', label: 'cache_read', value: u.cache_read_tokens, color: 'var(--c-user)' },
+    { key: 'cache_write', label: 'cache_write', value: u.cache_write_tokens, color: 'var(--c-assistant)' },
+    { key: 'input', label: 'new input', value: u.input_tokens, color: 'var(--c-llm)' },
+    { key: 'output', label: 'output', value: u.output_tokens, color: 'var(--c-tool)' },
+  ]
+  const total = slices.reduce((s, x) => s + Math.max(0, x.value), 0)
+  if (total <= 0) return null
+  let acc = 0
+  const stops: string[] = []
+  for (const s of slices) {
+    const start = (acc / total) * 100
+    acc += Math.max(0, s.value)
+    const end = (acc / total) * 100
+    stops.push(`${s.color} ${start}% ${end}%`)
+  }
+  const inputContext = u.input_tokens + u.cache_read_tokens + u.cache_write_tokens
+  const cachePct = inputContext > 0 ? Math.round((u.cache_read_tokens / inputContext) * 100) : 0
+  return {
+    gradient: `conic-gradient(${stops.join(', ')})`,
+    slices: slices.map((s) => ({ ...s, value: Math.max(0, s.value) })),
+    cachePct,
+  }
+})
+
 /** Position of this round trip among the round trips of the same turn (n/total), for the header badge. */
 const roundTripPosition = computed<{ index: number; total: number } | null>(() => {
   const d = detail.value
@@ -260,11 +294,14 @@ async function copyJson() {
     <template v-else>
       <header class="header">
         <div class="title-row">
-          <span v-if="roundTripPosition" class="kind-badge round_trip">
-            round trip #{{ roundTripPosition.index }}/{{ roundTripPosition.total }}
-          </span>
-          <span v-else class="kind-badge" :class="detail.kind">{{ detail.kind }}</span>
-          <span v-if="detail.subkind" class="subkind">{{ detail.subkind }}</span>
+          <template v-if="roundTripPosition">
+            <span class="kind-title">round trip</span>
+            <span class="rt-pill">#{{ roundTripPosition.index }}/{{ roundTripPosition.total }}</span>
+          </template>
+          <template v-else>
+            <span class="kind-badge" :class="detail.kind">{{ detail.kind }}</span>
+            <span v-if="detail.subkind" class="subkind">{{ detail.subkind }}</span>
+          </template>
           <button class="close-btn" title="close" @click="spy.clearSelection()">✕</button>
         </div>
         <div class="meta-row">
@@ -319,27 +356,28 @@ async function copyJson() {
               </tbody>
             </table>
 
-            <div class="section-title">Usage</div>
-            <table class="kv">
-              <tbody>
-                <tr>
-                  <td>input (new)</td>
-                  <td>{{ formatTokens(detail.usage.input_tokens) }}</td>
-                </tr>
-                <tr>
-                  <td>cache_read</td>
-                  <td>{{ formatTokens(detail.usage.cache_read_tokens) }}</td>
-                </tr>
-                <tr>
-                  <td>cache_write</td>
-                  <td>{{ formatTokens(detail.usage.cache_write_tokens) }}</td>
-                </tr>
-                <tr>
-                  <td>output</td>
-                  <td>{{ formatTokens(detail.usage.output_tokens) }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="section-title">Token distribution</div>
+            <div v-if="usageDonut" class="donut-block">
+              <div class="donut-wrap">
+                <div class="donut" :style="{ background: usageDonut.gradient }"></div>
+                <div class="donut-hole">
+                  <b>{{ usageDonut.cachePct }}%</b>
+                  <span>from cache</span>
+                </div>
+              </div>
+              <ul class="donut-legend">
+                <li v-for="s in usageDonut.slices" :key="s.key">
+                  <i class="swatch" :style="{ backgroundColor: s.color }"></i>
+                  <span class="dl-label">{{ s.label }}</span>
+                  <b>{{ formatTokens(s.value) }}</b>
+                </li>
+              </ul>
+            </div>
+            <p v-else class="placeholder">no token usage recorded</p>
+            <p v-if="usageDonut" class="donut-note">
+              Most of the context comes from <b>cache</b> (already-seen tokens), not new input — that
+              is why long round trips stay cheap and fast.
+            </p>
 
             <div class="section-title">Full usage (raw API)</div>
             <JsonTree :value="rawUsage" />
@@ -584,6 +622,24 @@ async function copyJson() {
   gap: 0.5rem;
 }
 
+/* round-trip header (see the "Direzioni Leggibilità" design, Image 5):
+   a plain "ROUND TRIP" heading plus a green filled pill for its position. */
+.kind-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.rt-pill {
+  font: 700 0.68rem 'JetBrains Mono', ui-monospace, monospace;
+  color: #fff;
+  background-color: var(--c-llm);
+  padding: 0.1rem 0.5rem;
+  border-radius: 99px;
+}
+
 .kind-badge {
   font-size: 0.7rem;
   font-weight: 700;
@@ -629,8 +685,9 @@ async function copyJson() {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  margin-top: 0.3rem;
-  font-size: 0.75rem;
+  margin-top: 0.35rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -649,11 +706,14 @@ async function copyJson() {
   accent-color: var(--accent);
 }
 
+/* the segmented tab bar sits on a subtle filled track so the container reads
+   as a group (see design Image 7). --panel would match the surrounding panel
+   and vanish, so use --border, one step darker. */
 .tabs {
   display: flex;
   gap: 4px;
   margin: 0.6rem 0.75rem;
-  background-color: var(--panel);
+  background-color: var(--border);
   border-radius: 9px;
   padding: 4px;
   overflow-x: auto;
@@ -728,6 +788,97 @@ async function copyJson() {
 .kv.delta td:last-child {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+/* -- token-distribution donut (Summary) -- */
+.donut-block {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.donut-wrap {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  flex: none;
+}
+
+.donut {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+}
+
+.donut-hole {
+  position: absolute;
+  inset: 15px;
+  border-radius: 50%;
+  background-color: var(--panel);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.donut-hole b {
+  font-size: 0.95rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.donut-hole span {
+  font-size: 0.58rem;
+  color: var(--muted-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.donut-legend {
+  list-style: none;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.donut-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.donut-legend .swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.donut-legend .dl-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.donut-legend b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
+}
+
+.donut-note {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+  margin-top: 0.6rem;
+}
+
+.donut-note b {
+  color: var(--text);
 }
 
 .chips {
