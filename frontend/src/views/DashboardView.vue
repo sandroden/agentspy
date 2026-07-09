@@ -356,11 +356,26 @@ h1 {
   padding: 2rem 0;
 }
 
+/* Chart panels render on a dark "focus" card regardless of the app theme, to
+   match the reference design (Image 10): the coloured series pop against dark
+   and the panels read as a distinct analytical surface. Re-declaring the
+   palette tokens here makes the SVG chart internals (grid, ticks, text,
+   legends) — which all reference these vars — adapt without touching each
+   chart component. */
 .panel {
-  background-color: var(--panel);
-  border: 1px solid var(--border);
+  --bg: #0e1218;
+  --panel: #12171f;
+  --panel-alt: #1a212b;
+  --border: #232a36;
+  --text: #e7e9ee;
+  --muted: #9aa4b2;
+  --muted-faint: #6b7480;
+  --accent: #a78bfa;
+  background-color: #0e1218;
+  border: 1px solid #232a36;
   border-radius: 8px;
   padding: 1rem 1.25rem 1.1rem;
+  color: var(--text);
 }
 
 .panel-head {
