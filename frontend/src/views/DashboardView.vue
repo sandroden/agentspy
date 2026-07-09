@@ -255,7 +255,7 @@ function scrollToSubagents() {
           <p class="panel-sub">
             How many tokens travel on each call. Each line is a session (dashed = a sub-agent
             belonging to the featured family); the green markers are round trips opened by one of
-            your prompts. The red line is the practical ceiling of ~200k.
+            your prompts. The red line is the featured model's context window (200k or 1M).
           </p>
         </div>
         <ContextChart :series="series" :user-prompt-turns="userPromptTurns" @jump="jumpToEvent" />

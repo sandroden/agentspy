@@ -24,12 +24,23 @@ export const ZONE_COLORS = ['#3fb950', '#f0e14a', '#c9a227', '#f85149'] as const
 export const ZONE_NAMES = ['green', 'amber', 'yellow', 'red'] as const
 
 /**
- * Context window per model: sonnet-5 has 1M (with or without the "[1m]"
- * marker in the id); for others, the classic 200k window is assumed.
+ * Context window per model. The real statusline reads the exact window
+ * (`context_window.context_window_size`) straight from Claude Code's payload;
+ * agentspy only sees the API traffic, so it derives the window from the model
+ * id — a best-effort approximation.
+ *
+ * The current model families run a 1M window natively (Opus 4.5→4.8, Sonnet
+ * 4.5→5, Fable/Mythos 5); Haiku and older models keep the classic 200k. The
+ * "[1m]" marker Claude Code appends to some ids always forces 1M.
  */
 export function contextSizeFor(model: string | null | undefined): number {
   if (!model) return 200_000
-  if (model.includes('[1m]') || model.includes('sonnet-5')) return 1_000_000
+  if (model.includes('[1m]')) return 1_000_000
+  // Haiku (and any explicit small window) stays at 200k even in the 4.x line.
+  if (model.includes('haiku')) return 200_000
+  if (/opus-4-(5|6|7|8)\b/.test(model)) return 1_000_000
+  if (/sonnet-(5|4-5|4-6)\b/.test(model)) return 1_000_000
+  if (/(fable|mythos)-5\b/.test(model)) return 1_000_000
   return 200_000
 }
 

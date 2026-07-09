@@ -10,6 +10,7 @@ import { computed, ref } from 'vue'
 import type { Session, StatsItem } from '../../types'
 import { useElementWidth } from '../../composables/useElementSize'
 import { formatTokens } from '../../utils/format'
+import { contextSizeFor } from '../../utils/contextGauge'
 
 interface Series {
   session: Session
@@ -27,8 +28,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: 'jump', sessionId: string, eventId: number): void }>()
 
-const CONTEXT_LIMIT = 200_000
-const LIMIT_VISIBLE_THRESHOLD = 80_000
+/** Context window of the featured session's model (200k or 1M — see contextSizeFor). */
+const CONTEXT_LIMIT = computed(() => {
+  const featured = props.series.find((s) => s.featured) ?? props.series[0]
+  const model = featured?.stats.find((s) => s.model)?.model ?? null
+  return contextSizeFor(model)
+})
+/** Draw the limit line once usage reaches ~40% of the window. */
+const LIMIT_VISIBLE_THRESHOLD = computed(() => CONTEXT_LIMIT.value * 0.4)
 
 const el = ref<HTMLElement | null>(null)
 const width = useElementWidth(el, 680)
@@ -49,10 +56,10 @@ const maxReal = computed(() =>
   Math.max(1, ...props.series.flatMap((s) => s.stats.map(contextTokens)))
 )
 
-const showLimit = computed(() => maxReal.value > LIMIT_VISIBLE_THRESHOLD)
+const showLimit = computed(() => maxReal.value > LIMIT_VISIBLE_THRESHOLD.value)
 
 const yMax = computed(() =>
-  showLimit.value ? Math.max(maxReal.value, CONTEXT_LIMIT) : maxReal.value
+  showLimit.value ? Math.max(maxReal.value, CONTEXT_LIMIT.value) : maxReal.value
 )
 
 function xFor(i: number): number {
@@ -147,7 +154,7 @@ const yTicks = computed(() => {
   })
 })
 
-const limitY = computed(() => yFor(CONTEXT_LIMIT))
+const limitY = computed(() => yFor(CONTEXT_LIMIT.value))
 
 // -- tooltip -----------------------------------------------------------------
 const tooltip = ref<{ show: boolean; x: number; y: number; title: string; turn: number | null; tokens: number }>(
@@ -189,7 +196,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
           </template>
         </g>
 
-        <!-- linea limite 200k -->
+        <!-- linea limite finestra di contesto -->
         <g v-if="showLimit">
           <line
             :x1="margin.left"
@@ -199,7 +206,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
             class="limit-line"
           />
           <text :x="width - margin.right" :y="limitY - 5" class="limit-label" text-anchor="end">
-            200k limit
+            {{ formatTokens(CONTEXT_LIMIT) }} limit
           </text>
         </g>
 
