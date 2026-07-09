@@ -412,4 +412,8 @@ function openInventory() {
 .ctx-chip--at-file {
   --c-chip: #d9840a;
 }
+/* File letto dall'agente (Read): stesso contenuto di un @file, altra origine. */
+.ctx-chip--read-file {
+  --c-chip: #0d9488;
+}
 </style>

@@ -44,6 +44,22 @@ SAMPLE_BODY = {
                 {"type": "text", "text": "[Image: source: /home/u/.cache/1.png]"},
             ],
         },
+        # L'LLM decide una Read (tool_use) e un Bash: solo la prima porta nel
+        # contesto il contenuto di un file → un artifact `read-file`.
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_read1", "name": "Read", "input": {"file_path": "src/main.py"}},
+                {"type": "tool_use", "id": "toolu_bash1", "name": "Bash", "input": {"command": "ls"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_read1", "content": "1\tprint('hi')\n"},
+                {"type": "tool_result", "tool_use_id": "toolu_bash1", "content": "main.py\n"},
+            ],
+        },
     ],
 }
 
@@ -57,7 +73,7 @@ def _by_kind(artifacts):
 
 def test_extract_covers_all_kinds():
     kinds = _by_kind(extract_artifacts(SAMPLE_BODY))
-    assert set(kinds) == {"system", "claude-md", "memory", "image", "at-file", "tools"}
+    assert set(kinds) == {"system", "claude-md", "memory", "image", "at-file", "read-file", "tools"}
 
 
 def test_system_excludes_billing_header():
@@ -80,6 +96,31 @@ def test_at_file_from_system_block_not_the_cited_one():
     assert at[0]["chars"] > 0                      # contenuto iniettato
     # il file "solo citato" (docs/other.md) non deve comparire
     assert all(a["path"] != "docs/other.md" for a in at)
+
+
+def test_read_file_from_llm_tool_use():
+    read = _by_kind(extract_artifacts(SAMPLE_BODY))["read-file"]
+    assert len(read) == 1                          # solo la Read, non il Bash
+    assert read[0]["path"] == "src/main.py"        # path risalito via tool_use_id
+    assert read[0]["label"] == "main.py"
+    assert read[0]["chars"] == len("1\tprint('hi')\n")
+
+
+def test_read_file_content_as_block_list():
+    # `tool_result.content` può essere lista di blocchi, non solo stringa.
+    body = {
+        "messages": [
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/a/b.txt"}},
+            ]},
+            {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1",
+                 "content": [{"type": "text", "text": "riga uno"}, {"type": "text", "text": "riga due"}]},
+            ]},
+        ]
+    }
+    read = _by_kind(extract_artifacts(body))["read-file"]
+    assert read[0]["chars"] == len("riga uno") + len("riga due")
 
 
 def test_image_has_source_path():

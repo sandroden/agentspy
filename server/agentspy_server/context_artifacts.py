@@ -34,6 +34,11 @@ _CALLED_TOOL_RE = re.compile(
 
 _BILLING_PREFIX = "x-anthropic-billing-header:"
 
+# Tool le cui `tool_result` iniettano nel contesto il *contenuto di un file*
+# (identità = il path), non l'output di un comando. Un `@file` allegato
+# dall'utente è lo stesso tipo di contenuto: differisce solo l'origine.
+_FILE_READ_TOOLS = {"Read"}
+
 
 def _jsize(obj: Any) -> int:
     """Dimensione in caratteri della serializzazione JSON (stima del peso)."""
@@ -204,6 +209,61 @@ def _extract_at_files(messages: list[Any]) -> list[dict[str, Any]]:
     return artifacts
 
 
+def _content_len(content: Any) -> int:
+    """Peso in caratteri del `content` di un tool_result (str o lista di blocchi)."""
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        return sum(len(_block_text(b)) for b in content)
+    return _jsize(content)
+
+
+def _extract_read_files(messages: list[Any]) -> list[dict[str, Any]]:
+    """File caricati nel contesto da una `Read` decisa dall'LLM.
+
+    A differenza di `_extract_at_files` (file pre-allegati dall'utente via `@`,
+    blocco `role:"system"`), qui il modello ha chiesto la Read: nel body è un
+    `tool_use` (role assistant) il cui `tool_result` (role user) trasporta il
+    contenuto del file. Si correla `tool_result.tool_use_id → tool_use.input`
+    per risalire al path. Stesso *contenuto* di un `@file`, diversa *origine*.
+
+    Il chip compare nel round trip in cui il `tool_result` entra nel body (quello
+    *successivo* alla Read), non in quello che emette il `tool_use`: prima di
+    allora il file non è ancora nel contesto, c'è solo la richiesta di leggerlo.
+    """
+    # tool_use_id → (nome tool, input) raccolti dai messaggi assistant.
+    uses: dict[str, tuple[str, dict[str, Any]]] = {}
+    for _role, block in _iter_message_blocks(messages):
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        tid = block.get("id")
+        if tid:
+            uses[tid] = (block.get("name") or "", block.get("input") or {})
+
+    artifacts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for role, block in _iter_message_blocks(messages):
+        if role != "user" or not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        name, tool_input = uses.get(block.get("tool_use_id"), ("", {}))
+        if name not in _FILE_READ_TOOLS:
+            continue
+        file_path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+        if not file_path or file_path in seen:
+            continue
+        seen.add(file_path)
+        artifacts.append(
+            {
+                "kind": "read-file",
+                "label": file_path.rsplit("/", 1)[-1],
+                "path": file_path,
+                "description": f"letto dall'agente via {name}",
+                "chars": _content_len(block.get("content")),
+            }
+        )
+    return artifacts
+
+
 def _extract_tools(tools: Any) -> list[dict[str, Any]]:
     """Voce aggregata secondaria per i tool disponibili (già visibili altrove)."""
     if not tools or not isinstance(tools, list):
@@ -234,5 +294,6 @@ def extract_artifacts(body: Any) -> list[dict[str, Any]]:
     artifacts += _extract_instruction_files(messages)
     artifacts += _extract_images(messages)
     artifacts += _extract_at_files(messages)
+    artifacts += _extract_read_files(messages)
     artifacts += _extract_tools(body.get("tools"))
     return artifacts

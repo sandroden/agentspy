@@ -90,7 +90,7 @@ export interface EventSummary {
  * Nessun contenuto: solo identità + dimensione. Calcolato lato server da
  * context_artifacts.py sul request.body.
  */
-export type ArtifactKind = 'system' | 'claude-md' | 'memory' | 'image' | 'at-file' | 'tools'
+export type ArtifactKind = 'system' | 'claude-md' | 'memory' | 'image' | 'at-file' | 'read-file' | 'tools'
 export interface ContextArtifact {
   kind: ArtifactKind
   label: string
