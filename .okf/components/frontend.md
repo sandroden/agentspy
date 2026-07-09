@@ -36,7 +36,13 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
   (`MetricCards`, con stima costo da [token accounting](/design/token-accounting.md)),
   `ContextChart` (contesto per round trip), `CompositionChart` (area
   impilata cache_read/write/input/output), `CumulativeChart` (integrale
-  token con selezione drag), `SubagentBars`. I pannelli-grafico rendono
+  token con selezione drag), `SubagentBars`. Sopra le card, una **barra
+  identità** ("grafici della sessione …") nomina in modo prominente la
+  sessione featured — chip col tag (stesso hash-colore della sidebar, via
+  `utils/tag.ts`, così "quella riga → questi grafici"), titolo, badge
+  sub-agent/LIVE, modello e round trip — perché senza di essa lo switch di
+  sessione cambia numeri e grafici ma non un titolo, e sembra che i grafici
+  non siano quelli giusti. I pannelli-grafico rendono
   su **card scure** in entrambi i temi (i token di palette sono
   ridefiniti sul contenitore, così gli interni SVG — griglia, tick,
   testo, legende — si adattano). Il click su un punto di un grafico

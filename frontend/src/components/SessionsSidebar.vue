@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSpyStore, type SessionNode } from '../stores/spy'
 import { useTheme } from '../composables/useTheme'
 import { formatTokens } from '../utils/format'
+import { abbreviateModel } from '../utils/model'
+import { tagColor } from '../utils/tag'
 import type { Session } from '../types'
 
 const spy = useSpyStore()
@@ -167,25 +169,6 @@ async function confirmDelete() {
   }
   cancelSelection()
   if (currentDeleted) router.push('/')
-}
-
-/** Shortened model name to avoid crowding the row (e.g. claude-sonnet-4-5-20250929 -> sonnet-4.5). */
-function abbreviateModel(model: string | null): string {
-  if (!model) return '—'
-  const m = model.match(/claude-([a-z]+)-(\d+)(?:-(\d+))?/)
-  if (m) {
-    const [, family, major, minor] = m
-    return minor ? `${family}-${major}.${minor}` : `${family}-${major}`
-  }
-  return model.length > 16 ? `${model.slice(0, 16)}…` : model
-}
-
-/** Stable chip color derived from the tag name (simple hash). */
-function tagColor(tag: string): string {
-  let hash = 0
-  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0
-  const hue = hash % 360
-  return `hsl(${hue}, 55%, 45%)`
 }
 
 function totalTokens(s: Session): number {

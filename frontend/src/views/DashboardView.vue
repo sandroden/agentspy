@@ -9,6 +9,8 @@ import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSpyStore, type SessionNode } from '../stores/spy'
 import { fetchSessionEvents } from '../api/client'
+import { abbreviateModel } from '../utils/model'
+import { tagColor } from '../utils/tag'
 import type { EventSummary, Session } from '../types'
 import MetricCards from '../components/dashboard/MetricCards.vue'
 import ContextChart from '../components/dashboard/ContextChart.vue'
@@ -82,6 +84,16 @@ watch(
 const featured = computed<Session | null>(() =>
   featuredId.value ? (spy.sessions[featuredId.value] ?? null) : null
 )
+
+/** The featured session is a sub-agent (has a parent): the charts show ITS work. */
+const featuredIsSub = computed(() => !!featured.value?.parent_session_id)
+
+/** Fallback name (short id) when the session carries neither tag nor title. */
+const featuredFallbackName = computed(() => {
+  const s = featured.value
+  if (!s || s.tag || s.title) return null
+  return s.id.length > 12 ? `${s.id.slice(0, 12)}…` : s.id
+})
 
 /** Options for the featured-session select: flattened tree, sub-agents indented. */
 const sessionOptions = computed(() => {
@@ -241,6 +253,26 @@ function scrollToSubagents() {
     </p>
 
     <template v-else>
+      <!-- Identity of the session the charts are about: the one thing that must
+           change when you switch session (via sidebar or select). The tag chip
+           reuses the sidebar's colour hash, tying "that row → these charts". -->
+      <div v-if="featured" class="featured-identity">
+        <span class="fi-label">grafici della sessione</span>
+        <span
+          v-if="featured.tag"
+          class="fi-chip"
+          :style="{ backgroundColor: tagColor(featured.tag) }"
+        >
+          {{ featured.tag }}
+        </span>
+        <span v-if="featured.title" class="fi-title">{{ featured.title }}</span>
+        <span v-else-if="featuredFallbackName" class="fi-title">{{ featuredFallbackName }}</span>
+        <span v-if="featuredIsSub" class="fi-badge fi-badge--sub">sub-agent</span>
+        <span class="fi-meta">{{ abbreviateModel(featured.model) }}</span>
+        <span class="fi-meta">· {{ featured.round_trips }} round trips</span>
+        <span v-if="featured.live" class="fi-badge fi-badge--live">live</span>
+      </div>
+
       <MetricCards
         :stats="featuredStats"
         :model="featured?.model ?? null"
@@ -354,6 +386,67 @@ h1 {
 .empty-hero {
   color: var(--muted);
   padding: 2rem 0;
+}
+
+/* Session identity: the heading that actually changes on session switch.
+   Sits above the metric cards, where the eye lands after the header. */
+.featured-identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-live);
+  border-radius: 8px;
+}
+
+.fi-label {
+  font: 700 0.62rem system-ui;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-faint);
+}
+
+.fi-chip {
+  padding: 0.1rem 0.5rem;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.fi-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fi-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fi-badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 99px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fi-badge--live {
+  background-color: var(--accent-live);
+  color: #fff;
+}
+
+.fi-badge--sub {
+  background-color: var(--panel-alt);
+  border: 1px solid var(--border);
+  color: var(--muted);
 }
 
 /* Chart panels render on a dark "focus" card regardless of the app theme, to
