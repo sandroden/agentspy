@@ -14,18 +14,61 @@ const { theme, setTheme } = useTheme()
 interface FlatRow {
   session: SessionNode
   depth: number
+  /** how many direct child sub-agents are currently collapsed (hidden). */
+  hiddenChildCount: number
 }
 
+// -- collapse (hide sub-agents) --------------------------------------------
+/** ids of sub-agent sessions currently collapsed away (local UI state only). */
+const hidden = ref<Set<string>>(new Set())
+
+function isHidden(id: string): boolean {
+  return hidden.value.has(id)
+}
+
+/** immutable Set updates so Vue picks up the change. */
+function hide(ids: string[]) {
+  const next = new Set(hidden.value)
+  for (const id of ids) next.add(id)
+  hidden.value = next
+}
+
+function show(ids: string[]) {
+  const next = new Set(hidden.value)
+  for (const id of ids) next.delete(id)
+  hidden.value = next
+}
+
+/** flatten skipping hidden nodes (and their whole subtree); each row carries
+ * the count of its direct children that are hidden, for the "N nascosti" hint. */
 function flatten(nodes: SessionNode[], depth: number): FlatRow[] {
   const rows: FlatRow[] = []
   for (const n of nodes) {
-    rows.push({ session: n, depth })
-    rows.push(...flatten(n.children, depth + 1))
+    const hiddenChildCount = n.children.reduce((acc, c) => acc + (isHidden(c.id) ? 1 : 0), 0)
+    rows.push({ session: n, depth, hiddenChildCount })
+    for (const c of n.children) {
+      if (!isHidden(c.id)) rows.push(...flatten([c], depth + 1))
+    }
   }
   return rows
 }
 
 const rows = computed(() => flatten(spy.sessionTree, 0))
+
+/** Double-click on a session collapses/expands its direct sub-agents.
+ * Collapses if any direct child is still visible, otherwise expands them all. */
+function toggleCollapse(node: SessionNode) {
+  if (node.children.length === 0) return
+  const childIds = node.children.map((c) => c.id)
+  const anyVisible = childIds.some((id) => !isHidden(id))
+  if (anyVisible) hide(childIds)
+  else show(childIds)
+}
+
+/** direct child ids, used to re-expand from the "N nascosti" hint. */
+function childIdsOf(node: SessionNode): string[] {
+  return node.children.map((c) => c.id)
+}
 
 // -- selection / delete mode -----------------------------------------------
 const selectionMode = ref(false)
@@ -209,6 +252,7 @@ const helpOpen = ref(false)
         }"
         :style="{ paddingLeft: `${0.6 + row.depth * 1}rem` }"
         @click="onRowClick(row.session.id)"
+        @dblclick.stop="toggleCollapse(row.session)"
       >
         <input
           v-if="selectionMode"
@@ -241,6 +285,15 @@ const helpOpen = ref(false)
             >
               {{ row.session.round_trips }}
             </span>
+            <button
+              v-if="!selectionMode && row.depth > 0"
+              type="button"
+              class="collapse-x"
+              title="collassa questo subagente"
+              @click.stop="hide([row.session.id])"
+            >
+              ✕
+            </button>
           </div>
           <div class="line2">
             <span class="model">{{ abbreviateModel(row.session.model) }}</span>
@@ -260,6 +313,17 @@ const helpOpen = ref(false)
               ↗
             </a>
           </div>
+          <button
+            v-if="!selectionMode && row.hiddenChildCount > 0"
+            type="button"
+            class="hidden-hint"
+            title="mostra i subagenti nascosti"
+            @click.stop="show(childIdsOf(row.session))"
+          >
+            👁
+            {{ row.hiddenChildCount }}
+            {{ row.hiddenChildCount === 1 ? 'subagente nascosto' : 'subagenti nascosti' }}
+          </button>
         </div>
       </div>
     </div>
@@ -475,18 +539,23 @@ const helpOpen = ref(false)
   font-size: 0.75rem;
   border-left: 3px solid transparent;
   border-radius: 0 8px 8px 0;
+  /* double-click collapses sub-agents: don't select text while doing it. */
+  user-select: none;
 }
 
 .row:hover {
   background-color: var(--panel-alt);
 }
 
-/* the session OPEN in the page: tinted background + border, the one
-   unambiguous "you are here" signal. */
+/* the session OPEN in the page: a floating white card — rounded on every
+   corner, detached from the list edges, soft shadow, green left rail. This
+   is the one unambiguous "you are here" signal. */
 .row.active {
-  background-color: rgba(124, 79, 209, 0.14);
-  border-left-color: var(--accent);
-  box-shadow: inset 0 0 0 1px rgba(124, 79, 209, 0.3);
+  background-color: var(--panel-alt);
+  border-left: 3px solid var(--accent-live);
+  border-radius: 10px;
+  margin: 0.15rem 0.4rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 /* fixed left gutter: connector + dot live here so both text lines start at the
@@ -570,6 +639,49 @@ const helpOpen = ref(false)
 
 .rt.stopped {
   background-color: var(--muted-faint);
+}
+
+/* × to collapse a single sub-agent: hidden until the row is hovered. */
+.collapse-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0.1rem 0.2rem;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.row:hover .collapse-x {
+  opacity: 1;
+}
+
+.collapse-x:hover {
+  color: var(--danger);
+  background-color: var(--panel);
+}
+
+/* "N subagenti nascosti" hint on a collapsed parent: click to re-expand. */
+.hidden-hint {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: none;
+  background: transparent;
+  padding: 0.05rem 0;
+  color: var(--accent-live);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hidden-hint:hover {
+  text-decoration: underline;
 }
 
 /* can shrink (with ellipsis) before overflowing the row */
