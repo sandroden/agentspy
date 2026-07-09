@@ -9,10 +9,9 @@ import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSpyStore } from '../stores/spy'
 import { fetchSessionEvents } from '../api/client'
-import { abbreviateModel } from '../utils/model'
-import { tagColor } from '../utils/tag'
 import type { EventSummary, Session } from '../types'
-import MetricCards from '../components/dashboard/MetricCards.vue'
+import MetricCards from '../components/MetricCards.vue'
+import SessionHeader from '../components/SessionHeader.vue'
 import ContextChart from '../components/dashboard/ContextChart.vue'
 import CompositionChart from '../components/dashboard/CompositionChart.vue'
 import CumulativeChart from '../components/dashboard/CumulativeChart.vue'
@@ -25,7 +24,7 @@ const topLevelSessions = computed(() =>
   Object.values(spy.sessions)
     .filter((s) => !s.parent_session_id)
     .slice()
-    .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
+    .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0)),
 )
 
 // -- parentage ---------------------------------------------------------------
@@ -78,22 +77,12 @@ watch(
     const live = list.find((s) => s.live)
     featuredId.value = (live ?? list[0])?.id ?? null
   },
-  { immediate: true, deep: false }
+  { immediate: true, deep: false },
 )
 
 const featured = computed<Session | null>(() =>
-  featuredId.value ? (spy.sessions[featuredId.value] ?? null) : null
+  featuredId.value ? (spy.sessions[featuredId.value] ?? null) : null,
 )
-
-/** The featured session is a sub-agent (has a parent): the charts show ITS work. */
-const featuredIsSub = computed(() => !!featured.value?.parent_session_id)
-
-/** Fallback name (short id) when the session carries neither tag nor title. */
-const featuredFallbackName = computed(() => {
-  const s = featured.value
-  if (!s || s.tag || s.title) return null
-  return s.id.length > 12 ? `${s.id.slice(0, 12)}…` : s.id
-})
 
 // -- loading stats for all sessions (refreshed for live ones) --------
 // Sub-agents too: they have their own round trips and can be featured.
@@ -110,7 +99,7 @@ watch(
       }
     }
   },
-  { immediate: true, deep: true }
+  { immediate: true, deep: true },
 )
 
 /**
@@ -138,7 +127,7 @@ const series = computed(() => {
 })
 
 const featuredStats = computed(() =>
-  featuredId.value ? (spy.statsBySession[featuredId.value] ?? []) : []
+  featuredId.value ? (spy.statsBySession[featuredId.value] ?? []) : [],
 )
 
 // -- featured session's events: user prompt (hook UserPromptSubmit) ------------
@@ -160,11 +149,11 @@ watch(
       if (token === eventsToken) featuredEvents.value = []
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 const userPromptEvents = computed(() =>
-  featuredEvents.value.filter((e) => e.kind === 'hook' && e.subkind === 'UserPromptSubmit')
+  featuredEvents.value.filter((e) => e.kind === 'hook' && e.subkind === 'UserPromptSubmit'),
 )
 
 const promptCount = computed(() => userPromptEvents.value.length)
@@ -179,7 +168,7 @@ const userPromptTurns = computed(() => {
 
 // -- sub-agents (descendants of the featured session) ----------------------------------
 const subagents = computed<Session[]>(() =>
-  featuredId.value ? descendantsOf(featuredId.value) : []
+  featuredId.value ? descendantsOf(featuredId.value) : [],
 )
 
 // -- navigation -------------------------------------------------------------
@@ -206,109 +195,87 @@ const subagentPanel = ref<HTMLElement | null>(null)
 function scrollToSubagents() {
   subagentPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
-
 </script>
 
 <template>
-  <div ref="rootEl" class="dashboard">
-    <header class="header">
-      <div class="title-block">
-        <h1>agentspy</h1>
-        <p class="subtitle">
-          Come Claude Code riempie il contesto: token in gioco, composizione e consumo cumulativo.
-        </p>
-      </div>
-      <div class="header-right">
-        <ViewToggle />
-      </div>
+  <div ref="rootEl" class="dashboard-page">
+    <!-- header di sezione: la sessione di cui parlano i grafici (mockup):
+         stesso componente della timeline, così cambia sessione = cambia header -->
+    <SessionHeader v-if="featured" :session="featured" />
+    <header v-else class="bare-header">
+      <h1 class="bare-title">Dashboard</h1>
+      <ViewToggle />
     </header>
 
-    <p v-if="topLevelSessions.length === 0" class="empty-hero">
-      No sessions yet. Start the server and a Claude Code session (see the “?” help at the
-      bottom-left) to populate the dashboard.
-    </p>
+    <div class="dashboard">
+      <p v-if="topLevelSessions.length === 0" class="empty-hero">
+        No sessions yet. Start the server and a Claude Code session (see the “?” help at the
+        bottom-left) to populate the dashboard.
+      </p>
 
-    <template v-else>
-      <!-- Identity of the session the charts are about: the one thing that must
-           change when you switch session (via sidebar or select). The tag chip
-           reuses the sidebar's colour hash, tying "that row → these charts". -->
-      <div v-if="featured" class="featured-identity">
-        <span class="fi-label">grafici della sessione</span>
-        <span
-          v-if="featured.tag"
-          class="fi-chip"
-          :style="{ backgroundColor: tagColor(featured.tag) }"
-        >
-          {{ featured.tag }}
-        </span>
-        <span v-if="featured.title" class="fi-title">{{ featured.title }}</span>
-        <span v-else-if="featuredFallbackName" class="fi-title">{{ featuredFallbackName }}</span>
-        <span v-if="featuredIsSub" class="fi-badge fi-badge--sub">sub-agent</span>
-        <span class="fi-meta">{{ abbreviateModel(featured.model) }}</span>
-        <span class="fi-meta">· {{ featured.round_trips }} round trips</span>
-        <span v-if="featured.live" class="fi-badge fi-badge--live">live</span>
-      </div>
+      <template v-else>
+        <MetricCards
+          :stats="featuredStats"
+          :model="featured?.model ?? null"
+          :prompt-count="promptCount"
+          :subagents="subagents"
+          clickable-subagents
+          @jump-subagents="scrollToSubagents"
+        />
 
-      <MetricCards
-        :stats="featuredStats"
-        :model="featured?.model ?? null"
-        :prompt-count="promptCount"
-        :subagents="subagents"
-        @jump-subagents="scrollToSubagents"
-      />
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Context per round trip</h2>
+            <p class="panel-sub">
+              How many tokens travel on each call. Each line is a session (dashed = a sub-agent
+              belonging to the featured family); the green markers are round trips opened by one of
+              your prompts. The red line is the featured model's context window (200k or 1M).
+            </p>
+          </div>
+          <ContextChart :series="series" :user-prompt-turns="userPromptTurns" @jump="jumpToEvent" />
+        </section>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Context per round trip</h2>
-          <p class="panel-sub">
-            How many tokens travel on each call. Each line is a session (dashed = a sub-agent
-            belonging to the featured family); the green markers are round trips opened by one of
-            your prompts. The red line is the featured model's context window (200k or 1M).
-          </p>
-        </div>
-        <ContextChart :series="series" :user-prompt-turns="userPromptTurns" @jump="jumpToEvent" />
-      </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>What the context is made of</h2>
+            <p class="panel-sub">
+              The same spend broken down: cache re-read (cold), cache written, new text and output.
+              Cache is what makes long round trips sustainable.
+            </p>
+          </div>
+          <CompositionChart :stats="featuredStats" :session-id="featuredId" @jump="jumpToEvent" />
+        </section>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2>What the context is made of</h2>
-          <p class="panel-sub">
-            The same spend broken down: cache re-read (cold), cache written, new text and output.
-            Cache is what makes long round trips sustainable.
-          </p>
-        </div>
-        <CompositionChart :stats="featuredStats" :session-id="featuredId" @jump="jumpToEvent" />
-      </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Cumulative consumption (integral)</h2>
+            <p class="panel-sub">
+              The accumulating total burned: this — not the peak — is what determines the cost. Drag
+              to measure how much a stretch of the conversation cost.
+            </p>
+          </div>
+          <CumulativeChart :series="series" :featured-model="featured?.model ?? null" />
+        </section>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Cumulative consumption (integral)</h2>
-          <p class="panel-sub">
-            The accumulating total burned: this — not the peak — is what determines the cost. Drag
-            to measure how much a stretch of the conversation cost.
-          </p>
-        </div>
-        <CumulativeChart :series="series" :featured-model="featured?.model ?? null" />
-      </section>
-
-      <section v-if="subagents.length" ref="subagentPanel" class="panel">
-        <div class="panel-head">
-          <h2>Sub-agents</h2>
-          <p class="panel-sub">
-            Sub-agents work on a separate context: here are each one's total tokens, to see where
-            spending hidden from the main thread goes. Click a bar to feature that sub-agent and see
-            its charts.
-          </p>
-        </div>
-        <SubagentBars :subagents="subagents" @open="featureSession" />
-      </section>
-    </template>
+        <section v-if="subagents.length" ref="subagentPanel" class="panel">
+          <div class="panel-head">
+            <h2>Sub-agents</h2>
+            <p class="panel-sub">
+              Sub-agents work on a separate context: here are each one's total tokens, to see where
+              spending hidden from the main thread goes. Click a bar to feature that sub-agent and
+              see its charts.
+            </p>
+          </div>
+          <SubagentBars :subagents="subagents" @open="featureSession" />
+        </section>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .dashboard {
-  padding: 1.5rem 2rem 3rem;
+  padding: 1.25rem 2rem 3rem;
   max-width: 1100px;
   margin: 0 auto;
   display: flex;
@@ -316,95 +283,26 @@ function scrollToSubagents() {
   gap: 1.25rem;
 }
 
-.header {
+/* header quando non c'è ancora nessuna sessione featured */
+.bare-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-height: 34px;
+  padding: 0.7rem 1.5rem 0.8rem;
+  border-bottom: 1px solid var(--border);
 }
 
-h1 {
-  font-size: 1.7rem;
-  margin-bottom: 0.2rem;
-}
-
-.subtitle {
-  color: var(--muted);
-  font-size: 0.9rem;
-  max-width: 60ch;
-}
-
-.header-right {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+.bare-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .empty-hero {
   color: var(--muted);
   padding: 2rem 0;
-}
-
-/* Session identity: the heading that actually changes on session switch.
-   Sits above the metric cards, where the eye lands after the header. */
-.featured-identity {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0.55rem 0.75rem;
-  background-color: var(--panel);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent-live);
-  border-radius: 8px;
-}
-
-.fi-label {
-  font: 700 0.62rem system-ui;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted-faint);
-}
-
-.fi-chip {
-  padding: 0.1rem 0.5rem;
-  border-radius: 99px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-.fi-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.fi-meta {
-  font-size: 0.78rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.fi-badge {
-  padding: 0.05rem 0.4rem;
-  border-radius: 99px;
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.fi-badge--live {
-  background-color: var(--accent-live);
-  color: #fff;
-}
-
-.fi-badge--sub {
-  background-color: var(--panel-alt);
-  border: 1px solid var(--border);
-  color: var(--muted);
 }
 
 /* Chart panels render on a dark "focus" card regardless of the app theme, to
@@ -443,5 +341,4 @@ h1 {
   font-size: 0.78rem;
   max-width: 70ch;
 }
-
 </style>

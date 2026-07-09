@@ -37,7 +37,9 @@ function loadWidth(): number {
 const detailWidth = ref(loadWidth())
 const dragging = ref(false)
 
-const layoutStyle = computed(() => ({ '--detail-width': `${detailWidth.value}px` }))
+const layoutStyle = computed(() => ({
+  '--detail-width': `${detailWidth.value}px`,
+}))
 
 let startX = 0
 let startWidth = 0
@@ -76,15 +78,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    class="app-layout"
-    :class="{ 'has-detail': showDetail, dragging }"
-    :style="layoutStyle"
-  >
+  <div class="app-layout" :class="{ 'has-detail': showDetail, dragging }" :style="layoutStyle">
     <aside class="sidebar">
-      <div class="ws-indicator" :title="wsConnected ? 'connected' : 'disconnected'">
-        <span class="dot" :class="{ connected: wsConnected }"></span>
-        <span class="label">{{ wsConnected ? 'live' : 'offline' }}</span>
+      <!-- brand dell'app: qui, non nell'area centrale (che titola la sezione).
+           In futuro il quadrato "A" diventerà un logo vero. -->
+      <div class="brand">
+        <span class="brand-logo">A</span>
+        <span class="brand-name">AgentSpy</span>
+        <span
+          class="ws-dot"
+          :class="{ connected: wsConnected }"
+          :title="wsConnected ? 'collector connected' : 'collector offline'"
+        ></span>
       </div>
       <SessionsSidebar />
     </aside>
@@ -218,24 +223,48 @@ body {
   background-color: var(--accent);
 }
 
-.ws-indicator {
+/* riga brand: stessa altezza e stesso corpo del titolo di sezione
+   (SessionHeader .title-row) così le due intestazioni si allineano. */
+.brand {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  gap: 0.55rem;
+  min-height: 34px;
+  padding: 0.7rem 1rem 0.8rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
-  color: var(--muted);
 }
 
-.dot {
+.brand-logo {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background-color: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+/* stato della connessione WebSocket al collector, ora un semplice pallino */
+.ws-dot {
+  margin-left: auto;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background-color: var(--danger);
 }
 
-.dot.connected {
+.ws-dot.connected {
   background-color: var(--accent-live);
 }
 </style>

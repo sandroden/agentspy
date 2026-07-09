@@ -1,20 +1,23 @@
 <script setup lang="ts">
 /**
- * Grid of key metrics for the featured session, plus sub-agent totals. Real
- * data only: no counterfactual estimates.
+ * Grid of key metrics for a session, plus sub-agent totals. Shared by the
+ * dashboard and the timeline (SessionSummaryBar), so the "numbers" read the
+ * same everywhere. Real data only: no counterfactual estimates.
  */
 import { computed } from 'vue'
-import type { Session, StatsItem, Usage } from '../../types'
-import { formatTokens } from '../../utils/format'
-import { estimateCost, formatCost } from '../../utils/pricing'
+import type { Session, StatsItem, Usage } from '../types'
+import { formatTokens } from '../utils/format'
+import { estimateCost, formatCost } from '../utils/pricing'
 
 const props = defineProps<{
   stats: StatsItem[]
   model: string | null
-  /** numero di prompt utente (hook UserPromptSubmit) della featured. */
+  /** numero di prompt utente (hook UserPromptSubmit) della sessione. */
   promptCount: number
-  /** subagenti (discendenti) della featured. */
+  /** subagenti (discendenti) della sessione. */
   subagents: Session[]
+  /** la card sub-agents è cliccabile (emette jump-subagents); nella timeline no. */
+  clickableSubagents?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'jump-subagents'): void }>()
@@ -30,27 +33,25 @@ function consumedTokens(s: StatsItem): number {
 }
 
 const peakContext = computed(() =>
-  props.stats.length ? Math.max(...props.stats.map(contextTokens)) : 0
+  props.stats.length ? Math.max(...props.stats.map(contextTokens)) : 0,
 )
 
 const totalConsumed = computed(() => props.stats.reduce((sum, s) => sum + consumedTokens(s), 0))
 
-const ratio = computed(() =>
-  peakContext.value > 0 ? totalConsumed.value / peakContext.value : 0
-)
+const ratio = computed(() => (peakContext.value > 0 ? totalConsumed.value / peakContext.value : 0))
 
 const roundTrips = computed(() => props.stats.length)
 
 /** Total round trips of the run: featured + all sub-agents. */
 const roundTripsInclSub = computed(() =>
-  props.subagents.reduce((sum, s) => sum + s.round_trips, roundTrips.value)
+  props.subagents.reduce((sum, s) => sum + s.round_trips, roundTrips.value),
 )
 
 const subagentTokens = computed(() =>
   props.subagents.reduce((sum, s) => {
     const u = s.usage
     return sum + u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
-  }, 0)
+  }, 0),
 )
 
 /** Total consumed including sub-agents: the run's true integral. */
@@ -58,7 +59,7 @@ const totalConsumedInclSub = computed(() => totalConsumed.value + subagentTokens
 
 /** Sub-agent cost, each priced with its own model's rates. */
 const subagentCost = computed(() =>
-  props.subagents.reduce((sum, s) => sum + estimateCost(s.usage, s.model ?? props.model), 0)
+  props.subagents.reduce((sum, s) => sum + estimateCost(s.usage, s.model ?? props.model), 0),
 )
 
 const featuredUsage = computed<Usage>(() =>
@@ -69,8 +70,13 @@ const featuredUsage = computed<Usage>(() =>
       cache_read_tokens: acc.cache_read_tokens + s.cache_read_tokens,
       cache_write_tokens: acc.cache_write_tokens + s.cache_write_tokens,
     }),
-    { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 }
-  )
+    {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+    },
+  ),
 )
 
 const cost = computed(() => estimateCost(featuredUsage.value, props.model))
@@ -80,52 +86,56 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
   <div class="metric-cards">
     <span class="group-label">Session</span>
     <div class="card">
-      <span class="label">peak context</span>
+      <span class="label"><span class="ic">📈</span>peak context</span>
       <span class="value">{{ formatTokens(peakContext) }}</span>
     </div>
     <div class="card">
-      <span class="label">tokens consumed (integral)</span>
+      <span class="label"><span class="ic">🧮</span>tokens consumed (integral)</span>
       <span class="value">{{ formatTokens(totalConsumed) }}</span>
     </div>
     <div class="card">
-      <span class="label">consumption / peak</span>
+      <span class="label"><span class="ic">⚖️</span>consumption / peak</span>
       <span class="value">{{ ratio > 0 ? ratio.toFixed(1) + '×' : '—' }}</span>
     </div>
     <div class="card">
-      <span class="label">user prompts</span>
+      <span class="label"><span class="ic">💬</span>user prompts</span>
       <span class="value">{{ promptCount }}</span>
     </div>
     <div class="card">
-      <span class="label">round trips</span>
+      <span class="label"><span class="ic">🔁</span>round trips</span>
       <span class="value">{{ roundTrips }}</span>
     </div>
     <div
       class="card"
-      :class="{ clickable: subagents.length > 0 }"
-      @click="subagents.length > 0 && emit('jump-subagents')"
+      :class="{ clickable: clickableSubagents && subagents.length > 0 }"
+      @click="clickableSubagents && subagents.length > 0 && emit('jump-subagents')"
     >
       <span class="label">
-        sub-agents<template v-if="subagents.length"> · {{ formatTokens(subagentTokens) }} tok</template>
+        <span class="ic">🤖</span>sub-agents<template v-if="subagents.length">
+          · {{ formatTokens(subagentTokens) }} tok</template
+        >
       </span>
       <span class="value">{{ subagents.length }}</span>
     </div>
     <div class="card">
-      <span class="label">estimated cost (featured)</span>
+      <span class="label"><span class="ic">💰</span>estimated cost</span>
       <span class="value">{{ formatCost(cost) }}</span>
     </div>
 
     <template v-if="subagents.length">
-      <span class="group-label group-label--sub">+ sub-agents</span>
+      <span class="group-label group-label--sub">total · incl. sub-agents</span>
       <div class="card card--sub">
-        <span class="label">tokens consumed (integral)</span>
+        <span class="label"><span class="ic">🧮</span>tokens consumed (integral)</span>
         <span class="value">{{ formatTokens(totalConsumedInclSub) }}</span>
       </div>
       <div class="card card--sub">
-        <span class="label">round trips</span>
+        <span class="label"><span class="ic">🔁</span>round trips</span>
         <span class="value">{{ roundTripsInclSub }}</span>
       </div>
-      <div class="card card--sub">
-        <span class="label">estimated cost</span>
+      <!-- il costo dell'intero run (sessione + tutti i sub-agent): il numero
+           che risponde a "quanto è costato tutto?", quindi non attenuato -->
+      <div class="card card--total">
+        <span class="label"><span class="ic">💰</span>total cost (incl. sub-agents)</span>
         <span class="value">{{ formatCost(cost + subagentCost) }}</span>
       </div>
     </template>
@@ -170,6 +180,11 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
   min-width: auto;
 }
 
+/* costo totale del run: pieno risalto, bordo accent */
+.card--total {
+  border-color: var(--accent);
+}
+
 .card.clickable {
   cursor: pointer;
 }
@@ -191,5 +206,11 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
   text-transform: uppercase;
   letter-spacing: 0.02em;
   color: var(--muted-faint);
+}
+
+/* piccola icona davanti all'etichetta della card */
+.ic {
+  margin-right: 0.25rem;
+  font-size: 0.7rem;
 }
 </style>

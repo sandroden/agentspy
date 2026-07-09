@@ -4,7 +4,7 @@ title: Frontend (Vue 3)
 description: UI interattiva per live e replay — dashboard, timeline verticale per turni, context-fill e pannello di dettaglio a tab.
 resource: frontend/src
 tags: [frontend, vue, vite, pinia, typescript]
-timestamp: 2026-07-07T00:00:00Z
+timestamp: 2026-07-10T00:00:00Z
 ---
 
 Stack: **Vue 3 + Vite + TypeScript + Pinia + vue-router**, nessuna
@@ -32,17 +32,28 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
 
 # Viste e componenti
 
-- **DashboardView** (`/ui/`): sessione "in evidenza" + card metriche
-  (`MetricCards`, con stima costo da [token accounting](/design/token-accounting.md)),
+- **SessionHeader** (condiviso da Dashboard e Timeline): intestazione di
+  sezione con nome della sessione (tag, fallback titolo/id), titolo
+  secondario, pallino live, badge sub-agent, riga meta
+  (modello · durata · token · round trip) e il toggle Timeline/Dashboard
+  a destra. Stesso corpo/peso del brand **AgentSpy** nella sidebar
+  (logo "A" + nome in `App.vue`, con pallino di stato WebSocket), così le
+  due intestazioni si allineano. In dashboard sostituisce la vecchia
+  barra identità: lo switch di sessione cambia l'header stesso.
+- **MetricCards** (condiviso, `components/MetricCards.vue`): card
+  metriche con icone emoji — peak context, token consumati (integrale),
+  consumo/picco, prompt utente, round trip, sub-agent (🤖) e **stima
+  costo** da [token accounting](/design/token-accounting.md), più il
+  gruppo "+ sub-agents". Usato dalla dashboard e dalla Timeline
+  (`SessionSummaryBar`, al posto del vecchio riepilogo
+  input/output/cache), così i "numeri" si leggono uguali nelle due
+  pagine; la card sub-agents è cliccabile solo in dashboard
+  (prop `clickableSubagents`).
+- **DashboardView** (`/ui/`): sessione "in evidenza" — `SessionHeader` +
+  `MetricCards`,
   `ContextChart` (contesto per round trip), `CompositionChart` (area
   impilata cache_read/write/input/output), `CumulativeChart` (integrale
-  token con selezione drag), `SubagentBars`. Sopra le card, una **barra
-  identità** ("grafici della sessione …") nomina in modo prominente la
-  sessione featured — chip col tag (stesso hash-colore della sidebar, via
-  `utils/tag.ts`, così "quella riga → questi grafici"), titolo, badge
-  sub-agent/LIVE, modello e round trip — perché senza di essa lo switch di
-  sessione cambia numeri e grafici ma non un titolo, e sembra che i grafici
-  non siano quelli giusti. I pannelli-grafico rendono
+  token con selezione drag), `SubagentBars`. I pannelli-grafico rendono
   su **card scure** in entrambi i temi (i token di palette sono
   ridefiniti sul contenitore, così gli interni SVG — griglia, tick,
   testo, legende — si adattano). Il click su un punto di un grafico
@@ -51,7 +62,8 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
   route, vive nella Timeline). L'elenco sessioni e il quick start non
   sono in dashboard: le sessioni stanno nella sidebar sinistra, il quick
   start dietro il bottone "?" in basso a sinistra.
-- **SessionView**: `TimelineView` verticale raggruppata per turno
+- **SessionView**: `SessionHeader` (con i link parent/subagenti come
+  slot), `TimelineView` verticale raggruppata per turno
   (`TurnGroup`, `EventCard`, `HookMarker`, `McpCard`, `SubagentBlock`,
   `UsageBar`), `ContextFillPanel` (barra impilata per round trip),
   `TimeControls` (LIVE/PAUSA + scrubber, spazio e frecce).
@@ -65,16 +77,16 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
   (vista espansa/compatta dei `<system-reminder>` **e delle invocazioni
   di skill via slash-command**, persistita — vedi
   [skill & comandi](/design/skill-recognition.md)).
-- **SessionsSidebar**: elenco ad albero; ogni riga mostra tag +
+- **SessionsSidebar**: in cima il brand **AgentSpy** (in `App.vue`) e
+  l'etichetta "Sessioni"; elenco ad albero; ogni riga mostra tag +
   eventuale titolo (lo UUID di sessione è omesso — il tag identifica) e,
   a destra, il badge col numero di round trip che ne codifica lo stato:
   vivido mentre la sessione gira, grigio quando è arrivato lo Stop
-  (niente più chip LIVE). Più il badge unseen. In cima un bottone
-  toggle fra le due viste — che hanno un nome: **Grafici** (la
-  DashboardView su `/`) e **Timeline** (la SessionView). Sulla Timeline
-  il bottone mostra "📊 Grafici"; sui Grafici mostra "🕒 Timeline" e
-  torna all'ultima sessione aperta (`currentSessionId`, fallback
-  `featuredSessionId`, disabilitato se entrambi nulli). In dashboard il
+  (niente più chip LIVE). Più il badge unseen. Il toggle fra le due
+  viste (`ViewToggle`, "🕐 Timeline | 📊 Dashboard") vive nel
+  `SessionHeader` dell'area centrale: su "Timeline" torna all'ultima
+  sessione aperta (`currentSessionId`, fallback `featuredSessionId`,
+  disabilitato se entrambi nulli). In dashboard il
   click su una riga non naviga: mette la sessione in evidenza nei
   grafici. Nel footer i bottoni "?" (modal quick start) e ⚙️ Customize
   (tema light/dark).

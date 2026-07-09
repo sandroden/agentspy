@@ -6,8 +6,7 @@ import TimeControls from '../components/TimeControls.vue'
 import TimelineView from '../components/TimelineView.vue'
 import ContextFillPanel from '../components/ContextFillPanel.vue'
 import ContextInventory from '../components/ContextInventory.vue'
-import ViewToggle from '../components/ViewToggle.vue'
-import { formatDuration } from '../utils/format'
+import SessionHeader from '../components/SessionHeader.vue'
 
 const props = defineProps<{
   id: string
@@ -25,13 +24,13 @@ function load(id: string) {
 onMounted(() => load(props.id))
 watch(
   () => props.id,
-  (id) => load(id)
+  (id) => load(id),
 )
 
 const session = computed(() => spy.currentSession)
 
 const children = computed(() =>
-  Object.values(spy.sessions).filter((s) => s.parent_session_id === props.id)
+  Object.values(spy.sessions).filter((s) => s.parent_session_id === props.id),
 )
 
 const parent = computed(() => {
@@ -46,24 +45,7 @@ function goTo(id: string) {
 
 <template>
   <div class="session-view">
-    <header v-if="session" class="session-header">
-      <div class="title-row">
-        <div class="title-left">
-          <!-- the tag (x-agentspy-tag) is the human-friendly name chosen by the
-               user: IT is the title; the session id stays as a detail beside it -->
-          <h1 v-if="session.tag">
-            {{ session.tag }}<span class="title-id">· {{ session.title || session.id }}</span>
-          </h1>
-          <h1 v-else>{{ session.title || session.id }}</h1>
-          <span class="dot" :class="{ live: session.live }"></span>
-        </div>
-        <ViewToggle />
-      </div>
-      <div class="meta-row">
-        <span>{{ session.model }}</span>
-        <span>{{ formatDuration(session.duration_s) }}</span>
-        <span>{{ session.turns }} turns · {{ session.round_trips }} round trips</span>
-      </div>
+    <SessionHeader v-if="session" :session="session">
       <div v-if="parent || children.length" class="links-row">
         <span v-if="parent" class="chip link" @click="goTo(parent.id)">
           ↑ {{ parent.title || parent.id }}
@@ -72,7 +54,7 @@ function goTo(id: string) {
           ↳ {{ c.title || c.id }}
         </span>
       </div>
-    </header>
+    </SessionHeader>
     <p v-else class="loading">Loading session…</p>
 
     <TimeControls />
@@ -98,49 +80,6 @@ function goTo(id: string) {
   min-height: 100%;
 }
 
-.session-header {
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.title-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.title-row h1 {
-  font-size: 1.3rem;
-}
-
-.title-id {
-  margin-left: 0.5rem;
-  color: var(--muted);
-  font-size: 0.85rem;
-  font-weight: 400;
-}
-
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background-color: var(--muted);
-}
-
-.dot.live {
-  background-color: var(--accent-live);
-  animation: pulse 1.4s infinite;
-}
-
-.meta-row,
 .links-row {
   display: flex;
   flex-wrap: wrap;
@@ -173,15 +112,5 @@ function goTo(id: string) {
 .loading {
   padding: 2rem;
   color: var(--muted);
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
 }
 </style>

@@ -135,12 +135,10 @@ function cancelSelection() {
 }
 
 /** ids of the top-level sessions (children follow in cascade). */
-const topLevelIds = computed(() =>
-  rows.value.filter((r) => r.depth === 0).map((r) => r.session.id)
-)
+const topLevelIds = computed(() => rows.value.filter((r) => r.depth === 0).map((r) => r.session.id))
 
 const allSelected = computed(
-  () => topLevelIds.value.length > 0 && topLevelIds.value.every((id) => selected.value.has(id))
+  () => topLevelIds.value.length > 0 && topLevelIds.value.every((id) => selected.value.has(id)),
 )
 
 /** Select all top-level sessions (typical case: delete everything except a
@@ -163,7 +161,7 @@ async function confirmDelete() {
   } catch (err) {
     window.alert(
       `Delete failed: ${err instanceof Error ? err.message : err}.\n` +
-        `If the collector was started with an older version of the code, restart it.`
+        `If the collector was started with an older version of the code, restart it.`,
     )
     return
   }
@@ -211,6 +209,7 @@ const helpOpen = ref(false)
 <template>
   <nav class="sessions-sidebar">
     <div class="toolbar">
+      <span class="side-label">Sessioni</span>
       <button
         type="button"
         class="edit-toggle"
@@ -253,7 +252,11 @@ const helpOpen = ref(false)
         </div>
         <div class="row-lines">
           <div class="line1">
-            <span v-if="row.session.tag" class="chip" :style="{ backgroundColor: tagColor(row.session.tag) }">
+            <span
+              v-if="row.session.tag"
+              class="chip"
+              :style="{ backgroundColor: tagColor(row.session.tag) }"
+            >
               {{ row.session.tag }}
             </span>
             <!-- The raw session id is dropped: the tag already identifies the
@@ -339,7 +342,11 @@ const helpOpen = ref(false)
             >
               ☀️ Light
             </button>
-            <button class="theme-opt" :class="{ active: theme === 'dark' }" @click="setTheme('dark')">
+            <button
+              class="theme-opt"
+              :class="{ active: theme === 'dark' }"
+              @click="setTheme('dark')"
+            >
               🌙 Dark
             </button>
           </div>
@@ -347,12 +354,7 @@ const helpOpen = ref(false)
         <div class="settings-hint">More customization options will land here.</div>
       </div>
       <div class="footer-row">
-        <button
-          type="button"
-          class="help-btn"
-          title="Quick start / help"
-          @click="helpOpen = true"
-        >
+        <button type="button" class="help-btn" title="Quick start / help" @click="helpOpen = true">
           ?
         </button>
         <button type="button" class="settings-btn" @click="settingsOpen = !settingsOpen">
@@ -366,7 +368,9 @@ const helpOpen = ref(false)
         <div class="help-modal">
           <header class="help-header">
             <span class="help-title">Quick start</span>
-            <button type="button" class="help-close" title="close" @click="helpOpen = false">✕</button>
+            <button type="button" class="help-close" title="close" @click="helpOpen = false">
+              ✕
+            </button>
           </header>
           <div class="help-body">
             <ol>
@@ -399,10 +403,17 @@ const helpOpen = ref(false)
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
   border-bottom: 1px solid var(--border);
+}
+
+.side-label {
+  font: 700 0.65rem system-ui;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-faint);
 }
 
 .edit-toggle {
@@ -730,7 +741,9 @@ const helpOpen = ref(false)
   padding: 0.45rem 0.4rem;
   border-radius: 7px;
   cursor: pointer;
-  font: 600 0.78rem 'Inter', sans-serif;
+  font:
+    600 0.78rem 'Inter',
+    sans-serif;
   color: var(--muted);
 }
 
@@ -746,7 +759,9 @@ const helpOpen = ref(false)
   border: 1px solid var(--border);
   background-color: var(--panel-alt);
   color: var(--muted);
-  font: 700 0.9rem 'Inter', sans-serif;
+  font:
+    700 0.9rem 'Inter',
+    sans-serif;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -873,7 +888,9 @@ const helpOpen = ref(false)
 }
 
 .theme-opt {
-  font: 600 0.72rem 'Inter', sans-serif;
+  font:
+    600 0.72rem 'Inter',
+    sans-serif;
   color: var(--muted);
   background: transparent;
   border: none;
