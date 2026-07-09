@@ -7,7 +7,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useSpyStore, type SessionNode } from '../stores/spy'
+import { useSpyStore } from '../stores/spy'
 import { fetchSessionEvents } from '../api/client'
 import { abbreviateModel } from '../utils/model'
 import { tagColor } from '../utils/tag'
@@ -93,24 +93,6 @@ const featuredFallbackName = computed(() => {
   const s = featured.value
   if (!s || s.tag || s.title) return null
   return s.id.length > 12 ? `${s.id.slice(0, 12)}…` : s.id
-})
-
-/** Options for the featured-session select: flattened tree, sub-agents indented. */
-const sessionOptions = computed(() => {
-  const out: { id: string; label: string }[] = []
-  const walk = (nodes: SessionNode[], depth: number) => {
-    for (const n of nodes) {
-      const name = n.title || n.tag || n.id
-      const indent = '  '.repeat(depth)
-      out.push({
-        id: n.id,
-        label: `${indent}${depth > 0 ? '└ ' : ''}${name}${n.live ? ' · live' : ''}`,
-      })
-      walk(n.children, depth + 1)
-    }
-  }
-  walk(spy.sessionTree, 0)
-  return out
 })
 
 // -- loading stats for all sessions (refreshed for live ones) --------
@@ -238,12 +220,6 @@ function scrollToSubagents() {
       </div>
       <div class="header-right">
         <ViewToggle />
-        <label v-if="topLevelSessions.length" class="featured-select">
-          <span>featured session</span>
-          <select v-model="featuredId">
-            <option v-for="o in sessionOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
-          </select>
-        </label>
       </div>
     </header>
 
@@ -363,24 +339,6 @@ h1 {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
-}
-
-.featured-select {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.72rem;
-  color: var(--muted);
-}
-
-.featured-select select {
-  background-color: var(--panel-alt);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 0.35rem 0.5rem;
-  font-size: 0.85rem;
-  min-width: 220px;
 }
 
 .empty-hero {
