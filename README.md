@@ -5,6 +5,8 @@ communication between Claude Code and the Anthropic API: how each request is
 composed (system prompt, tools, messages), what the model replies (usage,
 cache, thinking, tool use), and how subagents and MCP servers work.
 
+<img width="3430" height="1891" alt="immagine" src="https://github.com/user-attachments/assets/46759bdb-6752-4748-b662-3cbaa96fb59d" />
+
 ## Architecture
 
 ```
