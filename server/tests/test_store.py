@@ -1,4 +1,16 @@
+import stat
+
 from agentspy_server.store import Store
+
+
+def test_db_file_permissions_are_owner_only(tmp_path):
+    """Il DB può contenere prompt/risposte in chiaro: deve nascere 0600."""
+    db_path = tmp_path / "perms.db"
+    store = Store(db_path)
+    store.upsert_session("s1", started_at=1.0)
+    mode = stat.S_IMODE(db_path.stat().st_mode)
+    assert mode == 0o600
+    store.close()
 
 
 def test_insert_and_get_event(tmp_path):

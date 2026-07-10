@@ -219,6 +219,14 @@ class Store:
             except sqlite3.OperationalError:
                 pass
             self._conn.commit()
+        # Il DB può contenere prompt/risposte in chiaro: restringiamo i permessi
+        # al solo proprietario. Best-effort (WAL/SHM potrebbero non esistere,
+        # ":memory:" non ha file): un OSError non deve impedire l'avvio.
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.chmod(self.db_path + suffix, 0o600)
+            except OSError:
+                pass
 
     def close(self) -> None:
         with self._lock:
