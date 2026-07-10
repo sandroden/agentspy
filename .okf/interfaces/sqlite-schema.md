@@ -17,7 +17,8 @@ non bloccare l'event loop. Percorso dal env `AGENTSPY_DB`.
 sessions(id TEXT PK,            -- session_id di Claude Code o sintetico syn-<fp>
          tag TEXT, title TEXT, model TEXT,
          parent_session_id TEXT, agent_id TEXT,   -- per subagenti
-         started_at REAL, ended_at REAL, live INTEGER)
+         started_at REAL, ended_at REAL, live INTEGER,
+         cwd TEXT)                     -- working dir della sessione
 
 events(id INTEGER PK,
        session_id TEXT, kind TEXT,     -- round_trip | hook | mcp
