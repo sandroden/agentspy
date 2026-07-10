@@ -151,6 +151,31 @@ PDF_READ_BODY = {
 }
 
 
+def test_file_ref_from_too_large_pdf_notice():
+    # `@file` troppo grande per l'eager loading: Claude Code inietta solo un
+    # avviso role:system → artefatto `file-ref` (referenziato, non caricato).
+    notice = (
+        "PDF file: /docs/man.pdf (13 pages, 1.4MB). This PDF is too large to read "
+        'all at once. You MUST use the Read tool with the pages parameter to read '
+        'specific page ranges (e.g., pages: "1-5"). Maximum 20 pages per request.'
+    )
+    body = {
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "nel file @man.pdf ..."}]},
+            # nel caso reale l'avviso condivide il blocco system con altre
+            # notifiche (deferred tools): pesa solo il primo paragrafo
+            {"role": "system", "content": notice + "\n\nThe following deferred tools are now available..."},
+        ]
+    }
+    kinds = _by_kind(extract_artifacts(body))
+    assert "at-file" not in kinds                  # nessun contenuto pre-caricato
+    ref = kinds["file-ref"][0]
+    assert ref["path"] == "/docs/man.pdf"
+    assert ref["label"] == "@man.pdf"
+    assert "non caricato" in ref["description"]
+    assert ref["chars"] == len(notice)             # solo l'avviso, non il resto del blocco
+
+
 def test_tool_result_images_are_not_user_images():
     # Le pagine del PDF (image fratelli di un tool_result) NON sono allegati
     # dell'utente: nessun artefatto `image`, niente bolla YOU fantasma.

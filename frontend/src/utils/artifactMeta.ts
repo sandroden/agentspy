@@ -7,6 +7,7 @@ const ICON: Record<ArtifactKind, string> = {
   memory: '🧠',
   image: '🖼️',
   'at-file': '📎',
+  'file-ref': '🔖',
   'read-file': '📄',
   tools: '🔧',
 }
@@ -18,6 +19,7 @@ const KIND_LABEL: Record<ArtifactKind, string> = {
   memory: 'Memoria',
   image: 'Immagine',
   'at-file': 'File allegato',
+  'file-ref': 'File referenziato (non caricato)',
   'read-file': 'File letto',
   tools: 'Tools',
 }

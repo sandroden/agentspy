@@ -32,6 +32,11 @@ _CALLED_TOOL_RE = re.compile(
     re.DOTALL,
 )
 
+# Avviso `role:"system"` con cui Claude Code segnala un `@file` troppo grande
+# per l'eager loading (osservato coi PDF): il file è solo *referenziato*, il
+# contenuto NON è nel contesto finché il modello non lo legge con Read.
+_FILE_REF_RE = re.compile(r"^PDF file: (\S+) \(([^)]+)\)\. This PDF is too large")
+
 _BILLING_PREFIX = "x-anthropic-billing-header:"
 
 # Tool le cui `tool_result` iniettano nel contesto il *contenuto di un file*
@@ -239,6 +244,43 @@ def _extract_at_files(messages: list[Any]) -> list[dict[str, Any]]:
     return artifacts
 
 
+def _extract_file_refs(messages: list[Any]) -> list[dict[str, Any]]:
+    """File allegati via `@` ma solo *referenziati* (contenuto non caricato).
+
+    Quando l'`@file` è troppo grande per l'eager loading (osservato coi PDF),
+    Claude Code inietta un avviso `role:"system"` ("PDF file: <path> … too
+    large … use the Read tool") invece del contenuto. È comunque un allegato
+    dell'utente — differisce da `at-file` perché nel contesto entra solo
+    l'avviso (poche centinaia di char), non il file: quello arriverà, se il
+    modello decide di leggerlo, come `read-file`.
+    """
+    artifacts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for role, block in _iter_message_blocks(messages):
+        if role != "system":
+            continue
+        text = _block_text(block)
+        match = _FILE_REF_RE.match(text)
+        if not match:
+            continue
+        file_path, info = match.group(1), match.group(2)
+        if file_path in seen:
+            continue
+        seen.add(file_path)
+        # Nel contesto pesa solo l'avviso (primo paragrafo del blocco system).
+        notice = text.split("\n\n", 1)[0]
+        artifacts.append(
+            {
+                "kind": "file-ref",
+                "label": "@" + file_path.rsplit("/", 1)[-1],
+                "path": file_path,
+                "description": f"referenziato via @ ({info}) — contenuto non caricato",
+                "chars": len(notice),
+            }
+        )
+    return artifacts
+
+
 def _content_len(content: Any) -> int:
     """Peso in caratteri del `content` di un tool_result (str o lista di blocchi)."""
     if isinstance(content, str):
@@ -353,6 +395,7 @@ def extract_artifacts(body: Any) -> list[dict[str, Any]]:
     artifacts += _extract_instruction_files(messages)
     artifacts += _extract_images(messages)
     artifacts += _extract_at_files(messages)
+    artifacts += _extract_file_refs(messages)
     artifacts += _extract_read_files(messages)
     artifacts += _extract_tools(body.get("tools"))
     return artifacts

@@ -84,7 +84,7 @@ function onClick() {
  *    → fuori dalla bolla verde di Claude, perché è input, non la risposta.
  */
 const newArtifacts = computed(() => spy.newArtifactsByEvent[props.event.id] ?? [])
-const USER_KINDS = new Set(['at-file', 'image'])
+const USER_KINDS = new Set(['at-file', 'file-ref', 'image'])
 const userArtifacts = computed(() => newArtifacts.value.filter((a) => USER_KINDS.has(a.kind)))
 const systemArtifacts = computed(() => newArtifacts.value.filter((a) => !USER_KINDS.has(a.kind)))
 
@@ -355,6 +355,19 @@ function openInventory() {
   margin-top: 8px;
 }
 
+/* La colonna utente è stretta: i chip non devono traboccare dalla bolla. */
+.ctx-attach .ctx-chip {
+  max-width: 100%;
+}
+.ctx-attach .ctx-chip-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* Contesto di sistema: banda sotto la bolla verde (fuori: è input, non risposta). */
 .ctx-sys {
   display: flex;
@@ -411,6 +424,12 @@ function openInventory() {
 .ctx-chip--image,
 .ctx-chip--at-file {
   --c-chip: #d9840a;
+}
+/* @file solo referenziato (troppo grande per l'eager loading): stesso ambra
+   degli allegati ma tratteggiato — nel contesto c'è solo l'avviso, non il file. */
+.ctx-chip--file-ref {
+  --c-chip: #d9840a;
+  border-style: dashed;
 }
 /* File letto dall'agente (Read): stesso contenuto di un @file, altra origine. */
 .ctx-chip--read-file {
