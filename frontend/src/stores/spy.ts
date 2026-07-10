@@ -38,6 +38,9 @@ export const useSpyStore = defineStore('spy', () => {
   const selectedEventId = ref<number | null>(null)
   const detailCache = ref<Record<number, EventDetail>>({})
   const detailLoading = ref(false)
+  /** true when the last fetchEventDetail for the selected event failed (lets the
+   * UI show a retry affordance instead of a permanent spinner). */
+  const detailError = ref(false)
   const wsConnected = ref(false)
   /** unseen event counter per session (for the sidebar badge); reset when opening the session. */
   const unseenCounts = ref<Record<string, number>>({})
@@ -278,18 +281,23 @@ export const useSpyStore = defineStore('spy', () => {
 
   async function select(eventId: number) {
     selectedEventId.value = eventId
+    detailError.value = false
     if (detailCache.value[eventId]) return
     detailLoading.value = true
     try {
       const detail = await fetchEventDetail(eventId)
+      if (selectedEventId.value !== eventId) return // selection moved on
       detailCache.value = { ...detailCache.value, [eventId]: detail }
+    } catch {
+      if (selectedEventId.value === eventId) detailError.value = true
     } finally {
-      detailLoading.value = false
+      if (selectedEventId.value === eventId) detailLoading.value = false
     }
   }
 
   function clearSelection() {
     selectedEventId.value = null
+    detailError.value = false
   }
 
   /**
@@ -361,6 +369,7 @@ export const useSpyStore = defineStore('spy', () => {
     selectedEventId,
     detailCache,
     detailLoading,
+    detailError,
     wsConnected,
     unseenCounts,
     contextInventoryOpen,

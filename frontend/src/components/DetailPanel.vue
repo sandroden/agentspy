@@ -183,6 +183,7 @@ const responseContent = computed<AnyRecord[]>(() =>
 
 const prevDetailCache = ref<Record<number, EventDetail>>({})
 const prevLoading = ref(false)
+const prevError = ref(false)
 
 /** Previous round trip of the same session, by ts_start. */
 const previousEvent = computed<EventSummary | null>(() => {
@@ -199,17 +200,28 @@ const previousEvent = computed<EventSummary | null>(() => {
   return candidates.reduce((a, b) => ((b.ts_start ?? 0) > (a.ts_start ?? 0) ? b : a))
 })
 
-watchEffect(() => {
+/** Fetch the previous round trip's detail; extracted so the Delta tab's retry
+ *  button can re-run it (clearing prevError alone wouldn't re-trigger the watch). */
+function loadPrev() {
   const evt = previousEvent.value
-  if (activeTab.value !== 'delta' || !evt || prevDetailCache.value[evt.id]) return
+  if (!evt || prevDetailCache.value[evt.id]) return
+  prevError.value = false
   prevLoading.value = true
   fetchEventDetail(evt.id)
     .then((d) => {
       prevDetailCache.value = { ...prevDetailCache.value, [evt.id]: d }
     })
+    .catch(() => {
+      prevError.value = true
+    })
     .finally(() => {
       prevLoading.value = false
     })
+}
+
+watchEffect(() => {
+  if (activeTab.value !== 'delta' || !previousEvent.value) return
+  loadPrev()
 })
 
 const previousDetail = computed<EventDetail | null>(() =>
@@ -270,6 +282,11 @@ const mcpError = computed(() => payload.value.error)
 
 const copied = ref(false)
 
+/** Retry the detail fetch for the selected event (cache miss on error → refetch). */
+function retryDetail() {
+  if (spy.selectedEventId != null) void spy.select(spy.selectedEventId)
+}
+
 async function copyJson() {
   if (!detail.value) return
   try {
@@ -287,9 +304,13 @@ async function copyJson() {
 <template>
   <div class="detail-panel">
     <p v-if="spy.selectedEventId == null" class="placeholder">No event selected</p>
-    <div v-else-if="spy.detailLoading || !detail" class="spinner-wrap">
+    <div v-else-if="spy.detailLoading" class="spinner-wrap">
       <span class="spinner"></span>
       loading detail…
+    </div>
+    <div v-else-if="spy.detailError || !detail" class="error-retry">
+      <p>Failed to load event detail.</p>
+      <button class="retry-btn" @click="retryDetail">Retry</button>
     </div>
     <template v-else>
       <header class="header">
@@ -495,9 +516,13 @@ async function copyJson() {
           <p v-if="!previousEvent" class="placeholder">
             First request of the conversation — all context is new.
           </p>
-          <div v-else-if="prevLoading || !previousDetail" class="spinner-wrap">
+          <div v-else-if="prevLoading" class="spinner-wrap">
             <span class="spinner"></span>
             loading previous round trip…
+          </div>
+          <div v-else-if="prevError || !previousDetail" class="error-retry">
+            <p>Failed to load the previous round trip.</p>
+            <button class="retry-btn" @click="loadPrev">Retry</button>
           </div>
           <template v-else>
             <div class="section-title">Differences from the previous round trip</div>
@@ -910,6 +935,30 @@ async function copyJson() {
   padding: 0.5rem 0.6rem;
   margin-bottom: 0.6rem;
   font-size: 0.82rem;
+}
+
+.error-retry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 1.5rem 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.retry-btn {
+  background-color: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.retry-btn:hover {
+  border-color: var(--accent);
 }
 
 .copy-btn {
