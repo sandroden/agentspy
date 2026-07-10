@@ -48,6 +48,9 @@ export const useSpyStore = defineStore('spy', () => {
   /** request token for openSession: guards against out-of-order fetch results
    * when the user switches session quickly (click A → B before A resolves). */
   let openSeq = 0
+  /** whether the first WS 'hello' has been seen: the initial hello is redundant
+   * with the route's own openSession, only reconnection hellos need a reload. */
+  let helloSeen = false
 
   // -- getters ------------------------------------------------------------
   const sessionTree = computed<SessionNode[]>(() => {
@@ -149,40 +152,68 @@ export const useSpyStore = defineStore('spy', () => {
     })
   }
 
-  async function openSession(id: string) {
+  /**
+   * Opens (or reloads) a session and loads its events/stats.
+   *
+   * `preservePlayback` (used by the reconnection reload) keeps the current
+   * live/cursor state instead of jumping to the live edge: a background reload
+   * while the user is paused on a round trip must not strip them off it.
+   */
+  async function openSession(id: string, preservePlayback = false) {
     const seq = ++openSeq
+    const switching = currentSessionId.value !== id
+    // Remember the round trip the user is paused on, to restore it after reload.
+    const anchorId = preservePlayback ? (events.value[cursor.value]?.id ?? null) : null
     currentSessionId.value = id
     unseenCounts.value = { ...unseenCounts.value, [id]: 0 }
-    // Clear immediately: a WS 'event' arriving during the await lands (via
-    // onWsMessage → insertEventSorted, since currentSessionId is already `id`)
-    // in this fresh array instead of the previous session's list.
-    events.value = []
-    stats.value = []
+    // Switching session clears immediately: a WS 'event' arriving during the
+    // await lands (via onWsMessage → insertEventSorted, since currentSessionId
+    // is already `id`) in a fresh array, not the previous session's list. On a
+    // same-session reload we keep the current list and merge into it below.
+    if (switching) {
+      events.value = []
+      stats.value = []
+    }
     const [evts, st] = await Promise.all([fetchSessionEvents(id), fetchSessionStats(id)])
     // A newer openSession superseded this one (fast A→B switch): drop the result.
     if (seq !== openSeq) return
     const timeline = evts.filter(isTimelineEvent)
-    // Merge the fetched snapshot with any WS events that arrived during the
-    // await (already pushed into events.value); dedup by id — the same round
-    // trip can appear in both the snapshot and the stream, and
-    // insertEventSorted doesn't deduplicate.
-    const wsArrived = events.value
-    if (wsArrived.length) {
+    // Merge the fetched snapshot with what's already in events.value (WS events
+    // that arrived during the await, plus — on a same-session reload — the prior
+    // list); dedup by id, since the same round trip can appear in both the
+    // snapshot and the stream and insertEventSorted doesn't deduplicate.
+    const existing = events.value
+    if (existing.length) {
       const byId = new Map<number, EventSummary>()
       for (const e of timeline) byId.set(e.id, e)
-      for (const e of wsArrived) byId.set(e.id, e)
+      for (const e of existing) byId.set(e.id, e)
       events.value = [...byId.values()].sort((a, b) => (a.ts_start ?? 0) - (b.ts_start ?? 0))
     } else {
       events.value = timeline
     }
     stats.value = st
-    cursor.value = events.value.length - 1
-    live.value = true
+    if (preservePlayback && !live.value) {
+      // Restore the cursor to the same round trip (indices are stable when the
+      // gap only appended, but re-find by id to be safe).
+      const idx = anchorId != null ? events.value.findIndex((e) => e.id === anchorId) : -1
+      cursor.value = idx >= 0 ? idx : Math.min(cursor.value, Math.max(events.value.length - 1, 0))
+    } else {
+      cursor.value = events.value.length - 1
+      live.value = true
+    }
   }
 
   function onWsMessage(msg: WsMessage) {
     if (msg.type === 'hello') {
       replaceSessions(msg.sessions)
+      // On a RECONNECTION hello (not the first), reload the open session's
+      // events: the round trips from the disconnect window are otherwise lost
+      // from the timeline forever (only the sidebar badge would update).
+      // preservePlayback keeps a paused user on their round trip.
+      if (helloSeen && currentSessionId.value) {
+        void openSession(currentSessionId.value, true)
+      }
+      helloSeen = true
       return
     }
     if (msg.type === 'session') {
