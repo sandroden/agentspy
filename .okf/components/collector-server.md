@@ -36,6 +36,11 @@ Variabili d'ambiente: `AGENTSPY_PORT` (default 8082), `AGENTSPY_DB`
 Solo le richieste il cui body contiene `messages` vengono correlate e
 persistite (scartati HEAD, `/v1/models`, `count_tokens`).
 
+L'emissione del record verso `_handle_round_trip()` è best-effort e fuori dal
+percorso critico: sul path non-streaming è fire-and-forget (`asyncio.create_task`),
+sul ramo SSE è attesa ma protetta da try/except. Un errore di store (DB locked,
+disco pieno) viene loggato e non trasforma un round trip riuscito in un 500.
+
 # Dipendenze
 
 `starlette>=0.37`, `uvicorn>=0.30`, `httpx>=0.27`, `websockets>=12`
@@ -45,5 +50,5 @@ Dev: `pytest`, `pytest-asyncio` (asyncio_mode=auto).
 # Test
 
 ```bash
-cd server && uv run pytest    # 19 test: store, proxy, api, correlate
+cd server && uv run pytest    # 40+ test: store, proxy, api, correlate
 ```
