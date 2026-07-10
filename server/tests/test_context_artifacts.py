@@ -123,6 +123,72 @@ def test_read_file_content_as_block_list():
     assert read[0]["chars"] == len("riga uno") + len("riga due")
 
 
+# Body campione che riproduce la lettura di un PDF via `@`: Claude Code non fa
+# eager loading (troppo grande), il modello chiama Read a blocchi di pagine e il
+# tool_result arriva con uno stub testuale + le pagine come blocchi image
+# FRATELLI del tool_result (caso reale osservato, evento 2230/2232).
+PDF_READ_BODY = {
+    "messages": [
+        {"role": "user", "content": [{"type": "text", "text": "nel file @man.pdf ..."}]},
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Read",
+             "input": {"file_path": "/docs/man.pdf", "pages": "1-6"}},
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "PDF pages extracted: 6 page(s)"},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "A" * 100}},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "B" * 200}},
+        ]},
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t2", "name": "Read",
+             "input": {"file_path": "/docs/man.pdf", "pages": "7-13"}},
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t2", "content": "PDF pages extracted: 7 page(s)"},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "C" * 300}},
+        ]},
+    ]
+}
+
+
+def test_tool_result_images_are_not_user_images():
+    # Le pagine del PDF (image fratelli di un tool_result) NON sono allegati
+    # dell'utente: nessun artefatto `image`, niente bolla YOU fantasma.
+    kinds = _by_kind(extract_artifacts(PDF_READ_BODY))
+    assert "image" not in kinds
+
+
+def test_read_file_weighs_sibling_images_and_accumulates():
+    read = _by_kind(extract_artifacts(PDF_READ_BODY))["read-file"]
+    # Letture ripetute dello stesso path → un solo artefatto, pesi sommati.
+    assert len(read) == 1
+    assert read[0]["path"] == "/docs/man.pdf"
+    expected = (
+        len("PDF pages extracted: 6 page(s)") + 100 + 200
+        + len("PDF pages extracted: 7 page(s)") + 300
+    )
+    assert read[0]["chars"] == expected
+
+
+def test_read_file_counts_images_inside_tool_result_content():
+    # Immagini DENTRO `tool_result.content` (es. screenshot): contate nel peso.
+    body = {
+        "messages": [
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/a/shot.png"}},
+            ]},
+            {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": [
+                    {"type": "text", "text": "ok"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "D" * 50}},
+                ]},
+            ]},
+        ]
+    }
+    read = _by_kind(extract_artifacts(body))["read-file"]
+    assert read[0]["chars"] == len("ok") + 50
+
+
 def test_image_has_source_path():
     img = _by_kind(extract_artifacts(SAMPLE_BODY))["image"][0]
     assert img["path"] == "/home/u/.cache/1.png"
