@@ -35,8 +35,10 @@ def main():
             headers={'Content-Type': 'application/json'}
         )
 
-        # Fai POST con timeout di 2 secondi
-        with urllib.request.urlopen(req, timeout=2) as response:
+        # Fai POST con timeout di 0.5 secondi: l'hook è sincrono nel ciclo di
+        # Claude Code (PreToolUse scatta a ogni tool), un collector lento non
+        # deve stallare l'agente
+        with urllib.request.urlopen(req, timeout=0.5) as response:
             pass
 
     except Exception:

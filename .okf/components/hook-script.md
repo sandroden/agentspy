@@ -10,7 +10,8 @@ timestamp: 2026-07-07T00:00:00Z
 Script Python stdlib puro (solo `urllib`, zero dipendenze pesanti).
 Legge lo stdin (payload hook JSON, fallback `{"raw": <testo troncato>}`),
 costruisce `{ts, tag, payload}` e fa POST a `AGENTSPY_URL/ingest/hook`
-(vedi [ingest API](/interfaces/ingest-api.md)) con timeout **2s**.
+(vedi [ingest API](/interfaces/ingest-api.md)) con timeout **0.5s**
+(sincrono nel ciclo hook: un collector lento non deve stallare l'agente).
 
 **Fire-and-forget**: ignora qualsiasi eccezione ed esce sempre con
 exit 0, per non bloccare mai Claude Code. Debug su stderr solo con
