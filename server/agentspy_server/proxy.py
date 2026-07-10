@@ -8,13 +8,17 @@ Chi assembla l'app (``app.py``) collega ``on_event`` a correlate+store+ws.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import time
 from typing import Awaitable, Callable
 
 import httpx
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 TAG_HEADER = "x-agentspy-tag"
 
@@ -189,6 +193,9 @@ class ProxyForwarder:
         self.upstream = upstream.rstrip("/")
         self.client = client
         self.on_event = on_event
+        # task di emissione in volo: manteniamo un riferimento perché
+        # asyncio.create_task non lo fa e il task potrebbe essere GC'd a metà.
+        self._pending: set[asyncio.Task] = set()
 
     async def forward(self, request: Request) -> Response:
         t_start = time.time()
@@ -255,7 +262,12 @@ class ProxyForwarder:
                     await upstream_resp.aclose()
                     record["timing"]["total_s"] = round(time.time() - t_start, 3)
                     record["response"] = collector.finalize()
-                    await self._emit(record)
+                    # I byte sono già stati consegnati al client: un errore di
+                    # store non deve trasformare un round trip riuscito in 500.
+                    try:
+                        await self._emit(record)
+                    except Exception:
+                        logger.exception("agentspy: emissione record SSE fallita")
 
             return StreamingResponse(
                 tee(), status_code=upstream_resp.status_code, headers=resp_headers
@@ -274,8 +286,24 @@ class ProxyForwarder:
                 record["response"]["stop_reason"] = body.get("stop_reason")
         except json.JSONDecodeError:
             record["response"] = {"type": "raw", "body": data.decode("utf-8", "replace")[:2000]}
-        await self._emit(record)
+        # Emissione fuori dal percorso critico: la risposta upstream è già
+        # pronta e non deve né attendere la scrittura DB né propagarne gli errori.
+        self._emit_background(record)
         return Response(data, status_code=upstream_resp.status_code, headers=resp_headers)
+
+    def _emit_background(self, record: dict) -> None:
+        """Pianifica l'emissione senza bloccare la risposta né propagare errori."""
+        if self.on_event is None:
+            return
+        task = asyncio.create_task(self._emit_safe(record))
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+
+    async def _emit_safe(self, record: dict) -> None:
+        try:
+            await self._emit(record)
+        except Exception:
+            logger.exception("agentspy: emissione record non-streaming fallita")
 
     async def _emit(self, record: dict) -> None:
         if self.on_event is not None:

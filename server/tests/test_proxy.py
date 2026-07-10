@@ -112,6 +112,36 @@ async def test_proxy_streams_identical_bytes_and_reconstructs_message():
     assert record["timing"]["total_s"] is not None
 
 
+@pytest.mark.asyncio
+async def test_emit_failure_does_not_break_upstream_response():
+    """Se lo store (on_event) solleva, Claude Code deve comunque ricevere 200
+    con il body upstream intatto: l'emissione è best-effort, fuori dal percorso
+    critico."""
+    transport = httpx.ASGITransport(app=upstream_app)
+    client = httpx.AsyncClient(transport=transport, base_url="http://upstream")
+
+    async def on_event(record: dict) -> None:
+        raise RuntimeError("database locked")
+
+    forwarder = ProxyForwarder("http://upstream", client, on_event=on_event)
+
+    async def proxy_view(request: Request):
+        return await forwarder.forward(request)
+
+    app = Starlette(routes=[Route("/v1/messages", proxy_view, methods=["POST"])])
+
+    with TestClient(app) as test_client:
+        resp = test_client.post(
+            "/v1/messages",
+            json={"model": "claude-x", "messages": [{"role": "user", "content": "ciao"}]},
+        )
+
+    await client.aclose()
+
+    assert resp.status_code == 200
+    assert resp.content == b"".join(_sse_chunks())
+
+
 def _feed_events(collector: SSECollector, events: list[tuple[str, dict]]) -> None:
     for event_type, data in events:
         collector.feed(f"event: {event_type}\ndata: {json.dumps(data)}\n\n".encode())
