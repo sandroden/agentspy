@@ -398,6 +398,79 @@ def test_concurrent_runs_same_prompt_bind_to_correct_hook_session():
     assert info_a["session_id"] != info_b["session_id"]
 
 
+def test_rehydrate_continues_session_and_turn(tmp_path):
+    """Store popolato → nuovo Correlator reidratato: turn_index, fingerprint e
+    join per tool_use_id tornano, e il round trip successivo continua la stessa
+    sessione col suo turno invece di ripartire da 1 in una nuova syn-."""
+    from agentspy_server.store import Store
+
+    store = Store(tmp_path / "rehy.db")
+    store.upsert_session("sess-R", started_at=100.0, ended_at=101.0, live=True)
+    store.insert_event(
+        session_id="sess-R", kind="hook", subkind="UserPromptSubmit",
+        turn_index=1, ts_start=100.0, ts_end=100.0,
+        payload={"session_id": "sess-R", "hook_event_name": "UserPromptSubmit", "prompt": "ciao"},
+    )
+    rt_payload = {
+        "request": {
+            "headers": {"x-claude-code-session-id": "sess-R"},
+            "body": {"system": "sys", "messages": [{"role": "user", "content": "ciao"}]},
+        },
+        "response": {"message": {"content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash"}]}},
+    }
+    store.insert_event(
+        session_id="sess-R", kind="round_trip", turn_index=1,
+        ts_start=100.5, ts_end=101.0, payload=rt_payload,
+    )
+
+    snap = store.rehydration_snapshot(0.0)
+    corr = Correlator()
+    corr.rehydrate(snap["sessions"], snap["events"])
+
+    assert corr.session_state["sess-R"].turn_index == 1
+    assert corr.session_state["sess-R"].has_hooks is True
+    # join MCP/subagente ripristinato: il tool_use della risposta è ricollegato
+    assert corr.session_for_tool_use("toolu_1") == "sess-R"
+
+    # round trip successivo della stessa conversazione: continua sess-R al turno 1
+    next_rt = {
+        "request": {
+            "headers": {"x-claude-code-session-id": "sess-R"},
+            "body": {
+                "system": "sys",
+                "messages": [
+                    {"role": "user", "content": "ciao"},
+                    {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash"}]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]},
+                ],
+            },
+        },
+        "response": {"message": {"content": []}},
+    }
+    info = corr.correlate_round_trip(next_rt)
+    assert info["session_id"] == "sess-R"
+    assert info["turn_index"] == 1
+    assert info["is_new_session"] is False
+    store.close()
+
+
+def test_rehydration_snapshot_filters_by_recency(tmp_path):
+    """Lo snapshot prende le sessioni per recency (ultima attività) e tutti i
+    loro eventi; le sessioni vecchie sono escluse."""
+    from agentspy_server.store import Store
+
+    store = Store(tmp_path / "rehy2.db")
+    store.upsert_session("old", started_at=10.0, ended_at=10.0, live=False)
+    store.upsert_session("new", started_at=1000.0, ended_at=1000.0, live=True)
+    store.insert_event(session_id="old", kind="hook", subkind="SessionStart", ts_start=10.0)
+    store.insert_event(session_id="new", kind="hook", subkind="SessionStart", ts_start=1000.0)
+
+    snap = store.rehydration_snapshot(500.0)
+    assert {s["id"] for s in snap["sessions"]} == {"new"}
+    assert all(e["session_id"] == "new" for e in snap["events"])
+    store.close()
+
+
 def test_prompt_binding_survives_trailing_system_message():
     """Claude Code (cli >= 2.1) accoda un messaggio role='system' dopo il
     prompt utente: il binding via prompt e il turno devono basarsi sull'ultimo

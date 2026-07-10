@@ -9,6 +9,7 @@ da environment.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -31,8 +32,13 @@ from .proxy import ProxyForwarder
 from .store import Store, default_db_path
 from .ws import ConnectionManager
 
+logger = logging.getLogger(__name__)
+
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 DEFAULT_UPSTREAM = "https://api.anthropic.com"
+# Finestra di reidratazione del Correlator all'avvio: sessioni con ultima
+# attività entro queste ore. Override con AGENTSPY_REHYDRATE_HOURS.
+DEFAULT_REHYDRATE_HOURS = 48.0
 # Il server ascolta solo su 127.0.0.1, ma il browser potrebbe raggiungerlo via
 # un nome DNS controllato da un attaccante (DNS rebinding): TrustedHostMiddleware
 # rifiuta le richieste con Host estraneo. "testserver" è l'host di default di
@@ -164,6 +170,15 @@ def create_app(db_path: str | None = None, upstream: str | None = None) -> Starl
     async def lifespan(app: Starlette):
         app.state.store = Store(db_path or default_db_path())
         app.state.correlator = Correlator()
+        # Reidrata lo stato di correlazione dal DB: senza, un riavvio farebbe
+        # ripartire turn_index da 1 e perderebbe i join per tool_use_id. È
+        # best-effort: se fallisce si logga e si parte vuoti (mai bloccare l'avvio).
+        try:
+            hours = float(os.environ.get("AGENTSPY_REHYDRATE_HOURS", DEFAULT_REHYDRATE_HOURS))
+            snap = app.state.store.rehydration_snapshot(time.time() - hours * 3600)
+            app.state.correlator.rehydrate(snap["sessions"], snap["events"])
+        except Exception:
+            logger.exception("agentspy: reidratazione del correlator fallita, parto vuoto")
         app.state.ws_manager = ConnectionManager()
         app.state.client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=15, read=None, write=60, pool=15)

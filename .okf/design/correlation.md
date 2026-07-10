@@ -44,6 +44,20 @@ Sessioni sintetiche `syn-<fingerprint[:12]>` e turni euristici: nuovo
 turno se l'ultimo messaggio user è testuale (non `tool_result`) e il
 testo differisce dal precedente.
 
+# Reidratazione all'avvio
+
+Il `Correlator` è in-memory: senza reidratazione un riavvio del collector
+farebbe ripartire `turn_index` da 1 (round trip rinumerati e sovrapposti),
+i round trip senza hook creerebbero nuove `syn-` e i join MCP/subagente
+(`tool_use_id`) andrebbero persi. Nel lifespan (`app.py`) `Correlator.rehydrate`
+ricostruisce dallo store lo stato essenziale delle sessioni attive di recente
+(finestra `AGENTSPY_REHYDRATE_HOURS`, default 48h): `turn_index` massimo per
+sessione, `has_hooks`, `fingerprint_to_session` e `tool_use_to_fingerprint`
+ricalcolati dai payload salvati (fingerprint via `fingerprint_inputs`, gli
+stessi input della correlazione viva) e i prompt di `UserPromptSubmit`. Gli id
+sono quelli DEFINITIVI del DB (post merge), quindi i fingerprint puntano già
+alla sessione giusta. È best-effort: se fallisce, si logga e si parte vuoti.
+
 # Limiti noti
 
 - Collisioni di fingerprint con prompt di test identici: risolte quando

@@ -19,7 +19,9 @@ cd server && uv run agentspy     # ascolta 127.0.0.1:8082
 
 Variabili d'ambiente: `AGENTSPY_PORT` (default 8082), `AGENTSPY_DB`
 (default `./agentspy.db`), `AGENTSPY_UPSTREAM` (default
-`https://api.anthropic.com`).
+`https://api.anthropic.com`), `AGENTSPY_REHYDRATE_HOURS` (default 48 —
+finestra di reidratazione del Correlator all'avvio, vedi
+[correlazione](/design/correlation.md)).
 
 # Moduli
 

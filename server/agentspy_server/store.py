@@ -531,6 +531,36 @@ class Store:
         d["artifacts"] = extract_artifacts(request.get("body"))
         return d
 
+    def rehydration_snapshot(self, since_ts: float) -> dict[str, Any]:
+        """Dati minimi per reidratare il Correlator all'avvio: le sessioni
+        attive di recente (ultima attività >= ``since_ts``) e TUTTI i loro eventi
+        round_trip/hook (payload deserializzato), ordinati per ts_start.
+
+        Si prendono le sessioni per recency e poi il loro intero set di eventi
+        (non "gli eventi delle ultime N ore"): un hook fuori finestra farebbe
+        perdere ``has_hooks`` e riattiverebbe per errore l'euristica sul testo."""
+        with self._lock:
+            srows = self._conn.execute(
+                "SELECT id, tag, agent_id, parent_session_id FROM sessions "
+                "WHERE COALESCE(ended_at, started_at, 0) >= ?",
+                (since_ts,),
+            ).fetchall()
+            sessions = [dict(r) for r in srows]
+            ids = [s["id"] for s in sessions]
+            events: list[dict[str, Any]] = []
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                erows = self._conn.execute(
+                    f"SELECT session_id, kind, subkind, turn_index, payload FROM events "
+                    f"WHERE session_id IN ({placeholders}) AND kind IN ('round_trip','hook') "
+                    f"ORDER BY ts_start",
+                    ids,
+                ).fetchall()
+                events = [dict(r) for r in erows]
+        for e in events:
+            e["payload"] = json.loads(e["payload"]) if e["payload"] else None
+        return {"sessions": sessions, "events": events}
+
     def get_session_stats(self, session_id: str) -> list[dict[str, Any]]:
         """Serie per round trip (turn_index, timing, token, char-estimate) per il context-fill."""
         with self._lock:

@@ -221,6 +221,49 @@ class Correlator:
     def _state(self, session_id: str) -> SessionState:
         return self.session_state.setdefault(session_id, SessionState())
 
+    def rehydrate(self, sessions: list[dict], events: list[dict]) -> None:
+        """Ricostruisce lo stato in memoria da uno snapshot del DB (best-effort).
+
+        Al riavvio il Correlator ripartirebbe vuoto: turn_index da 1 (round trip
+        rinumerati e sovrapposti), round trip senza hook che creano nuove syn-,
+        join MCP/subagente (tool_use_id) persi. Qui si ripristina l'essenziale
+        dagli eventi già salvati: gli id di sessione sono quelli DEFINITIVI (post
+        merge) del DB, quindi i fingerprint ricalcolati puntano già alla sessione
+        giusta. ``events`` è atteso ordinato per ts_start."""
+        for s in sessions:
+            st = self._state(s["id"])
+            st.tag = st.tag or s.get("tag")
+            st.agent_id = st.agent_id or s.get("agent_id")
+            st.parent_session_id = st.parent_session_id or s.get("parent_session_id")
+
+        for e in events:
+            sid = e.get("session_id")
+            if not sid:
+                continue
+            st = self._state(sid)
+            ti = e.get("turn_index")
+            if isinstance(ti, int):
+                st.turn_index = max(st.turn_index, ti)
+            payload = e.get("payload") or {}
+            if e.get("kind") == "hook":
+                st.has_hooks = True
+                if e.get("subkind") == "UserPromptSubmit":
+                    prompt = payload.get("prompt")
+                    if isinstance(prompt, str):
+                        st.last_user_text = prompt
+                        self._remember_prompt(prompt, sid)
+            elif e.get("kind") == "round_trip":
+                system, first_user, session_key, _ = fingerprint_inputs(payload)
+                if first_user is None:
+                    continue
+                fp = fingerprint(system, first_user, session_key)
+                self.fingerprint_to_session[fp] = sid
+                st.fingerprints.add(fp)
+                message = (payload.get("response") or {}).get("message") or {}
+                for block in message.get("content", []) or []:
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id"):
+                        self.tool_use_to_fingerprint[block["id"]] = fp
+
     def session_for_tool_use(self, tool_use_id: str | None) -> str | None:
         """Sessione della conversazione in cui è comparso un tool_use.
 
