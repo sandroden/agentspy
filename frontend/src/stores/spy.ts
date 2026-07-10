@@ -141,9 +141,19 @@ export const useSpyStore = defineStore('spy', () => {
   }
 
   function insertEventSorted(evt: EventSummary) {
-    const idx = events.value.findIndex((e) => (e.ts_start ?? 0) > (evt.ts_start ?? 0))
-    if (idx === -1) events.value.push(evt)
-    else events.value.splice(idx, 0, evt)
+    const arr = events.value
+    const last = arr[arr.length - 1]
+    // Fast path: the common case is an in-order append at the tail, where the
+    // O(n) findIndex would scan the whole array and return -1 anyway (→ O(n²) on
+    // long live sessions). `>=` matches findIndex looking for the first
+    // *strictly* greater ts_start, so an equal-timestamp event still appends.
+    if (!last || (evt.ts_start ?? 0) >= (last.ts_start ?? 0)) {
+      arr.push(evt)
+      return
+    }
+    const idx = arr.findIndex((e) => (e.ts_start ?? 0) > (evt.ts_start ?? 0))
+    if (idx === -1) arr.push(evt)
+    else arr.splice(idx, 0, evt)
   }
 
   // -- actions ------------------------------------------------------------
