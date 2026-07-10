@@ -29,19 +29,29 @@ export const ZONE_NAMES = ['green', 'amber', 'yellow', 'red'] as const
  * agentspy only sees the API traffic, so it derives the window from the model
  * id — a best-effort approximation.
  *
- * The current model families run a 1M window natively (Opus 4.5→4.8, Sonnet
- * 4.5→5, Fable/Mythos 5); Haiku and older models keep the classic 200k. The
- * "[1m]" marker Claude Code appends to some ids always forces 1M.
+ * Default is 1M: the current families run a 1M window natively (Opus 4.5→4.8,
+ * Sonnet 4.5→5, Fable/Mythos 5) and any future model id should inherit that
+ * rather than silently regress to 200k (which would put the gauge in a false
+ * red at ~5x). Only the known small-window families are pinned to 200k: Haiku
+ * (all generations), Claude 1/2/3, and the pre-4.5 Opus/Sonnet 4.x. The "[1m]"
+ * marker Claude Code appends to some ids always forces 1M.
  */
 export function contextSizeFor(model: string | null | undefined): number {
-  if (!model) return 200_000
+  if (!model) return 1_000_000
   if (model.includes('[1m]')) return 1_000_000
-  // Haiku (and any explicit small window) stays at 200k even in the 4.x line.
+
+  // Known small-window families → 200k.
   if (model.includes('haiku')) return 200_000
+  if (/claude-[123]([.-]|$)/.test(model)) return 200_000 // Claude 1 / 2 / 3
+
+  // Opus/Sonnet 4.x: 4.5 and later are 1M; earlier 4.x kept the classic 200k.
   if (/opus-4-(5|6|7|8)\b/.test(model)) return 1_000_000
-  if (/sonnet-(5|4-5|4-6)\b/.test(model)) return 1_000_000
-  if (/(fable|mythos)-5\b/.test(model)) return 1_000_000
-  return 200_000
+  if (/sonnet-4-(5|6)\b/.test(model)) return 1_000_000
+  if (/(opus|sonnet)-4(-|\b)/.test(model)) return 200_000
+
+  // Current 1M families (Opus 4.8, Sonnet 5, Fable/Mythos 5) and any unknown /
+  // future id default to 1M.
+  return 1_000_000
 }
 
 function selectThresholds(contextSize: number): [number, number, number] {
