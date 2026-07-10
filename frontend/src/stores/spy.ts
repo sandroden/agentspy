@@ -45,6 +45,9 @@ export const useSpyStore = defineStore('spy', () => {
   const contextInventoryOpen = ref(false)
 
   let streamHandle: StreamHandle | null = null
+  /** request token for openSession: guards against out-of-order fetch results
+   * when the user switches session quickly (click A → B before A resolves). */
+  let openSeq = 0
 
   // -- getters ------------------------------------------------------------
   const sessionTree = computed<SessionNode[]>(() => {
@@ -147,10 +150,31 @@ export const useSpyStore = defineStore('spy', () => {
   }
 
   async function openSession(id: string) {
+    const seq = ++openSeq
     currentSessionId.value = id
     unseenCounts.value = { ...unseenCounts.value, [id]: 0 }
+    // Clear immediately: a WS 'event' arriving during the await lands (via
+    // onWsMessage → insertEventSorted, since currentSessionId is already `id`)
+    // in this fresh array instead of the previous session's list.
+    events.value = []
+    stats.value = []
     const [evts, st] = await Promise.all([fetchSessionEvents(id), fetchSessionStats(id)])
-    events.value = evts.filter(isTimelineEvent)
+    // A newer openSession superseded this one (fast A→B switch): drop the result.
+    if (seq !== openSeq) return
+    const timeline = evts.filter(isTimelineEvent)
+    // Merge the fetched snapshot with any WS events that arrived during the
+    // await (already pushed into events.value); dedup by id — the same round
+    // trip can appear in both the snapshot and the stream, and
+    // insertEventSorted doesn't deduplicate.
+    const wsArrived = events.value
+    if (wsArrived.length) {
+      const byId = new Map<number, EventSummary>()
+      for (const e of timeline) byId.set(e.id, e)
+      for (const e of wsArrived) byId.set(e.id, e)
+      events.value = [...byId.values()].sort((a, b) => (a.ts_start ?? 0) - (b.ts_start ?? 0))
+    } else {
+      events.value = timeline
+    }
     stats.value = st
     cursor.value = events.value.length - 1
     live.value = true
