@@ -345,6 +345,59 @@ def test_header_session_id_ignored_when_mother_unknown():
     assert info["parent_session_id"] is None
 
 
+def _rt(session_key, system, prompt, *, tool_use_id=None, tag=None):
+    """Round trip minimale con header x-claude-code-session-id e un solo prompt."""
+    response_content = (
+        [{"type": "tool_use", "id": tool_use_id, "name": "Bash"}] if tool_use_id else []
+    )
+    return {
+        "tag": tag,
+        "request": {
+            "headers": {"x-claude-code-session-id": session_key},
+            "body": {"system": system, "messages": [{"role": "user", "content": prompt}]},
+        },
+        "response": {"message": {"content": response_content}},
+    }
+
+
+def test_concurrent_runs_same_prompt_stay_distinct():
+    """Due run concorrenti con lo STESSO system e lo STESSO primo prompt ma
+    session_id (header) diversi devono restare due sessioni distinte, mai
+    collassare in una: il session_key entra nel fingerprint."""
+    correlator = Correlator()
+
+    a1 = correlator.correlate_round_trip(_rt("sess-A", "sys", "Ciao", tag="run-A"))
+    b1 = correlator.correlate_round_trip(_rt("sess-B", "sys", "Ciao", tag="run-B"))
+    assert a1["session_id"] != b1["session_id"]
+    assert a1["session_id"].startswith("syn-") and b1["session_id"].startswith("syn-")
+
+    # round trip successivi della stessa conversazione restano nella propria
+    a2 = correlator.correlate_round_trip(_rt("sess-A", "sys", "Ciao"))
+    b2 = correlator.correlate_round_trip(_rt("sess-B", "sys", "Ciao"))
+    assert a2["session_id"] == a1["session_id"]
+    assert b2["session_id"] == b1["session_id"]
+
+
+def test_concurrent_runs_same_prompt_bind_to_correct_hook_session():
+    """Due run con lo stesso prompt annunciato da UserPromptSubmit su session_id
+    hook diversi: il binding via prompt NON deve collassarle, e ciascun round
+    trip deve legarsi alla PROPRIA sessione hook grazie al session_key."""
+    correlator = Correlator()
+    correlator.correlate_hook(
+        {"session_id": "sess-A", "hook_event_name": "UserPromptSubmit", "prompt": "fai la cosa"}
+    )
+    correlator.correlate_hook(
+        {"session_id": "sess-B", "hook_event_name": "UserPromptSubmit", "prompt": "fai la cosa"}
+    )
+
+    info_a = correlator.correlate_round_trip(_rt("sess-A", "sysA", "fai la cosa"))
+    info_b = correlator.correlate_round_trip(_rt("sess-B", "sysB", "fai la cosa"))
+
+    assert info_a["session_id"] == "sess-A"
+    assert info_b["session_id"] == "sess-B"
+    assert info_a["session_id"] != info_b["session_id"]
+
+
 def test_prompt_binding_survives_trailing_system_message():
     """Claude Code (cli >= 2.1) accoda un messaggio role='system' dopo il
     prompt utente: il binding via prompt e il turno devono basarsi sull'ultimo

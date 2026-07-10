@@ -60,13 +60,52 @@ def _strip_volatile(obj):
     return obj
 
 
-def fingerprint(system, first_user_message) -> str:
-    """sha256 di (system serializzato + primo messaggio user), usato per
-    incatenare round trip della stessa conversazione senza hook."""
-    payload = json.dumps(_strip_volatile(system), sort_keys=True, ensure_ascii=False) + "|" + json.dumps(
-        _strip_volatile(first_user_message), sort_keys=True, ensure_ascii=False
+def fingerprint(system, first_user_message, session_key: str | None = None) -> str:
+    """sha256 di (system serializzato + primo messaggio user + discriminante di
+    sessione), usato per incatenare round trip della stessa conversazione senza
+    hook.
+
+    ``session_key`` è l'header ``x-claude-code-session-id`` che Claude Code
+    (cli >= 2.x) manda su OGNI richiesta: senza di esso due run concorrenti con
+    lo stesso system e lo stesso primo prompt (es. due sessioni di test, o il
+    traffico di servizio "genera titolo" identico fra sessioni diverse)
+    collasserebbero nella stessa sessione sintetica. Verificato empiricamente:
+    l'header è stabile entro una conversazione (per le sessioni reali coincide
+    con il loro id) e distinto fra run diversi. Quando assente (cli vecchia), il
+    fingerprint degrada al comportamento precedente (solo system + primo user)."""
+    payload = (
+        json.dumps(_strip_volatile(system), sort_keys=True, ensure_ascii=False)
+        + "|"
+        + json.dumps(_strip_volatile(first_user_message), sort_keys=True, ensure_ascii=False)
+        + "|"
+        + (session_key or "")
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _header_ci(headers: dict | None, name: str) -> str | None:
+    """Lettura case-insensitive di un header dal record (gli header salvati sono
+    già in minuscolo, ma non diamo per scontata la normalizzazione)."""
+    if not headers:
+        return None
+    target = name.lower()
+    for k, v in headers.items():
+        if k.lower() == target:
+            return v
+    return None
+
+
+def fingerprint_inputs(record: dict):
+    """Estrae (system, primo messaggio user, session_key, messages) da un record
+    di round trip. Condiviso fra la correlazione live e la reidratazione dal DB,
+    così i fingerprint ricalcolati all'avvio combaciano con quelli vivi."""
+    body = (record.get("request") or {}).get("body") or {}
+    messages = body.get("messages") or []
+    system = body.get("system")
+    first_user = next((m for m in messages if isinstance(m, dict) and m.get("role") == "user"), None)
+    headers = (record.get("request") or {}).get("headers")
+    session_key = _header_ci(headers, "x-claude-code-session-id")
+    return system, first_user, session_key, messages
 
 
 def _extract_user_text(content) -> str | None:
@@ -125,20 +164,36 @@ class Correlator:
         # id (toolu_...) del blocco tool_use prodotto da un round trip -> fingerprint
         # della conversazione in cui è comparso, per il join con PreToolUse/SubagentStart.
         self.tool_use_to_fingerprint: dict[str, str] = {}
-        # prompt testuale di UserPromptSubmit -> session_id reale: permette di
-        # legare conversazioni SENZA tool call (che non hanno tool_use_id da
-        # joinare) al loro session_id, confrontando l'ultimo messaggio user.
-        self.prompt_to_session: dict[str, str] = {}
+        # prompt testuale di UserPromptSubmit -> LISTA di session_id reali che lo
+        # hanno inviato: permette di legare conversazioni SENZA tool call (che non
+        # hanno tool_use_id da joinare) al loro session_id, confrontando l'ultimo
+        # messaggio user. È una lista (non un singolo id) perché due run concorrenti
+        # possono inviare lo stesso identico prompt: il matching sceglie la run
+        # giusta col session_key dell'header, senza che l'una sovrascriva l'altra.
+        self.prompt_to_sessions: dict[str, list[str]] = {}
 
     def _remember_prompt(self, prompt: str, session_id: str) -> None:
-        self.prompt_to_session[prompt] = session_id
-        while len(self.prompt_to_session) > 200:
-            self.prompt_to_session.pop(next(iter(self.prompt_to_session)))
+        lst = self.prompt_to_sessions.setdefault(prompt, [])
+        if session_id not in lst:
+            lst.append(session_id)
+        # tetto globale sul numero di (prompt, sessione) ricordati
+        total = sum(len(v) for v in self.prompt_to_sessions.values())
+        while total > 200 and self.prompt_to_sessions:
+            oldest = next(iter(self.prompt_to_sessions))
+            self.prompt_to_sessions[oldest].pop(0)
+            if not self.prompt_to_sessions[oldest]:
+                del self.prompt_to_sessions[oldest]
+            total -= 1
 
-    def _match_pending_prompt(self, content) -> str | None:
+    def _match_pending_prompt(self, content, preferred_session_id: str | None = None) -> str | None:
         """Cerca fra i prompt registrati da UserPromptSubmit uno che coincida
         con un blocco text del messaggio user (Claude Code affianca al prompt
-        blocchi di system-reminder: il confronto è per singolo blocco)."""
+        blocchi di system-reminder: il confronto è per singolo blocco).
+
+        Se più run hanno inviato lo stesso prompt, ``preferred_session_id`` (il
+        session_key dell'header del round trip, che per le sessioni reali coincide
+        col loro id) seleziona la run corretta; altrimenti si prende la più
+        vecchia in attesa (FIFO)."""
         texts: list[str] = []
         if isinstance(content, str):
             texts.append(content)
@@ -150,8 +205,17 @@ class Correlator:
             )
         for t in texts:
             for key in (t, t.strip()):
-                if key in self.prompt_to_session:
-                    return self.prompt_to_session.pop(key)
+                lst = self.prompt_to_sessions.get(key)
+                if not lst:
+                    continue
+                if preferred_session_id and preferred_session_id in lst:
+                    lst.remove(preferred_session_id)
+                    sid = preferred_session_id
+                else:
+                    sid = lst.pop(0)
+                if not lst:
+                    del self.prompt_to_sessions[key]
+                return sid
         return None
 
     def _state(self, session_id: str) -> SessionState:
@@ -193,13 +257,10 @@ class Correlator:
 
         Ritorna {"session_id", "turn_index", "agent_id", "is_new_session", "is_new_turn"}.
         """
-        body = (record.get("request") or {}).get("body") or {}
-        messages = body.get("messages") or []
-        system = body.get("system")
+        system, first_user, session_key, messages = fingerprint_inputs(record)
         tag = record.get("tag")
 
-        first_user = next((m for m in messages if m.get("role") == "user"), None)
-        fp = fingerprint(system, first_user) if first_user is not None else None
+        fp = fingerprint(system, first_user, session_key) if first_user is not None else None
 
         session_id = self.fingerprint_to_session.get(fp) if fp else None
         is_new_session = False
@@ -218,7 +279,7 @@ class Correlator:
         if session_id.startswith("syn-") and messages:
             last_message = _last_user_message(messages)
             if last_message is not None:
-                real_sid = self._match_pending_prompt(last_message.get("content"))
+                real_sid = self._match_pending_prompt(last_message.get("content"), session_key)
                 if real_sid:
                     if not is_new_session:
                         merged_from.append(session_id)
@@ -244,11 +305,9 @@ class Correlator:
         # già nota via hook: la sidebar nasconde i figli di sessioni che non
         # esistono come riga nel DB.
         if session_id.startswith("syn-") and state.parent_session_id is None:
-            headers = (record.get("request") or {}).get("headers") or {}
-            cc_sid = headers.get("x-claude-code-session-id")
-            mother = self.session_state.get(cc_sid) if cc_sid else None
+            mother = self.session_state.get(session_key) if session_key else None
             if mother is not None and mother.has_hooks:
-                state.parent_session_id = cc_sid
+                state.parent_session_id = session_key
 
         is_new_turn = False
         if not state.has_hooks:
