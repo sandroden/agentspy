@@ -49,6 +49,9 @@ down:
         fi
     fi
 
+# riavvia il collector (down + up; all'avvio partono migrazioni e reidratazione)
+restart: down up
+
 # stato del collector
 status:
     #!/usr/bin/env bash
