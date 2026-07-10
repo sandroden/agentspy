@@ -255,8 +255,10 @@ add_hook(A, "Stop", 5, t + 6)
 store.insert_event(
     session_id=A, kind="mcp", subkind="context7:query-docs", turn_index=2,
     ts_start=tA + 120, ts_end=tA + 121.5,
-    payload={"server": "context7", "method": "query-docs",
-             "params": {"query": "starlette websocket"}, "result_chars": 5400},
+    payload={"server_name": "context7", "method": "query-docs", "rpc_id": 42,
+             "kind": "call", "direction": "client->server",
+             "params": {"query": "starlette websocket"},
+             "result": {"content": [{"type": "text", "text": "starlette WebSocket docs…"}]}},
 )
 
 # ---------------------------------------------------------------- sessione B (chiusa, corta)
