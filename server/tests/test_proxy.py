@@ -198,6 +198,44 @@ def test_prompt_usage_taken_from_message_start_not_cumulative_delta():
     assert result["stop_reason"] == "tool_use"
 
 
+def test_prompt_usage_key_absent_in_start_not_taken_from_delta():
+    """Se message_start OMETTE una chiave di prompt (qui
+    cache_creation_input_tokens) e message_delta la porta cumulativa, il valore
+    gonfiato non deve entrare: le chiavi di prompt sono congelate da
+    message_start, non dalla loro semplice presenza nell'accumulo."""
+    collector = SSECollector()
+    _feed_events(
+        collector,
+        [
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg_no_cc",
+                        "role": "assistant",
+                        "usage": {"input_tokens": 200, "output_tokens": 1},
+                    },
+                },
+            ),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "end_turn"},
+                    "usage": {"output_tokens": 42, "cache_creation_input_tokens": 99999},
+                },
+            ),
+            ("message_stop", {"type": "message_stop"}),
+        ],
+    )
+    usage = collector.finalize()["usage"]
+    # la chiave assente da message_start non deve essere iniettata dal delta
+    assert "cache_creation_input_tokens" not in usage
+    assert usage["input_tokens"] == 200
+    assert usage["output_tokens"] == 42
+
+
 def test_redact_headers_never_leaks_secrets():
     headers = {"x-api-key": "sk-abc", "authorization": "Bearer x", "cookie": "a=b", "user-agent": "curl"}
     redacted = redact_headers(headers)

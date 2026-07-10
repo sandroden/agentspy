@@ -78,8 +78,9 @@ def analyze_request_body(body: dict) -> dict:
 # reale della finestra di contesto. Su turni con extended/interleaved thinking,
 # message_delta ne riporta un cumulativo (cache-read *throughput*: il prompt
 # riletto più volte durante il turno), che NON è l'occupancy e gonfierebbe il
-# gauge. Teniamo quindi i campi di prompt da message_start; da message_delta
-# prendiamo solo l'output (output_tokens, che cresce durante lo streaming).
+# gauge. I campi di prompt vengono quindi congelati da message_start e MAI
+# accettati da message_delta; da message_delta prendiamo solo l'output
+# (output_tokens, che cresce durante lo streaming).
 _PROMPT_USAGE_KEYS = frozenset(
     {"input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "cache_creation"}
 )
@@ -121,7 +122,7 @@ class SSECollector:
         if event_type == "message_start":
             msg = payload.get("message", {})
             self.message = {k: v for k, v in msg.items() if k != "content"}
-            self._merge_usage(msg.get("usage", {}))
+            self._merge_usage(msg.get("usage", {}), from_start=True)
         elif event_type == "content_block_start":
             block_data = dict(payload.get("content_block", {}))
             block_data.setdefault("text", "")
@@ -145,15 +146,19 @@ class SSECollector:
         elif event_type == "error":
             self.error = payload
 
-    def _merge_usage(self, new: dict) -> None:
+    def _merge_usage(self, new: dict, *, from_start: bool = False) -> None:
         """Fonde una usage nello stato accumulato preservando i token di prompt.
 
-        I campi in _PROMPT_USAGE_KEYS, una volta noti da message_start, non
-        vengono più sovrascritti: message_delta può riportarne un cumulativo
-        (throughput) che falsa l'occupancy della finestra di contesto.
+        I campi in _PROMPT_USAGE_KEYS vengono accettati SOLO dallo snapshot di
+        message_start (``from_start=True``): message_delta può riportarne un
+        cumulativo (throughput) che falsa l'occupancy della finestra di
+        contesto, quindi lì vengono sempre ignorati. Guardare ``from_start``
+        anziché la mera presenza in ``self.usage`` copre anche il caso in cui
+        message_start ometta una chiave (es. cache_creation_input_tokens): il
+        valore gonfiato del delta non deve comunque entrare.
         """
         for key, value in new.items():
-            if key in _PROMPT_USAGE_KEYS and key in self.usage:
+            if key in _PROMPT_USAGE_KEYS and not from_start:
                 continue
             self.usage[key] = value
 
