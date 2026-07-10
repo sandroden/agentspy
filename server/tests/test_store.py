@@ -1,3 +1,5 @@
+import json
+import sqlite3
 import stat
 
 from agentspy_server.store import Store
@@ -251,6 +253,116 @@ def test_command_snippet_in_input_snippet(tmp_path):
     )
     events = {e["id"]: e for e in store.get_session_events("s1")}
     assert events[rt]["input_snippet"] == "/okf:okf produce .okf"
+    store.close()
+
+
+def test_duplicate_event_is_ignored(tmp_path):
+    """Re-ingest dello STESSO evento (chiave dedup identica) non crea una seconda
+    riga né raddoppia i token; ritorna l'id della riga già presente."""
+    store = Store(tmp_path / "dedup.db")
+    store.upsert_session("s1", started_at=1.0)
+    kwargs = dict(
+        session_id="s1", kind="round_trip", subkind=None, turn_index=1,
+        ts_start=100.0, ts_end=101.0, input_tokens=10, output_tokens=5,
+        payload={"request": {"body": {}}, "response": {"message": {"content": []}}},
+    )
+    id1 = store.insert_event(**kwargs)
+    id2 = store.insert_event(**kwargs)
+    assert id1 == id2
+    events = store.get_session_events("s1")
+    assert len(events) == 1
+    # token non raddoppiati
+    assert store.get_sessions()[0]["usage"]["input_tokens"] == 10
+    store.close()
+
+
+def test_nearby_distinct_events_both_saved(tmp_path):
+    """Due eventi distinti ma vicini (stesso session/kind/ts, payload diverso —
+    es. due PreToolUse nello stesso ms) NON devono collassare."""
+    store = Store(tmp_path / "dedup2.db")
+    store.upsert_session("s1", started_at=1.0)
+    a = store.insert_event(
+        session_id="s1", kind="hook", subkind="PreToolUse", ts_start=100.0, ts_end=100.0,
+        payload={"tool_name": "Bash", "tool_use_id": "toolu_a"},
+    )
+    b = store.insert_event(
+        session_id="s1", kind="hook", subkind="PreToolUse", ts_start=100.0, ts_end=100.0,
+        payload={"tool_name": "Read", "tool_use_id": "toolu_b"},
+    )
+    assert a != b
+    assert len(store.get_session_events("s1")) == 2
+    store.close()
+
+
+# schema events PRIMA della colonna dedup_key (per testare la migrazione)
+_OLD_EVENTS_SCHEMA = """
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT, kind TEXT, subkind TEXT, turn_index INTEGER, agent_id TEXT,
+    ts_start REAL, ts_end REAL, ttfb_s REAL, model TEXT, status INTEGER,
+    stop_reason TEXT, input_tokens INTEGER, output_tokens INTEGER,
+    cache_read_tokens INTEGER, cache_write_tokens INTEGER, tool_names TEXT, payload TEXT
+);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, tag TEXT, title TEXT, model TEXT,
+    parent_session_id TEXT, agent_id TEXT, started_at REAL, ended_at REAL,
+    live INTEGER, cwd TEXT);
+"""
+
+
+def test_dedup_migration_on_existing_db_backfills_and_removes_duplicates(tmp_path):
+    """Migrazione additiva e idempotente su un DB con schema vecchio (senza
+    dedup_key) che contiene già una riga byte-identica duplicata: la colonna
+    viene aggiunta, backfillata, il duplicato rimosso e l'indice UNIQUE creato;
+    un re-insert dello stesso evento viene poi ignorato."""
+    db_path = tmp_path / "old.db"
+    raw = sqlite3.connect(db_path)
+    raw.executescript(_OLD_EVENTS_SCHEMA)
+    raw.execute("INSERT INTO sessions (id, started_at, live) VALUES ('s1', 1.0, 1)")
+    # il payload va serializzato come lo scriverebbe insert_event (json.dumps
+    # con spaziatura di default): nella realtà ogni riga passa da lì, quindi la
+    # chiave backfillata combacia con quella di un futuro re-insert.
+    payload = json.dumps(
+        {"request": {"body": {}}, "response": {"message": {"content": []}}}, ensure_ascii=False
+    )
+    # due righe byte-identiche (la duplicazione che la chiave deve prevenire)
+    for _ in range(2):
+        raw.execute(
+            "INSERT INTO events (session_id, kind, subkind, turn_index, ts_start, ts_end,"
+            " input_tokens, payload) VALUES ('s1','round_trip',NULL,1,100.0,101.0,10,?)",
+            (payload,),
+        )
+    # una riga distinta
+    raw.execute(
+        "INSERT INTO events (session_id, kind, subkind, ts_start, ts_end, payload)"
+        " VALUES ('s1','hook','SessionStart',50.0,50.0,NULL)"
+    )
+    raw.commit()
+    raw.close()
+
+    store = Store(db_path)  # apre e migra
+    events = store.get_session_events("s1")
+    # il duplicato byte-identico è stato rimosso: 2 righe (1 round_trip + 1 hook)
+    assert len(events) == 2
+    kinds = sorted(e["kind"] for e in events)
+    assert kinds == ["hook", "round_trip"]
+    # tutte le righe hanno dedup_key e l'indice UNIQUE esiste
+    with store._lock:
+        null_keys = store._conn.execute(
+            "SELECT COUNT(*) FROM events WHERE dedup_key IS NULL"
+        ).fetchone()[0]
+        idx = store._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_events_dedup'"
+        ).fetchone()
+    assert null_keys == 0
+    assert idx is not None
+
+    # re-insert dello stesso round_trip: ignorato, niente raddoppio token
+    store.insert_event(
+        session_id="s1", kind="round_trip", turn_index=1, ts_start=100.0, ts_end=101.0,
+        input_tokens=10,
+        payload={"request": {"body": {}}, "response": {"message": {"content": []}}},
+    )
+    assert len(store.get_session_events("s1")) == 2
     store.close()
 
 

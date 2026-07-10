@@ -9,7 +9,9 @@ al lavoro, non un servizio multi-utente.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -17,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from .context_artifacts import extract_artifacts
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -50,13 +54,38 @@ CREATE TABLE IF NOT EXISTS events (
     cache_read_tokens INTEGER,
     cache_write_tokens INTEGER,
     tool_names TEXT,
-    payload TEXT
+    payload TEXT,
+    dedup_key TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_session_ts ON events(session_id, ts_start);
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);
 CREATE INDEX IF NOT EXISTS idx_events_turn ON events(turn_index);
 """
+
+
+def _dedup_key(
+    session_id: str | None,
+    kind: str,
+    subkind: str | None,
+    ts_start: float | None,
+    ts_end: float | None,
+    payload_text: str | None,
+) -> str:
+    """Chiave naturale idempotente di un evento: solo eventi BYTE-IDENTICI
+    collidono. Include il testo del payload GIÀ serializzato (non ri-serializzato,
+    così la chiave calcolata al backfill combacia con quella dell'insert). Due
+    eventi legittimamente distinti ma vicini (es. due PreToolUse nello stesso ms)
+    differiscono nel payload (tool_use_id/tool_input) → chiavi diverse."""
+    parts = [
+        str(session_id),
+        str(kind),
+        str(subkind),
+        repr(ts_start),
+        repr(ts_end),
+        payload_text or "",
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
 def default_db_path() -> str:
@@ -218,6 +247,7 @@ class Store:
                 self._conn.execute("ALTER TABLE sessions ADD COLUMN cwd TEXT")
             except sqlite3.OperationalError:
                 pass
+            self._migrate_dedup_key_locked()
             self._conn.commit()
         # Il DB può contenere prompt/risposte in chiaro: restringiamo i permessi
         # al solo proprietario. Best-effort (WAL/SHM potrebbero non esistere,
@@ -227,6 +257,57 @@ class Store:
                 os.chmod(self.db_path + suffix, 0o600)
             except OSError:
                 pass
+
+    def _migrate_dedup_key_locked(self) -> None:
+        """Migrazione additiva e idempotente della chiave di dedup su DB esistenti
+        (il lock è già acquisito dal chiamante). Sicura per il DB live:
+
+        1. ALTER TABLE per la colonna dedup_key (guardata da PRAGMA table_info);
+        2. backfill del valore hash sulle righe con dedup_key NULL, calcolato dal
+           payload GIÀ salvato (stesso metodo dell'insert → chiavi coerenti);
+        3. l'indice UNIQUE è additivo se non esistono duplicati (caso normale,
+           verificato sul DB live: 0 collisioni). Solo se emergono righe
+           byte-identiche (l'esatta duplicazione che questa chiave deve prevenire)
+           se ne rimuovono le copie tenendo il min(id): è un'azione loggata
+           rumorosamente e ristretta a righe identiche, non una parte di routine."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(events)").fetchall()}
+        if "dedup_key" not in cols:
+            self._conn.execute("ALTER TABLE events ADD COLUMN dedup_key TEXT")
+
+        rows = self._conn.execute(
+            "SELECT id, session_id, kind, subkind, ts_start, ts_end, payload "
+            "FROM events WHERE dedup_key IS NULL"
+        ).fetchall()
+        for r in rows:
+            key = _dedup_key(
+                r["session_id"], r["kind"], r["subkind"], r["ts_start"], r["ts_end"], r["payload"]
+            )
+            self._conn.execute("UPDATE events SET dedup_key=? WHERE id=?", (key, r["id"]))
+
+        dup_keys = [
+            row["dedup_key"]
+            for row in self._conn.execute(
+                "SELECT dedup_key FROM events WHERE dedup_key IS NOT NULL "
+                "GROUP BY dedup_key HAVING COUNT(*) > 1"
+            ).fetchall()
+        ]
+        if dup_keys:
+            removed = 0
+            for key in dup_keys:
+                cur = self._conn.execute(
+                    "DELETE FROM events WHERE dedup_key=? AND id > "
+                    "(SELECT MIN(id) FROM events WHERE dedup_key=?)",
+                    (key, key),
+                )
+                removed += cur.rowcount
+            logger.warning(
+                "agentspy: migrazione dedup: rimosse %d righe byte-identiche su %d chiavi duplicate",
+                removed, len(dup_keys),
+            )
+
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_dedup ON events(dedup_key)"
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -387,20 +468,29 @@ class Store:
     ) -> int:
         tool_names_json = json.dumps(tool_names or [])
         payload_json = json.dumps(payload, ensure_ascii=False) if payload is not None else None
+        dedup_key = _dedup_key(session_id, kind, subkind, ts_start, ts_end, payload_json)
         with self._lock:
+            # INSERT OR IGNORE: un re-ingest/re-seed/replay dello STESSO evento
+            # (chiave identica) non crea un duplicato che raddoppierebbe i token
+            # aggregati; si restituisce l'id della riga già presente.
             cur = self._conn.execute(
-                "INSERT INTO events (session_id, kind, subkind, turn_index, agent_id, ts_start,"
-                " ts_end, ttfb_s, model, status, stop_reason, input_tokens, output_tokens,"
-                " cache_read_tokens, cache_write_tokens, tool_names, payload)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO events (session_id, kind, subkind, turn_index, agent_id,"
+                " ts_start, ts_end, ttfb_s, model, status, stop_reason, input_tokens, output_tokens,"
+                " cache_read_tokens, cache_write_tokens, tool_names, payload, dedup_key)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     session_id, kind, subkind, turn_index, agent_id, ts_start, ts_end, ttfb_s,
                     model, status, stop_reason, input_tokens, output_tokens, cache_read_tokens,
-                    cache_write_tokens, tool_names_json, payload_json,
+                    cache_write_tokens, tool_names_json, payload_json, dedup_key,
                 ),
             )
             self._conn.commit()
-            return cur.lastrowid
+            if cur.rowcount:
+                return cur.lastrowid
+            row = self._conn.execute(
+                "SELECT id FROM events WHERE dedup_key=?", (dedup_key,)
+            ).fetchone()
+            return row["id"] if row else cur.lastrowid
 
     # -- read side --------------------------------------------------------
 
