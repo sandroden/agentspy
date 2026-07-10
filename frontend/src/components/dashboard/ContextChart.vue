@@ -4,7 +4,7 @@
  * context (input + cache_read + cache_write), X = round-trip index. The
  * featured session is in accent and thicker, the others dimmed. Green markers
  * on round trips triggered by a user prompt (featured only). Clicking a
- * point navigates to the session and selects the event.
+ * point jumps to the Timeline, paused on that exact round trip.
  */
 import { computed, ref } from 'vue'
 import type { Session, StatsItem } from '../../types'

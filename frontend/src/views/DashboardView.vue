@@ -6,6 +6,7 @@
  * + quickstart. Real data only.
  */
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useSpyStore } from '../stores/spy'
 import { fetchSessionEvents } from '../api/client'
@@ -181,13 +182,13 @@ function featureSession(id: string) {
 }
 
 /**
- * Click on a chart point: open the event detail in the right panel *in place*,
- * without leaving the charts (the detail sidebar would otherwise never show
- * here). Also feature the clicked session so the charts follow it.
+ * Click on a chart point: go to the Timeline of that session, paused on that
+ * exact round trip with its detail open (deep link ?event=<id>, handled by
+ * SessionView).
  */
+const router = useRouter()
 function jumpToEvent(sessionId: string, eventId: number) {
-  featuredId.value = sessionId
-  void spy.select(eventId)
+  void router.push(`/session/${sessionId}?event=${eventId}`)
 }
 
 // -- scroll to sub-agents from the metric card -------------------------------------

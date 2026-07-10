@@ -14,9 +14,10 @@ useTheme().init()
 
 // The right detail panel belongs to the Timeline (SessionView). On the
 // dashboard the round-trip detail is intentionally absent (see the "Direzioni
-// Leggibilità" design, option 2a): a chart click features a session, it does
-// not open a payload panel. Gate on the route so the panel disappears when we
-// switch to the dashboard even if an event stayed selected.
+// Leggibilità" design, option 2a): a chart click navigates to the Timeline on
+// that round trip, it does not open a payload panel here. Gate on the route so
+// the panel disappears when we switch to the dashboard even if an event stayed
+// selected.
 const showDetail = computed(() => selectedEventId.value != null && route.path !== '/')
 
 // -- larghezza colonna dettaglio (ridimensionabile col mouse) ----------------

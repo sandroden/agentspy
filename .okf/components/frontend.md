@@ -57,9 +57,10 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
   su **card scure** in entrambi i temi (i token di palette sono
   ridefiniti sul contenitore, così gli interni SVG — griglia, tick,
   testo, legende — si adattano). Il click su un punto di un grafico
-  mette in evidenza quella sessione ma **non apre** il pannello di
-  dettaglio: sulla dashboard il pannello destro è assente (gated sulla
-  route, vive nella Timeline). L'elenco sessioni e il quick start non
+  **porta alla Timeline** della sessione, in pausa su quell'esatto round
+  trip e col dettaglio aperto (deep link `?event=<id>`, gestito da
+  SessionView); sulla dashboard il pannello destro resta assente (gated
+  sulla route, vive nella Timeline). L'elenco sessioni e il quick start non
   sono in dashboard: le sessioni stanno nella sidebar sinistra, il quick
   start dietro il bottone "?" in basso a sinistra.
 - **SessionView**: `SessionHeader` (con i link parent/subagenti come

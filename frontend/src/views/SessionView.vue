@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useSpyStore } from '../stores/spy'
 import TimeControls from '../components/TimeControls.vue'
 import TimelineView from '../components/TimelineView.vue'
@@ -14,17 +14,35 @@ const props = defineProps<{
 
 const spy = useSpyStore()
 const router = useRouter()
+const route = useRoute()
 
 const showContextFill = ref(false)
 
-function load(id: string) {
-  void spy.openSession(id)
+/**
+ * Deep-link a un round trip: /session/<id>?event=<eventId> (usato dai punti
+ * dei grafici in dashboard, ma l'URL è anche condivisibile). Mette in pausa
+ * il player su quell'evento — il watch sul cursore in TimelineView scrolla
+ * alla card — e ne apre il dettaglio nel pannello destro.
+ */
+async function jumpToQueryEvent() {
+  const eventId = Number(route.query.event)
+  if (!Number.isFinite(eventId) || eventId <= 0) return
+  const idx = spy.events.findIndex((e) => e.id === eventId)
+  if (idx === -1) return
+  await nextTick() // lascia passare lo scroll-to-bottom del cambio sessione
+  spy.setCursor(idx)
+  void spy.select(eventId)
 }
 
-onMounted(() => load(props.id))
+async function load(id: string) {
+  await spy.openSession(id)
+  await jumpToQueryEvent()
+}
+
+onMounted(() => void load(props.id))
 watch(
   () => props.id,
-  (id) => load(id),
+  (id) => void load(id),
 )
 
 const session = computed(() => spy.currentSession)
