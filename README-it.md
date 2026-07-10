@@ -279,7 +279,7 @@ figlie e **definitiva**.
 ## Sviluppo
 
 ```bash
-cd server && uv run pytest          # test collector (19)
+cd server && uv run pytest          # test collector (40+)
 cd mcp && uv run --with pytest pytest tests/   # test wrapper MCP
 cd frontend && npm run dev          # UI con hot reload (proxy verso 8082)
 cd frontend && npm run build        # build servita dal collector su /ui

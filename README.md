@@ -282,7 +282,7 @@ Both respond `{"deleted": [...]}` with the full list of removed ids
 ## Development
 
 ```bash
-cd server && uv run pytest          # collector tests (19)
+cd server && uv run pytest          # collector tests (40+)
 cd mcp && uv run --with pytest pytest tests/   # MCP wrapper tests
 cd frontend && npm run dev          # UI with hot reload (proxy to 8082)
 cd frontend && npm run build        # build served by the collector on /ui
