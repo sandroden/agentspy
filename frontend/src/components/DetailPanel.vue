@@ -134,6 +134,24 @@ const usageDonut = computed(() => {
   }
 })
 
+/**
+ * Split of cache_write into the 5-minute vs 1-hour ephemeral tiers, when the
+ * API reports it (usage.cache_creation). Didactic: shows *which* cache TTL
+ * Claude Code chose for the freshly written tokens. Zero tiers are omitted;
+ * if the object is missing or both tiers are zero it returns null (nothing
+ * shown, behaviour unchanged).
+ */
+const cacheCreationSplit = computed<{ label: string; value: number }[] | null>(() => {
+  if (detail.value?.kind !== 'round_trip') return null
+  const cc = asRecord(rawUsage.value.cache_creation)
+  const m5 = Number(cc.ephemeral_5m_input_tokens) || 0
+  const h1 = Number(cc.ephemeral_1h_input_tokens) || 0
+  const parts: { label: string; value: number }[] = []
+  if (m5 > 0) parts.push({ label: '5m', value: m5 })
+  if (h1 > 0) parts.push({ label: '1h', value: h1 })
+  return parts.length ? parts : null
+})
+
 /** Position of this round trip among the round trips of the same turn (n/total), for the header badge. */
 const roundTripPosition = computed<{ index: number; total: number } | null>(() => {
   const d = detail.value
@@ -391,6 +409,11 @@ async function copyJson() {
                   <i class="swatch" :style="{ backgroundColor: s.color }"></i>
                   <span class="dl-label">{{ s.label }}</span>
                   <b>{{ formatTokens(s.value) }}</b>
+                  <span v-if="s.key === 'cache_write' && cacheCreationSplit" class="cache-tiers">
+                    <span v-for="(t, i) in cacheCreationSplit" :key="t.label">
+                      <span v-if="i > 0"> · </span>{{ t.label }}: {{ formatTokens(t.value) }}
+                    </span>
+                  </span>
                 </li>
               </ul>
             </div>
@@ -893,6 +916,14 @@ async function copyJson() {
   font-variant-numeric: tabular-nums;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 0.72rem;
+}
+
+.donut-legend .cache-tiers {
+  flex: none;
+  font-size: 0.68rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .donut-note {
