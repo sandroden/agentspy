@@ -175,11 +175,18 @@ class SSECollector:
             if not b.get("text"):
                 b.pop("text", None)
             content.append(b)
+        # Un event error a metà stream (dopo message_start) lascia stop_reason
+        # a None e la richiesta HTTP resta 200: senza questo il round trip
+        # sembrerebbe riuscito. stop_reason="error" lo rende visibile a valle
+        # (app.py lo persiste), mentre il dettaglio resta in result["error"].
+        stop_reason = self.stop_reason
+        if stop_reason is None and self.error is not None:
+            stop_reason = "error"
         result = {
             "type": "sse",
             "message": {**self.message, "content": content},
             "usage": self.usage,
-            "stop_reason": self.stop_reason,
+            "stop_reason": stop_reason,
             "events_count": self.events_count,
         }
         if self.error:

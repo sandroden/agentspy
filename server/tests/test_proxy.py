@@ -236,6 +236,36 @@ def test_prompt_usage_key_absent_in_start_not_taken_from_delta():
     assert usage["output_tokens"] == 42
 
 
+def test_midstream_error_marks_stop_reason_error():
+    """Uno stream con event error dopo message_start (senza message_delta con
+    stop_reason) non deve sembrare riuscito: stop_reason='error' e dettaglio
+    conservato in result['error']."""
+    collector = SSECollector()
+    _feed_events(
+        collector,
+        [
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg_err",
+                        "role": "assistant",
+                        "usage": {"input_tokens": 10, "output_tokens": 0},
+                    },
+                },
+            ),
+            (
+                "error",
+                {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}},
+            ),
+        ],
+    )
+    result = collector.finalize()
+    assert result["stop_reason"] == "error"
+    assert result["error"]["error"]["type"] == "overloaded_error"
+
+
 def test_redact_headers_never_leaks_secrets():
     headers = {"x-api-key": "sk-abc", "authorization": "Bearer x", "cookie": "a=b", "user-agent": "curl"}
     redacted = redact_headers(headers)
