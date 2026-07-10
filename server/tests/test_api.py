@@ -57,6 +57,18 @@ def test_api_sessions_events_and_stats(tmp_path):
         assert stats[0]["system_chars"] == 10
 
 
+def test_foreign_host_header_is_rejected(tmp_path):
+    """TrustedHostMiddleware mitiga il DNS-rebinding: un Host estraneo -> 400,
+    mentre l'host lecito passa."""
+    app = create_app(db_path=str(tmp_path / "host.db"), upstream="http://unused.invalid")
+
+    with TestClient(app) as client:
+        r = client.get("/api/sessions", headers={"host": "evil.example.com"})
+        assert r.status_code == 400
+        r = client.get("/api/sessions", headers={"host": "127.0.0.1:8082"})
+        assert r.status_code == 200
+
+
 def test_api_delete_session_single(tmp_path):
     db_path = str(tmp_path / "del_api.db")
     app = create_app(db_path=db_path, upstream="http://unused.invalid")

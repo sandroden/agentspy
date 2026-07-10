@@ -17,6 +17,8 @@ from pathlib import Path
 import httpx
 import uvicorn
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route, WebSocketRoute
@@ -31,6 +33,18 @@ from .ws import ConnectionManager
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 DEFAULT_UPSTREAM = "https://api.anthropic.com"
+# Il server ascolta solo su 127.0.0.1, ma il browser potrebbe raggiungerlo via
+# un nome DNS controllato da un attaccante (DNS rebinding): TrustedHostMiddleware
+# rifiuta le richieste con Host estraneo. "testserver" è l'host di default di
+# Starlette TestClient. Override con AGENTSPY_ALLOWED_HOSTS (lista CSV).
+DEFAULT_ALLOWED_HOSTS = ["localhost", "127.0.0.1", "::1", "testserver"]
+
+
+def _allowed_hosts() -> list[str]:
+    raw = os.environ.get("AGENTSPY_ALLOWED_HOSTS")
+    if not raw:
+        return list(DEFAULT_ALLOWED_HOSTS)
+    return [h.strip() for h in raw.split(",") if h.strip()]
 
 
 def _tool_names_from_response(response: dict) -> list[str]:
@@ -197,7 +211,10 @@ def create_app(db_path: str | None = None, upstream: str | None = None) -> Starl
         )
     )
 
-    return Starlette(routes=routes, lifespan=lifespan)
+    middleware = [
+        Middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts())
+    ]
+    return Starlette(routes=routes, middleware=middleware, lifespan=lifespan)
 
 
 def main() -> None:
