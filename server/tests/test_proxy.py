@@ -232,6 +232,42 @@ def test_prompt_usage_key_absent_in_start_not_taken_from_delta():
     assert usage["output_tokens"] == 42
 
 
+def test_prompt_usage_from_delta_when_start_reports_none():
+    """Le emulazioni Anthropic-compatibili (OpenRouter) mandano message_start
+    con usage a zero e i token veri solo in message_delta: se dallo start non è
+    arrivato ALCUN token di prompt, il delta è l'unica fonte e va accettato
+    (osservato in E2E con z-ai/glm-4.7-flash via OpenRouter, 2026-07-16)."""
+    collector = SSECollector()
+    _feed_events(
+        collector,
+        [
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg_or",
+                        "role": "assistant",
+                        "usage": {"input_tokens": 0, "output_tokens": 0},
+                    },
+                },
+            ),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "end_turn"},
+                    "usage": {"input_tokens": 14870, "output_tokens": 38},
+                },
+            ),
+            ("message_stop", {"type": "message_stop"}),
+        ],
+    )
+    usage = collector.finalize()["usage"]
+    assert usage["input_tokens"] == 14870
+    assert usage["output_tokens"] == 38
+
+
 def test_midstream_error_marks_stop_reason_error():
     """Uno stream con event error dopo message_start (senza message_delta con
     stop_reason) non deve sembrare riuscito: stop_reason='error' e dettaglio

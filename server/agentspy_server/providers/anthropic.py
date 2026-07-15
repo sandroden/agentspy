@@ -71,6 +71,9 @@ class SSECollector(StreamCollector):
         self.blocks: list = []
         self.error = None
         self._buf = ""
+        # True se message_start ha riportato almeno un token di prompt: da lì
+        # in poi i campi di prompt sono congelati (vedi _merge_usage).
+        self._prompt_from_start = False
 
     def feed(self, chunk: bytes) -> None:
         self._buf += chunk.decode("utf-8", errors="replace")
@@ -123,16 +126,25 @@ class SSECollector(StreamCollector):
     def _merge_usage(self, new: dict, *, from_start: bool = False) -> None:
         """Fonde una usage nello stato accumulato preservando i token di prompt.
 
-        I campi in _PROMPT_USAGE_KEYS vengono accettati SOLO dallo snapshot di
-        message_start (``from_start=True``): message_delta può riportarne un
-        cumulativo (throughput) che falsa l'occupancy della finestra di
-        contesto, quindi lì vengono sempre ignorati. Guardare ``from_start``
-        anziché la mera presenza in ``self.usage`` copre anche il caso in cui
-        message_start ometta una chiave (es. cache_creation_input_tokens): il
-        valore gonfiato del delta non deve comunque entrare.
+        Se message_start ha riportato dei token di prompt (l'API Anthropic vera
+        lo fa sempre), i campi in _PROMPT_USAGE_KEYS restano congelati a quel
+        valore: message_delta può riportarne un cumulativo (throughput) che
+        falsa l'occupancy della finestra di contesto, quindi lì vengono
+        ignorati — anche per le chiavi che message_start avesse omesso (es.
+        cache_creation_input_tokens): il valore gonfiato del delta non deve
+        comunque entrare.
+
+        Alcune emulazioni Anthropic-compatibili (OpenRouter) invece mandano
+        message_start con usage a zero e i valori veri solo in message_delta:
+        se dallo start non è arrivato NESSUN token di prompt, il delta è
+        l'unica fonte e viene accettato.
         """
+        if from_start:
+            self._prompt_from_start = any(
+                new.get(k) for k in _PROMPT_USAGE_KEYS if isinstance(new.get(k), (int, float))
+            )
         for key, value in new.items():
-            if key in _PROMPT_USAGE_KEYS and not from_start:
+            if key in _PROMPT_USAGE_KEYS and not from_start and self._prompt_from_start:
                 continue
             self.usage[key] = value
 
