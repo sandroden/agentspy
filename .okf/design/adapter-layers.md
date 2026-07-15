@@ -15,9 +15,12 @@ registry + variabile d'ambiente:
 | Provider | `server/agentspy_server/providers/` | protocollo wire dell'API LLM: cos'è una chiamata al modello, analisi del body, ricostruzione dallo stream SSE, nomi dei campi usage | `AGENTSPY_PROVIDER` (default `anthropic`) |
 | Agent runtime | `server/agentspy_server/runtimes/` | convenzioni del coding agent: header di sessione, nomi hook, ponte MCP, ultimo messaggio utente reale, hint dei tool, snippet slash-command, artefatti del contesto | `AGENTSPY_RUNTIME` (default `claude-code`) |
 
-Supportare **opencode con modelli Anthropic** = nuovo `AgentRuntime`;
-supportare **codex/OpenAI** = nuovo `ProviderAdapter` (parser Responses API)
-+ nuovo `AgentRuntime`.
+Supportare **opencode con modelli Anthropic** = nuovo `AgentRuntime` —
+fatto: `runtimes/opencode.py` + [plugin di ingest](/components/opencode-plugin.md),
+validato E2E il 2026-07-16. Supportare **codex/OpenAI** = nuovo
+`ProviderAdapter` (parser Responses API) + nuovo `AgentRuntime`. Le
+combinazioni concrete sono nella
+[matrice agente × provider](/runbooks/agent-provider-matrix.md).
 
 # Il modello neutro è la forma Anthropic
 

@@ -54,23 +54,29 @@ class AgentRuntime(ABC):
 
     def is_subagent_hook(self, hook_name: str | None) -> bool:
         """True se l'hook apre/chiude un subagente (marker sulla timeline madre)."""
-        return hook_name in (self.hook_subagent_start, self.hook_subagent_stop)
+        return bool(hook_name) and hook_name in (self.hook_subagent_start, self.hook_subagent_stop)
 
     def is_session_end(self, hook_name: str | None) -> bool:
         """True se l'hook chiude la sessione (principale o subagente)."""
-        return hook_name in (self.hook_stop, self.hook_subagent_stop)
+        return bool(hook_name) and hook_name in (self.hook_stop, self.hook_subagent_stop)
 
     def is_tool_call_hook(self, hook_name: str | None) -> bool:
         """True se l'hook descrive una chiamata tool (porta tool_name/tool_input)."""
-        return hook_name in (self.hook_pre_tool_use, self.hook_post_tool_use)
+        return bool(hook_name) and hook_name in (self.hook_pre_tool_use, self.hook_post_tool_use)
 
     def tool_use_id_from_mcp_meta(self, meta: dict | None) -> str | None:
         """Tool_use id trasportato nel ``params._meta`` di una tools/call MCP."""
         return (meta or {}).get(self.mcp_tool_use_id_key)
 
     def is_system_reminder(self, text: str) -> bool:
-        """True se il testo è un blocco di reminder iniettato dal runtime."""
-        return isinstance(text, str) and text.startswith(self.system_reminder_prefix)
+        """True se il testo è un blocco di reminder iniettato dal runtime.
+
+        Con ``system_reminder_prefix`` vuoto (runtime senza il concetto di
+        reminder affiancato al prompt) nulla è un reminder: senza questa guardia
+        ``"".startswith("")`` scarterebbe OGNI blocco di testo."""
+        return bool(self.system_reminder_prefix) and isinstance(text, str) and text.startswith(
+            self.system_reminder_prefix
+        )
 
     # -- parser specifici del runtime -------------------------------------
 

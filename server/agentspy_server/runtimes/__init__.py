@@ -11,9 +11,11 @@ import os
 
 from .base import AgentRuntime
 from .claude_code import ClaudeCodeRuntime
+from .opencode import OpencodeRuntime
 
 RUNTIMES: dict[str, type[AgentRuntime]] = {
     "claude-code": ClaudeCodeRuntime,
+    "opencode": OpencodeRuntime,
 }
 
 
