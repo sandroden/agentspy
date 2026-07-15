@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-07-17
+* **Creation**: [Plugin opencode](/components/opencode-plugin.md) — secondo `AgentRuntime` (`runtimes/opencode.py` + `opencode_artifacts.py` + plugin JS), validato E2E: correlazione a sessione unica, `callID` == `toolu_…`, artefatti scorporati dal system a blocco unico. Aggiornato [layer adapter](/design/adapter-layers.md).
+* **Creation**: [Matrice agente × provider](/runbooks/agent-provider-matrix.md) — le varianti Claude Code/opencode × Anthropic/GLM-via-OpenRouter, con stato di validazione e particolarità dell'emulazione OpenRouter (usage nel delta, campo `cost`).
+* **Update**: [Token accounting](/design/token-accounting.md) e [frontend](/components/frontend.md) — famiglia `glm` (colore, finestra 200k/1M, tariffe OpenRouter); collector: usage di prompt accettato da `message_delta` solo se `message_start` non ne riporta.
+
 ## 2026-07-16
 * **Creation**: [Layer adapter — provider e agent runtime](/design/adapter-layers.md) — la conoscenza Anthropic/Claude Code del backend confinata nei package specializzabili `providers/` e `runtimes/`; modello neutro persistito = forma Anthropic. Aggiornati [architettura](/architecture.md), [collector server](/components/collector-server.md), [correlazione](/design/correlation.md), [skill recognition](/design/skill-recognition.md).
 * **Deletion**: Proxy standalone (`agentspy_proxy.py` e relativo concept) — prototipo rimosso dal repo; il [formato JSONL](/interfaces/jsonl-log-format.md) resta documentato come storico (i log in `logs/` servono ancora da fixture nei test).
