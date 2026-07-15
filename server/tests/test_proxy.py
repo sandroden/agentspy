@@ -10,12 +10,8 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from agentspy_server.proxy import (
-    ProxyForwarder,
-    SSECollector,
-    analyze_request_body,
-    redact_headers,
-)
+from agentspy_server.providers.anthropic import SSECollector, analyze_request_body
+from agentspy_server.proxy import ProxyForwarder, redact_headers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 

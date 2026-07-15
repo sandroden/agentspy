@@ -17,6 +17,7 @@ async def ingest_hook(request: Request) -> JSONResponse:
     store = request.app.state.store
     correlator = request.app.state.correlator
     ws_manager = request.app.state.ws_manager
+    runtime = request.app.state.runtime
 
     body = await request.json()
     payload = body.get("payload") or {}
@@ -50,7 +51,7 @@ async def ingest_hook(request: Request) -> JSONResponse:
         )
 
     if session_id:
-        ending = hook_name in ("Stop", "SubagentStop")
+        ending = runtime.is_session_end(hook_name)
         await asyncio.to_thread(
             store.upsert_session,
             session_id,
@@ -93,6 +94,7 @@ async def ingest_mcp(request: Request) -> JSONResponse:
     store = request.app.state.store
     ws_manager = request.app.state.ws_manager
     correlator = request.app.state.correlator
+    runtime = request.app.state.runtime
 
     body = await request.json()
     tag = body.get("tag")
@@ -105,7 +107,7 @@ async def ingest_mcp(request: Request) -> JSONResponse:
     turn_index = None
     if not session_id:
         meta = (body.get("params") or {}).get("_meta") or {}
-        session_id = correlator.session_for_tool_use(meta.get("claudecode/toolUseId"))
+        session_id = correlator.session_for_tool_use(runtime.tool_use_id_from_mcp_meta(meta))
         if session_id:
             state = correlator.session_state.get(session_id)
             turn_index = state.turn_index if state else None

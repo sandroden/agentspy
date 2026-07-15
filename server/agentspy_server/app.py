@@ -28,7 +28,9 @@ from starlette.websockets import WebSocket
 
 from . import api, ingest
 from .correlate import Correlator
+from .providers import ProviderAdapter, get_provider
 from .proxy import ProxyForwarder
+from .runtimes import get_runtime
 from .store import Store, default_db_path
 from .ws import ConnectionManager
 
@@ -66,15 +68,13 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     store: Store = app.state.store
     correlator: Correlator = app.state.correlator
     ws_manager: ConnectionManager = app.state.ws_manager
+    provider: ProviderAdapter = app.state.provider
 
     # Il proxy emette un record per OGNI richiesta inoltrata, ma solo le vere
-    # chiamate al modello sono round trip da correlare e persistere. Il body
-    # con "messages" non basta: anche /v1/messages/count_tokens lo ha (Claude
-    # Code all'avvio ne fa decine, una per agente/skill, ognuna con fingerprint
-    # diverso -> valanga di sessioni sintetiche), quindi si filtra sul path.
+    # chiamate al modello sono round trip da correlare e persistere: il
+    # criterio (path, forma del body) lo conosce l'adapter del provider.
     body = (record.get("request") or {}).get("body")
-    path = (record.get("path") or "").rstrip("/")
-    if not (isinstance(body, dict) and body.get("messages") and path.endswith("/messages")):
+    if not provider.is_model_call(record.get("path") or "", body if isinstance(body, dict) else None):
         return
 
     info = correlator.correlate_round_trip(record)
@@ -89,7 +89,7 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     analysis = (record.get("request") or {}).get("analysis") or {}
     model = analysis.get("model")
     response = record.get("response") or {}
-    usage = response.get("usage") or {}
+    usage = provider.normalize_usage(response.get("usage") or {})
     stop_reason = response.get("stop_reason")
     timing = record.get("timing") or {}
     ts_start = timing.get("ts_start")
@@ -130,8 +130,8 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
         stop_reason=stop_reason,
         input_tokens=usage.get("input_tokens"),
         output_tokens=usage.get("output_tokens"),
-        cache_read_tokens=usage.get("cache_read_input_tokens"),
-        cache_write_tokens=usage.get("cache_creation_input_tokens"),
+        cache_read_tokens=usage.get("cache_read_tokens"),
+        cache_write_tokens=usage.get("cache_write_tokens"),
         tool_names=_tool_names_from_response(response),
         payload=record,
     )
@@ -168,8 +168,9 @@ def create_app(db_path: str | None = None, upstream: str | None = None) -> Starl
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
-        app.state.store = Store(db_path or default_db_path())
-        app.state.correlator = Correlator()
+        app.state.runtime = get_runtime()
+        app.state.store = Store(db_path or default_db_path(), runtime=app.state.runtime)
+        app.state.correlator = Correlator(runtime=app.state.runtime)
         # Reidrata lo stato di correlazione dal DB: senza, un riavvio farebbe
         # ripartire turn_index da 1 e perderebbe i join per tool_use_id. È
         # best-effort: se fallisce si logga e si parte vuoti (mai bloccare l'avvio).
@@ -183,10 +184,12 @@ def create_app(db_path: str | None = None, upstream: str | None = None) -> Starl
         app.state.client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=15, read=None, write=60, pool=15)
         )
+        app.state.provider = get_provider()
         app.state.proxy = ProxyForwarder(
             upstream,
             app.state.client,
             on_event=lambda record: _handle_round_trip(app, record),
+            provider=app.state.provider,
         )
         try:
             yield

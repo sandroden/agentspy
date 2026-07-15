@@ -25,6 +25,11 @@ Routing: `/api/*`, `/ws`, `/ingest/*`, `/ui/*` gestiti localmente;
 **tutto il resto** inoltrato trasparente all'upstream (Claude Code chiama
 anche `HEAD /` e altri path: il forward non va mai rotto).
 
+La conoscenza specifica di Anthropic (protocollo wire) e di Claude Code
+(hook, header, artefatti) è confinata in due layer specializzabili —
+`providers/` e `runtimes/` — descritti in
+[layer adapter](/design/adapter-layers.md).
+
 # Canali di osservazione
 
 Tre canali, tutti componibili; solo il primo è obbligatorio:

@@ -24,7 +24,9 @@ Il traffico che attraversa il proxy non porta un `session_id`: il
 3. **Fingerprint di conversazione** — sha256 di (system serializzato +
    primo messaggio user + `session_key`), con `_strip_volatile` che
    rimuove i marker `cache_control` (si spostano fra round trip). Il
-   `session_key` è l'header `x-claude-code-session-id` (cli >= 2.x, su
+   `session_key` è l'header dichiarato dal
+   [runtime](/design/adapter-layers.md) (`AgentRuntime.session_id_header`;
+   per Claude Code `x-claude-code-session-id`, cli >= 2.x, su
    ogni richiesta, verificato presente al 100% e stabile entro una
    conversazione): senza di esso due run concorrenti con stesso system e
    stesso primo prompt collasserebbero nella stessa sessione sintetica.

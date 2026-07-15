@@ -21,22 +21,27 @@ Variabili d'ambiente: `AGENTSPY_PORT` (default 8082), `AGENTSPY_DB`
 (default `./agentspy.db`), `AGENTSPY_UPSTREAM` (default
 `https://api.anthropic.com`), `AGENTSPY_REHYDRATE_HOURS` (default 48 —
 finestra di reidratazione del Correlator all'avvio, vedi
-[correlazione](/design/correlation.md)).
+[correlazione](/design/correlation.md)), `AGENTSPY_PROVIDER` (default
+`anthropic`) e `AGENTSPY_RUNTIME` (default `claude-code`) — vedi
+[layer adapter](/design/adapter-layers.md).
 
 # Moduli
 
 | Modulo | Ruolo |
 |--------|-------|
 | `app.py` | Assemblaggio Starlette: `create_app(db_path, upstream)` per istanze isolate (test), `main()` legge env e lancia uvicorn. `_handle_round_trip()` collega proxy → correlate → store → WS. Serve `/ui/*` da `frontend/dist` con fallback SPA; catch-all → proxy. |
-| `proxy.py` | `ProxyForwarder.forward()`: inoltro streaming con `SSECollector` che ricostruisce il messaggio assistant, usage, ttfb. `analyze_request_body()` scompone system/tools/messages in conteggi caratteri. Redige header sensibili. Evoluzione del [prototipo standalone](/components/standalone-proxy.md). |
-| `correlate.py` | Assegna round trip a sessioni/turni/subagenti — la parte più delicata. Vedi [correlazione](/design/correlation.md). |
+| `proxy.py` | `ProxyForwarder.forward()`: puro transport provider-agnostico — inoltro streaming, redazione header sensibili, timing, emissione record. Analisi body e ricostruzione SSE delegate al provider. |
+| `providers/` | [Layer provider](/design/adapter-layers.md): `base.py` (`ProviderAdapter`, `StreamCollector`) + `anthropic.py` (`SSECollector`, `analyze_request_body`, normalizzazione usage). Registry con `get_provider()`. |
+| `runtimes/` | [Layer agent runtime](/design/adapter-layers.md): `base.py` (`AgentRuntime`) + `claude_code.py` (vocabolario hook, header sessione, tool hint, slash-command) + `claude_code_artifacts.py` (ex `context_artifacts.py`). Registry con `get_runtime()`. |
+| `correlate.py` | Assegna round trip a sessioni/turni/subagenti — la parte più delicata; il vocabolario Claude Code arriva dal runtime. Vedi [correlazione](/design/correlation.md). |
 | `ingest.py` | `POST /ingest/hook` e `POST /ingest/mcp`. Vedi [ingest API](/interfaces/ingest-api.md). |
-| `store.py` | SQLite WAL, connessione unica con lock, chiamate su thread. Vedi [schema](/interfaces/sqlite-schema.md). |
+| `store.py` | SQLite WAL, connessione unica con lock, chiamate su thread; snippet/hint via runtime. Vedi [schema](/interfaces/sqlite-schema.md). |
 | `api.py` | REST read-only. Vedi [REST API](/interfaces/rest-api.md). |
 | `ws.py` | `ConnectionManager` per il broadcast. Vedi [WebSocket](/interfaces/websocket.md). |
 
-Solo le richieste il cui body contiene `messages` vengono correlate e
-persistite (scartati HEAD, `/v1/models`, `count_tokens`).
+Solo le vere chiamate al modello (`ProviderAdapter.is_model_call`: body con
+`messages` + path che termina in `/messages`) vengono correlate e persistite
+(scartati HEAD, `/v1/models`, `count_tokens`).
 
 L'emissione del record verso `_handle_round_trip()` è best-effort e fuori dal
 percorso critico: sul path non-streaming è fire-and-forget (`asyncio.create_task`),

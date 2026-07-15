@@ -47,6 +47,8 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 
+from .runtimes import AgentRuntime, get_runtime
+
 
 def _strip_volatile(obj):
     """Rimuove ricorsivamente i campi che variano fra round trip della stessa
@@ -95,16 +97,19 @@ def _header_ci(headers: dict | None, name: str) -> str | None:
     return None
 
 
-def fingerprint_inputs(record: dict):
+def fingerprint_inputs(record: dict, session_id_header: str):
     """Estrae (system, primo messaggio user, session_key, messages) da un record
     di round trip. Condiviso fra la correlazione live e la reidratazione dal DB,
-    così i fingerprint ricalcolati all'avvio combaciano con quelli vivi."""
+    così i fingerprint ricalcolati all'avvio combaciano con quelli vivi.
+
+    ``session_id_header`` è il nome dell'header con cui l'agent runtime marca la
+    sessione (conoscenza del runtime, non della correlazione)."""
     body = (record.get("request") or {}).get("body") or {}
     messages = body.get("messages") or []
     system = body.get("system")
     first_user = next((m for m in messages if isinstance(m, dict) and m.get("role") == "user"), None)
     headers = (record.get("request") or {}).get("headers")
-    session_key = _header_ci(headers, "x-claude-code-session-id")
+    session_key = _header_ci(headers, session_id_header)
     return system, first_user, session_key, messages
 
 
@@ -122,17 +127,6 @@ def _extract_user_text(content) -> str | None:
         ]
         if texts:
             return "\n".join(texts)
-    return None
-
-
-def _last_user_message(messages) -> dict | None:
-    """Ultimo messaggio con role='user'. NON basta messages[-1]: Claude Code
-    (cli >= 2.1) accoda alla richiesta un messaggio con role='system' (es. il
-    reminder dei deferred tools), che maschererebbe il prompt dell'utente sia
-    al binding via prompt sia all'euristica del turno."""
-    for m in reversed(messages):
-        if isinstance(m, dict) and m.get("role") == "user":
-            return m
     return None
 
 
@@ -158,7 +152,8 @@ class SessionState:
 class Correlator:
     """Stato di correlazione in memoria. Metodi puri sui dati passati, senza I/O."""
 
-    def __init__(self):
+    def __init__(self, runtime: AgentRuntime | None = None):
+        self.runtime = runtime or get_runtime()
         self.session_state: dict[str, SessionState] = {}
         self.fingerprint_to_session: dict[str, str] = {}
         # id (toolu_...) del blocco tool_use prodotto da un round trip -> fingerprint
@@ -247,13 +242,15 @@ class Correlator:
             payload = e.get("payload") or {}
             if e.get("kind") == "hook":
                 st.has_hooks = True
-                if e.get("subkind") == "UserPromptSubmit":
+                if e.get("subkind") == self.runtime.hook_user_prompt:
                     prompt = payload.get("prompt")
                     if isinstance(prompt, str):
                         st.last_user_text = prompt
                         self._remember_prompt(prompt, sid)
             elif e.get("kind") == "round_trip":
-                system, first_user, session_key, _ = fingerprint_inputs(payload)
+                system, first_user, session_key, _ = fingerprint_inputs(
+                    payload, self.runtime.session_id_header
+                )
                 if first_user is None:
                     continue
                 fp = fingerprint(system, first_user, session_key)
@@ -300,7 +297,9 @@ class Correlator:
 
         Ritorna {"session_id", "turn_index", "agent_id", "is_new_session", "is_new_turn"}.
         """
-        system, first_user, session_key, messages = fingerprint_inputs(record)
+        system, first_user, session_key, messages = fingerprint_inputs(
+            record, self.runtime.session_id_header
+        )
         tag = record.get("tag")
 
         fp = fingerprint(system, first_user, session_key) if first_user is not None else None
@@ -320,7 +319,7 @@ class Correlator:
         # scatterà mai.
         merged_from: list[str] = []
         if session_id.startswith("syn-") and messages:
-            last_message = _last_user_message(messages)
+            last_message = self.runtime.last_user_message(messages)
             if last_message is not None:
                 real_sid = self._match_pending_prompt(last_message.get("content"), session_key)
                 if real_sid:
@@ -354,7 +353,7 @@ class Correlator:
 
         is_new_turn = False
         if not state.has_hooks:
-            last_message = _last_user_message(messages) if messages else None
+            last_message = self.runtime.last_user_message(messages) if messages else None
             if last_message is not None:
                 content = last_message.get("content")
                 text = _extract_user_text(content)
@@ -423,13 +422,13 @@ class Correlator:
                 "agent_type": payload.get("agent_type"),
                 "parent_session_id": session_id,
             }
-            if hook_name not in ("SubagentStart", "SubagentStop"):
+            if not self.runtime.is_subagent_hook(hook_name):
                 target_id, target = child_id, child
 
         is_new_turn = False
         merged_from: list[str] = []
 
-        if hook_name == "PreToolUse" and target is not None:
+        if hook_name == self.runtime.hook_pre_tool_use and target is not None:
             tool_use_id = payload.get("tool_use_id")
             fp = self.tool_use_to_fingerprint.get(tool_use_id) if tool_use_id else None
             if fp:
@@ -440,7 +439,7 @@ class Correlator:
                 self.fingerprint_to_session[fp] = target_id
                 target.fingerprints.add(fp)
 
-        elif hook_name == "UserPromptSubmit" and state is not None:
+        elif hook_name == self.runtime.hook_user_prompt and state is not None:
             state.turn_index += 1
             prompt = payload.get("prompt")
             if isinstance(prompt, str):
@@ -461,5 +460,5 @@ class Correlator:
             # sessione figlia scoperta/aggiornata da questo hook: il chiamante
             # la upserta nello store (con live=False su SubagentStop).
             "child_session": child_session,
-            "child_ended": bool(agent_id) and hook_name == "SubagentStop",
+            "child_ended": bool(agent_id) and hook_name == self.runtime.hook_subagent_stop,
         }

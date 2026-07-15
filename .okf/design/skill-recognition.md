@@ -13,7 +13,7 @@ senza bisogno di nuovi canali di osservazione:
    un [round trip](/architecture.md) c'è un blocco `tool_use` con
    `name: "Skill"` e `input: {skill, args}`. Il badge in timeline mostra
    🎓 col nome della skill (icona in `utils/toolIcon.ts`, hint dal
-   backend `_tool_hint`, che per `Skill` legge `input.skill`).
+   backend `AgentRuntime.tool_hint`, che per `Skill` legge `input.skill`).
 2. **Slash-command** (`/okf:okf …`) — quando la digita l'utente: Claude
    Code espande il comando *dentro il messaggio user* come wrapper
    `<command-message>` / `<command-name>` / `<command-args>` seguito dal
@@ -41,7 +41,8 @@ senza bisogno di nuovi canali di osservazione:
 
 # Snippet backend
 
-`store.py` (`_command_snippet`) pulisce lo snippet del round trip quando
+`ClaudeCodeRuntime.command_snippet` (runtimes/, usato da `store.py`)
+pulisce lo snippet del round trip quando
 il primo messaggio user è uno slash-command: restituisce `/nome args`
 invece dell'XML del wrapper + lo SKILL.md, così liste e trigger restano
 leggibili anche senza hook. La logica è rispecchiata lato client in

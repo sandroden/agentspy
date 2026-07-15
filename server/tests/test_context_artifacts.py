@@ -1,4 +1,4 @@
-from agentspy_server.context_artifacts import extract_artifacts
+from agentspy_server.runtimes.claude_code_artifacts import extract_artifacts
 
 # Body campione che riproduce i casi reali osservati in cattura:
 # billing header + system prompt, system-reminder con Contents of (2 CLAUDE.md +

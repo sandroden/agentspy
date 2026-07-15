@@ -1,14 +1,14 @@
 ---
 type: Data Format
 title: Formato JSONL dei log del proxy standalone
-description: Un record JSON per riga per ogni round trip catturato dal prototipo agentspy_proxy.py; usato come fixture nei test.
+description: Un record JSON per riga per ogni round trip, catturato a suo tempo dal prototipo standalone (ora rimosso); i file in logs/ restano come fixture nei test.
 resource: logs/
 tags: [jsonl, log, formato-dati]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Prodotto dal [proxy standalone](/components/standalone-proxy.md) in file
-`logs/run-<YYYYMMDD-HHMMSS>.jsonl` — **non** usato dal server, che
+Prodotto a suo tempo dal prototipo standalone `agentspy_proxy.py` (rimosso
+il 2026-07-16) in file `logs/run-<YYYYMMDD-HHMMSS>.jsonl` — **non** usato dal server, che
 scrive su [SQLite](/interfaces/sqlite-schema.md). I JSONL catturati
 servono da fixture per i test del collector.
 

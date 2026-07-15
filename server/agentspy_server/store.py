@@ -18,7 +18,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .context_artifacts import extract_artifacts
+from .runtimes import AgentRuntime, get_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -128,31 +128,7 @@ def _snippet_from_payload(kind: str, subkind: str | None, payload: dict | None) 
     return ""
 
 
-def _extract_tag(text: str, tag: str) -> str | None:
-    open_t, close_t = f"<{tag}>", f"</{tag}>"
-    i = text.find(open_t)
-    if i == -1:
-        return None
-    j = text.find(close_t, i + len(open_t))
-    if j == -1:
-        return None
-    return text[i + len(open_t) : j].strip()
-
-
-def _command_snippet(text: str) -> str | None:
-    """Se il testo è l'espansione di uno slash-command / skill
-    (`<command-name>…`), restituisce uno snippet pulito `/nome args` invece
-    dell'XML del wrapper + lo SKILL.md iniettato. Altrimenti None."""
-    if "<command-name>" not in text:
-        return None
-    name = _extract_tag(text, "command-name")
-    if not name:
-        return None
-    args = _extract_tag(text, "command-args") or ""
-    return f"{name} {args}".strip()[:160]
-
-
-def _input_snippet_from_payload(kind: str, payload: dict | None) -> str:
+def _input_snippet_from_payload(kind: str, payload: dict | None, runtime: AgentRuntime) -> str:
     """Testo del *primo* user message della request di un round trip: per un
     subagente è il task che il padre gli ha delegato; per il traffico di
     servizio è l'input iniziale. Diverso da `_snippet_from_payload`, che per i
@@ -173,51 +149,16 @@ def _input_snippet_from_payload(kind: str, payload: dict | None) -> str:
                     if not isinstance(block, dict) or block.get("type") != "text":
                         continue
                     text = (block.get("text") or "").strip()
-                    if not text or text.startswith("<system-reminder>"):
+                    if not text or runtime.is_system_reminder(text):
                         continue
-                    return _command_snippet(text) or text[:160]
+                    return runtime.command_snippet(text) or text[:160]
             return ""  # primo user message trovato ma senza testo utile
     except Exception:
         return ""
     return ""
 
 
-def _tool_hint(name: str | None, tool_input: Any) -> str:
-    """Indizio compatto dell'argomento di una chiamata tool, per i badge in
-    timeline: path per i tool su file, inizio comando per Bash, url/query per
-    i tool web, pattern per le ricerche. Best-effort, stringa vuota se non
-    riconosciuto."""
-    if not isinstance(tool_input, dict):
-        return ""
-    try:
-        for key in ("file_path", "notebook_path", "path"):
-            v = tool_input.get(key)
-            if isinstance(v, str) and v:
-                return v
-        if name == "Bash":
-            v = tool_input.get("command")
-        elif name in ("Grep", "Glob"):
-            v = tool_input.get("pattern")
-        elif name == "WebFetch":
-            v = tool_input.get("url")
-        elif name == "WebSearch":
-            v = tool_input.get("query")
-        elif name in ("Task", "Agent"):
-            v = tool_input.get("description") or tool_input.get("prompt")
-        elif name == "Skill":
-            v = tool_input.get("skill")
-        else:
-            # fallback generico (incluso mcp__*): il primo valore stringa
-            v = next((x for x in tool_input.values() if isinstance(x, str) and x), None)
-        if isinstance(v, str):
-            v = " ".join(v.split())  # su una riga
-            return v[:200]
-    except Exception:
-        pass
-    return ""
-
-
-def _tool_uses_from_payload(payload: dict | None) -> list[dict[str, str]]:
+def _tool_uses_from_payload(payload: dict | None, runtime: AgentRuntime) -> list[dict[str, str]]:
     """Coppie {name, hint} dai blocchi tool_use della risposta di un round trip."""
     if not payload:
         return []
@@ -227,14 +168,15 @@ def _tool_uses_from_payload(payload: dict | None) -> list[dict[str, str]]:
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 name = block.get("name") or "?"
-                out.append({"name": name, "hint": _tool_hint(name, block.get("input"))})
+                out.append({"name": name, "hint": runtime.tool_hint(name, block.get("input"))})
         return out
     except Exception:
         return []
 
 
 class Store:
-    def __init__(self, db_path: str | Path | None = None):
+    def __init__(self, db_path: str | Path | None = None, runtime: AgentRuntime | None = None):
+        self.runtime = runtime or get_runtime()
         self.db_path = str(db_path) if db_path is not None else default_db_path()
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -380,12 +322,12 @@ class Store:
                 UPDATE events SET turn_index = COALESCE(
                     (SELECT MAX(h.turn_index) FROM events h
                      WHERE h.session_id = ? AND h.kind = 'hook'
-                       AND h.subkind = 'UserPromptSubmit'
+                       AND h.subkind = ?
                        AND h.ts_start <= events.ts_start),
                     turn_index)
                 WHERE session_id = ? AND kind = 'round_trip'
                 """,
-                (new_id, new_id),
+                (new_id, self.runtime.hook_user_prompt, new_id),
             )
             self._conn.execute("DELETE FROM sessions WHERE id=?", (old_id,))
             self._conn.commit()
@@ -589,14 +531,16 @@ class Store:
                 "cache_write_tokens": row["cache_write_tokens"],
             },
             "tool_names": json.loads(row["tool_names"]) if row["tool_names"] else [],
-            "tool_uses": _tool_uses_from_payload(payload) if row["kind"] == "round_trip" else [],
+            "tool_uses": (
+                _tool_uses_from_payload(payload, self.runtime) if row["kind"] == "round_trip" else []
+            ),
             "tool_hint": (
-                _tool_hint((payload or {}).get("tool_name"), (payload or {}).get("tool_input"))
-                if row["kind"] == "hook" and row["subkind"] in ("PreToolUse", "PostToolUse")
+                self.runtime.tool_hint((payload or {}).get("tool_name"), (payload or {}).get("tool_input"))
+                if row["kind"] == "hook" and self.runtime.is_tool_call_hook(row["subkind"])
                 else ""
             ),
             "snippet": _snippet_from_payload(row["kind"], row["subkind"], payload),
-            "input_snippet": _input_snippet_from_payload(row["kind"], payload),
+            "input_snippet": _input_snippet_from_payload(row["kind"], payload, self.runtime),
         }
 
     def get_session_events(self, session_id: str) -> list[dict[str, Any]]:
@@ -618,7 +562,7 @@ class Store:
         d["tool_names"] = json.loads(d["tool_names"]) if d["tool_names"] else []
         # Inventario degli elementi del contesto per la vista per-round-trip.
         request = (d["payload"] or {}).get("request") or {} if isinstance(d["payload"], dict) else {}
-        d["artifacts"] = extract_artifacts(request.get("body"))
+        d["artifacts"] = self.runtime.extract_artifacts(request.get("body"))
         return d
 
     def rehydration_snapshot(self, since_ts: float) -> dict[str, Any]:
@@ -682,7 +626,7 @@ class Store:
                     "messages_chars": (analysis.get("messages") or {}).get("chars"),
                     # Inventario didattico degli elementi entrati nel contesto,
                     # calcolato lazy dal body: funziona sui dati già catturati.
-                    "artifacts": extract_artifacts(request.get("body")),
+                    "artifacts": self.runtime.extract_artifacts(request.get("body")),
                 }
             )
         return stats

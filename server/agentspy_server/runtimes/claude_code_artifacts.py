@@ -1,5 +1,10 @@
 """Inventario didattico degli elementi che compongono una richiesta all'LLM.
 
+Dettaglio implementativo del runtime Claude Code (esposto via
+``ClaudeCodeRuntime.extract_artifacts``): il modo in cui Claude Code inietta
+istruzioni e allegati nel contesto — i marcatori "Contents of…", "Called the X
+tool", gli avvisi sui file troppo grandi — è conoscenza sua.
+
 A partire dal `request.body` catturato dal proxy (system / tools / messages),
 estrae la lista tipizzata di *artefatti* che entrano nel contesto: system
 prompt, CLAUDE.md/MEMORY.md, immagini, file allegati via `@`, tools.
