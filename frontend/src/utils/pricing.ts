@@ -28,6 +28,11 @@ const PRICING: Record<string, Pricing> = {
   haiku: { input: 1, output: 5, cache_read: 0.1, cache_write: 1.25 },
   // Fable: pricing not published here; we use the Opus tier as an estimate.
   fable: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 },
+  // GLM via OpenRouter (z-ai/glm-5.2, 2026-07): input $0.97/M, output $3.06/M,
+  // cache read $0.18/M; cache writes are not billed separately there, so we
+  // charge them as plain input. NB family-level like the others: the cheaper
+  // variants (glm-4.7-flash ≈ input $0.06/M) are overestimated here.
+  glm: { input: 0.97, output: 3.06, cache_read: 0.18, cache_write: 0.97 },
 }
 
 const DEFAULT_PRICING: Pricing = PRICING.opus

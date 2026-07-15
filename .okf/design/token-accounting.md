@@ -24,7 +24,9 @@ Due livelli di precisione, deliberati:
 (valori didattici in $/Mtoken, non tariffario ufficiale): opus
 `{in 5, out 25, cache-read 0.5, cache-write 6.25}`, sonnet
 `{3, 15, 0.3, 3.75}`, haiku `{1, 5, 0.1, 1.25}`, fable = fascia opus
-(stima). Solo dati reali, nessuna proiezione ipotetica.
+(stima), glm `{0.97, 3.06, 0.18, 0.97}` (tariffe OpenRouter di glm-5.2,
+2026-07; le varianti flash sono sovrastimate). Solo dati reali, nessuna
+proiezione ipotetica.
 
 # Aggregazione
 

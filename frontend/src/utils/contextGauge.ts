@@ -43,6 +43,7 @@ export function contextSizeFor(model: string | null | undefined): number {
   // Known small-window families → 200k.
   if (model.includes('haiku')) return 200_000
   if (/claude-[123]([.-]|$)/.test(model)) return 200_000 // Claude 1 / 2 / 3
+  if (/glm-4/i.test(model)) return 200_000 // GLM 4.x (~200k); GLM 5.x is 1M (default)
 
   // Opus/Sonnet 4.x: 4.5 and later are 1M; earlier 4.x kept the classic 200k.
   if (/opus-4-(5|6|7|8)\b/.test(model)) return 1_000_000

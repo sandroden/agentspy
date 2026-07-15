@@ -9,6 +9,11 @@ describe('modelFamily', () => {
     expect(modelFamily('claude-fable-5')).toBe('fable')
   })
 
+  it('recognizes GLM ids with and without vendor prefix', () => {
+    expect(modelFamily('z-ai/glm-5.2')).toBe('glm')
+    expect(modelFamily('glm-4.7-flash')).toBe('glm')
+  })
+
   it('falls back to unknown for null and unrecognized strings', () => {
     expect(modelFamily(null)).toBe('unknown')
     expect(modelFamily(undefined)).toBe('unknown')
@@ -49,5 +54,10 @@ describe('abbreviateModel', () => {
     expect(abbreviateModel(null)).toBe('—')
     expect(abbreviateModel('a-very-long-unknown-model-id')).toBe('a-very-long-un…')
     expect(abbreviateModel('short')).toBe('short')
+  })
+
+  it('drops the vendor prefix from gateway ids', () => {
+    expect(abbreviateModel('z-ai/glm-5.2')).toBe('glm-5.2')
+    expect(abbreviateModel('glm-4.7-flash')).toBe('glm-4.7-flash')
   })
 })

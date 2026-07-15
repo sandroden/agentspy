@@ -1,8 +1,12 @@
 /** Utility to recognize the model family and assign it a color. */
 
-export type ModelFamily = 'opus' | 'sonnet' | 'haiku' | 'fable' | 'unknown'
+export type ModelFamily = 'opus' | 'sonnet' | 'haiku' | 'fable' | 'glm' | 'unknown'
 
-/** Extracts the family ("opus", "sonnet"...) from an Anthropic model string. */
+/**
+ * Extracts the family ("opus", "sonnet"...) from a model string. Besides the
+ * Anthropic families it recognizes GLM ids as they appear on Anthropic-compatible
+ * gateways (e.g. OpenRouter "z-ai/glm-5.2", vendor prefix included).
+ */
 export function modelFamily(model: string | null | undefined): ModelFamily {
   if (!model) return 'unknown'
   const m = model.match(/claude-([a-z]+)/i)
@@ -10,6 +14,7 @@ export function modelFamily(model: string | null | undefined): ModelFamily {
   if (family === 'opus' || family === 'sonnet' || family === 'haiku' || family === 'fable') {
     return family
   }
+  if (/(^|\/)glm-/i.test(model)) return 'glm'
   return 'unknown'
 }
 
@@ -27,6 +32,8 @@ export function modelColor(model: string | null | undefined): string {
       return '#fbbf24'
     case 'fable':
       return '#f87171'
+    case 'glm':
+      return '#60a5fa'
     default:
       return 'var(--accent)'
   }
@@ -44,5 +51,8 @@ export function abbreviateModel(model: string | null | undefined): string {
     const [, family, major, minor] = m
     return minor ? `${family}-${major}.${minor}` : `${family}-${major}`
   }
-  return model.length > 14 ? `${model.slice(0, 14)}…` : model
+  // Gateway ids ("z-ai/glm-5.2"): drop the vendor prefix, keep the model name.
+  const slash = model.lastIndexOf('/')
+  const bare = slash >= 0 ? model.slice(slash + 1) : model
+  return bare.length > 14 ? `${bare.slice(0, 14)}…` : bare
 }

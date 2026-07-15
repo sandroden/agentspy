@@ -99,8 +99,9 @@ per la bolla Claude/LLM in timeline, `--accent` per selezione/link.
 # Utility
 
 - `utils/pricing.ts` — stima costo API per famiglia di modello (valori
-  didattici in $/Mtoken; fable = fascia opus).
-- `utils/model.ts` — famiglia/colore/abbreviazione del modello.
+  didattici in $/Mtoken; fable = fascia opus; glm = tariffe OpenRouter).
+- `utils/model.ts` — famiglia/colore/abbreviazione del modello (incluse le
+  famiglie non-Claude viste via gateway, es. `z-ai/glm-5.2` → glm, blu).
 - `utils/toolIcon.ts` — emoji per tool (Read 📄, Edit ✏️, Bash 💻, …;
   `Skill` → 🎓, `mcp__*` → 🔌).
 - `utils/command.ts` — riconosce gli slash-command / skill nei messaggi
