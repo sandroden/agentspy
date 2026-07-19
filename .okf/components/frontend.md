@@ -4,7 +4,7 @@ title: Frontend (Vue 3)
 description: UI interattiva per live e replay — dashboard, timeline verticale per turni, context-fill e pannello di dettaglio a tab.
 resource: frontend/src
 tags: [frontend, vue, vite, pinia, typescript]
-timestamp: 2026-07-10T00:00:00Z
+timestamp: 2026-07-19T00:00:00Z
 ---
 
 Stack: **Vue 3 + Vite + TypeScript + Pinia + vue-router**, nessuna
@@ -25,7 +25,12 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
 - `stores/spy.ts` (Pinia) — stato centrale: sessioni, eventi per
   sessione, cursore/live (pausa del tempo), evento selezionato con cache
   dei dettagli, badge unseen. Getter `sessionTree` (albero madre/figli)
-  e `visibleEvents` (filtrato da live/cursore).
+  e `visibleEvents` (filtrato da live/cursore). Il player naviga solo
+  gli step che producono righe visibili (`isPlayerStep`): con
+  `showHooks` off (default, persistito in localStorage) gli hook
+  SessionStart/UserPromptSubmit/Stop vengono saltati da `step`/`setCursor`
+  — niente click "a vuoto" a inizio sessione umana; col flag on ogni
+  evento è uno step e gli hook rendono marcatori.
 - `router/index.ts` — `/` → DashboardView, `/session/:id` → SessionView
   (ogni sessione ha il suo URL, apribile in un'altra tab).
 - `types.ts` — tipi speculari alle forme dello store Python.
@@ -67,7 +72,12 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ servito su /ui
   slot), `TimelineView` verticale raggruppata per turno
   (`TurnGroup`, `EventCard`, `HookMarker`, `McpCard`, `SubagentBlock`,
   `UsageBar`), `ContextFillPanel` (barra impilata per round trip),
-  `TimeControls` (LIVE/PAUSA + scrubber, spazio e frecce).
+  `TimeControls` (LIVE/PAUSA + scrubber, spazio e frecce, toggle
+  "⚓ hooks" e contatore "event n/m" sugli step visibili).
+  `HookMarker` è il marcatore-pillola di un hook (visibile solo col
+  toggle attivo): mostra che lì Claude Code ha dato spazio a una
+  reazione (in futuro: hook che bloccano tool call) e il click apre il
+  payload nel DetailPanel.
 - **DetailPanel** (colonna destra ridimensionabile, presente solo nella
   Timeline): header con titolo "ROUND TRIP" + pill verde `#n/total` e riga
   meta monospace; tab Sintesi | Richiesta | Risposta | Delta | JSON — la

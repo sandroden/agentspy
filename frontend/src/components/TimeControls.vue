@@ -10,13 +10,38 @@ const maxIndex = computed(() => Math.max(total.value - 1, 0))
 const currentIndex = computed(() => Math.min(Math.max(spy.cursor, 0), maxIndex.value))
 const currentEvent = computed(() => spy.events[currentIndex.value] ?? null)
 
+/** Contatore E scrubber lavorano sugli step veri del player, non sugli
+ * indici grezzi di `events`: con gli hook nascosti gli indici grezzi
+ * salterebbero (event 3/15 → 5/15) e il pallino dello scrubber non
+ * partirebbe mai dal bordo (⏮ atterra sul primo round trip, che negli
+ * indici grezzi è già a un terzo della barra). */
+const stepIndices = computed<number[]>(() => {
+  const out: number[] = []
+  spy.events.forEach((e, i) => {
+    if (spy.isPlayerStep(e)) out.push(i)
+  })
+  return out
+})
+const stepTotal = computed(() => stepIndices.value.length)
+/** posizione 0-based dello step corrente: ultimo step con indice ≤ cursore. */
+const currentStep = computed(() => {
+  let pos = -1
+  for (const idx of stepIndices.value) {
+    if (idx > currentIndex.value) break
+    pos++
+  }
+  return Math.max(pos, 0)
+})
+
 const label = computed(() => {
-  if (total.value === 0) return 'no events'
-  return `event ${currentIndex.value + 1}/${total.value} — ${formatTime(currentEvent.value?.ts_start)}`
+  if (stepTotal.value === 0) return 'no events'
+  return `event ${currentStep.value + 1}/${stepTotal.value} — ${formatTime(currentEvent.value?.ts_start)}`
 })
 
 function onSlider(e: Event) {
-  spy.setCursor(Number((e.target as HTMLInputElement).value))
+  const pos = Number((e.target as HTMLInputElement).value)
+  const idx = stepIndices.value[pos]
+  if (idx != null) spy.setCursor(idx)
 }
 
 function toggleLive() {
@@ -53,8 +78,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       class="scrubber"
       type="range"
       :min="0"
-      :max="maxIndex"
-      :value="currentIndex"
+      :max="Math.max(stepTotal - 1, 0)"
+      :value="currentStep"
       :disabled="total === 0"
       @input="onSlider"
     />
@@ -62,6 +87,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <button :disabled="total === 0" title="end" @click="spy.setCursor(maxIndex)">⏭</button>
 
     <span class="label">{{ label }}</span>
+
+    <button
+      class="hooks-btn"
+      :class="{ on: spy.showHooks }"
+      title="mostra gli hook di Claude Code come marcatori nella timeline (il player smette di saltarli)"
+      @click="spy.toggleShowHooks()"
+    >
+      ⚓︎ hooks
+    </button>
   </div>
 </template>
 
@@ -97,6 +131,18 @@ button:disabled {
   background-color: var(--accent-live);
   color: #06210f;
   border-color: var(--accent-live);
+}
+
+.hooks-btn {
+  color: var(--muted);
+  border-style: dashed;
+  white-space: nowrap;
+}
+
+.hooks-btn.on {
+  color: var(--text);
+  border-style: solid;
+  border-color: var(--muted);
 }
 
 .scrubber {

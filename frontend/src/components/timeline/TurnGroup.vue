@@ -6,6 +6,7 @@
 import { computed } from 'vue'
 import { formatDuration, formatTime, formatTokens } from '../../utils/format'
 import type { EventSummary } from '../../types'
+import HookMarker from './HookMarker.vue'
 import McpCard from './McpCard.vue'
 import RoundTripRow from './RoundTripRow.vue'
 import SubagentBlock from './SubagentBlock.vue'
@@ -19,6 +20,7 @@ interface SubagentRowData {
 
 type TimelineRow =
   | { rowKind: 'event'; event: EventSummary; nextRt?: EventSummary }
+  | { rowKind: 'hook'; event: EventSummary }
   | { rowKind: 'subagent'; data: SubagentRowData }
   | { rowKind: 'gap'; seconds: number }
 
@@ -39,7 +41,7 @@ const props = defineProps<{
 }>()
 
 function rowKey(row: TimelineRow, index: number): string {
-  if (row.rowKind === 'event') return `event-${row.event.id}`
+  if (row.rowKind === 'event' || row.rowKind === 'hook') return `event-${row.event.id}`
   if (row.rowKind === 'subagent') return `subagent-${row.data.agentId}-${row.data.ts}`
   return `gap-${props.group.key}-${index}`
 }
@@ -94,6 +96,7 @@ const firstRoundTripId = computed<number | null>(() => {
       <div v-for="(row, i) in group.rows" :key="rowKey(row, i)" class="row-wrap">
         <div v-if="row.rowKind === 'gap'" class="gap-sep">··· {{ formatDuration(row.seconds) }} ···</div>
         <SubagentBlock v-else-if="row.rowKind === 'subagent'" :data="row.data" />
+        <HookMarker v-else-if="row.rowKind === 'hook'" :event="row.event" />
         <RoundTripRow
           v-else-if="row.event.kind === 'round_trip'"
           :event="row.event"

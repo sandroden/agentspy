@@ -26,6 +26,7 @@ export interface SubagentRowData {
 
 export type TimelineRow =
   | { rowKind: 'event'; event: EventSummary }
+  | { rowKind: 'hook'; event: EventSummary }
   | { rowKind: 'subagent'; data: SubagentRowData }
   | { rowKind: 'gap'; seconds: number }
 
@@ -169,17 +170,19 @@ const groups = computed<TimelineGroup[]>(() => {
 
     lastAgentId = null
     lastEndTs = rowEnd
-    // Hook events (PreToolUse, UserPromptSubmit, ...) don't get their own
-    // swimlane row: the tool call is already shown via the round trip's own
-    // tool_uses, and having hooks "as such" appear in the timeline would
-    // teach a Claude Code implementation detail nobody asked to learn. They
-    // still contribute data (turn grouping above, prompt snippet below).
+    // Hook events (SessionStart, UserPromptSubmit, Stop, ...) get their own
+    // marker row only when spy.showHooks is on (toggle in TimeControls): by
+    // default the timeline hides the Claude Code mechanism and the player
+    // skips them (see stores/spy.ts isPlayerStep). They always contribute
+    // data regardless (turn grouping above, prompt snippet below).
     if (e.kind === 'round_trip') {
       group.rows.push({ rowKind: 'event', event: e })
       group.roundTrips++
       group.outputTokens += e.usage.output_tokens
     } else if (e.kind === 'mcp') {
       group.rows.push({ rowKind: 'event', event: e })
+    } else if (e.kind === 'hook' && spy.showHooks) {
+      group.rows.push({ rowKind: 'hook', event: e })
     }
     if (e.kind === 'hook' && e.subkind === 'UserPromptSubmit' && !group.promptSnippet && e.snippet) {
       // e.snippet already carries the real prompt text for this hook (see

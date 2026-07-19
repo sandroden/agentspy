@@ -20,6 +20,8 @@ export interface SessionNode extends Session {
   children: SessionNode[]
 }
 
+const SHOW_HOOKS_KEY = 'agentspy.showHooks'
+
 export const useSpyStore = defineStore('spy', () => {
   // -- state ------------------------------------------------------------
   const sessions = ref<Record<string, Session>>({})
@@ -46,6 +48,10 @@ export const useSpyStore = defineStore('spy', () => {
   const unseenCounts = ref<Record<string, number>>({})
   /** modale "cosa si porta dietro il contesto": aperta al click su una chip. */
   const contextInventoryOpen = ref(false)
+  /** mostra gli hook (SessionStart, Stop, ...) come marcatori nella timeline;
+   * off di default: il player li salta per non produrre step senza cambiamenti
+   * visibili (e altri runtime — opencode, codex — non hanno hook affatto). */
+  const showHooks = ref(localStorage.getItem(SHOW_HOOKS_KEY) === '1')
 
   let streamHandle: StreamHandle | null = null
   /** request token for openSession: guards against out-of-order fetch results
@@ -132,6 +138,22 @@ export const useSpyStore = defineStore('spy', () => {
    */
   function isTimelineEvent(e: EventSummary): boolean {
     return !(e.kind === 'hook' && (e.subkind === 'PostToolUse' || e.subkind === 'PreToolUse'))
+  }
+
+  /**
+   * True se l'evento produce una riga visibile nella timeline e quindi è uno
+   * step "vero" del player. Con showHooks attivo lo sono tutti (gli hook
+   * diventano marcatori, vedi TimelineView/HookMarker); con showHooks off gli
+   * hook non renderizzano nulla e il player li salta (setCursor/step), per non
+   * avere click che non cambiano niente a schermo. Gli hook che portano un
+   * agent_id di un subagente restano step anche a flag spento: nella timeline
+   * della madre producono il blocco-puntatore del subagente.
+   */
+  function isPlayerStep(e: EventSummary): boolean {
+    if (showHooks.value) return true
+    if (e.kind !== 'hook') return true
+    const ownAgentId = currentSession.value?.agent_id ?? null
+    return !!e.agent_id && e.agent_id !== ownAgentId
   }
 
   function replaceSessions(list: Session[]) {
@@ -280,13 +302,43 @@ export const useSpyStore = defineStore('spy', () => {
 
   function setCursor(i: number) {
     const maxIndex = Math.max(events.value.length - 1, 0)
-    const clamped = Math.max(0, Math.min(i, maxIndex))
+    let clamped = Math.max(0, Math.min(i, maxIndex))
+    // Aggancia l'indice a uno step vero del player: prima all'indietro (non
+    // scavalcare in avanti la posizione chiesta dallo scrubber), poi in avanti
+    // come fallback — è il caso di ⏮ su una sessione che apre con soli hook.
+    const arr = events.value
+    if (arr.length && !isPlayerStep(arr[clamped])) {
+      let j = clamped
+      while (j >= 0 && !isPlayerStep(arr[j])) j--
+      if (j < 0) {
+        j = clamped
+        while (j <= maxIndex && !isPlayerStep(arr[j])) j++
+      }
+      if (j >= 0 && j <= maxIndex) clamped = j
+    }
     cursor.value = clamped
     if (clamped < maxIndex) live.value = false
   }
 
   function step(delta: number) {
-    setCursor(cursor.value + delta)
+    if (!events.value.length || delta === 0) return
+    const dir = delta > 0 ? 1 : -1
+    let target = cursor.value
+    for (let n = Math.abs(delta); n > 0; n--) {
+      let j = target + dir
+      while (j >= 0 && j < events.value.length && !isPlayerStep(events.value[j])) j += dir
+      if (j < 0 || j >= events.value.length) break
+      target = j
+    }
+    if (target !== cursor.value) setCursor(target)
+  }
+
+  function toggleShowHooks() {
+    showHooks.value = !showHooks.value
+    localStorage.setItem(SHOW_HOOKS_KEY, showHooks.value ? '1' : '0')
+    // se il cursore era fermo su un hook appena nascosto, riallinealo a uno
+    // step visibile (setCursor riaggancia da sé).
+    if (!showHooks.value && !live.value && events.value.length) setCursor(cursor.value)
   }
 
   async function select(eventId: number) {
@@ -383,6 +435,7 @@ export const useSpyStore = defineStore('spy', () => {
     wsConnected,
     unseenCounts,
     contextInventoryOpen,
+    showHooks,
     // getters
     sessionTree,
     currentSession,
@@ -398,6 +451,8 @@ export const useSpyStore = defineStore('spy', () => {
     goLive,
     setCursor,
     step,
+    toggleShowHooks,
+    isPlayerStep,
     select,
     clearSelection,
     deleteSessions,
