@@ -1,7 +1,7 @@
 """Assegna i round trip del proxy e gli eventi hook/mcp a sessioni/turni/subagenti.
 
 Il traffico HTTP verso l'API Anthropic non porta session_id: lo ricaviamo con
-le regole descritte in PLAN.md ("Correlazione"), in ordine di forza:
+le regole descritte in `.okf/design/correlation.md`, in ordine di forza:
 
 1. ``tool_use_id``: l'hook ``PreToolUse`` porta ``session_id`` + ``tool_use_id``;
    il round trip precedente conteneva un blocco ``tool_use`` con quell'id

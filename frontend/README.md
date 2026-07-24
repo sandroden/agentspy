@@ -1,5 +1,13 @@
-# Vue 3 + TypeScript + Vite
+# agentspy frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+The agentspy UI: Vue 3 + TypeScript + Vite (Pinia, vue-router, custom timeline
+rendering — no chart library).
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+```bash
+npm run dev      # dev server with hot reload (proxy to :8082)
+npm run build    # production build, served by the collector on /ui
+npm run test     # unit tests
+```
+
+See [../docs/development.md](../docs/development.md) and
+[../.okf/components/frontend.md](../.okf/components/frontend.md).

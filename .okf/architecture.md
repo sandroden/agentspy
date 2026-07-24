@@ -62,4 +62,5 @@ che assegna il traffico a sessioni/turni/subagenti, e finiscono nello
 # Citations
 
 [1] `README.md` del repository — panoramica e avvio rapido.
-[2] `PLAN.md` del repository — piano di lavoro e decisioni.
+[2] Piano originale del progetto (PLAN.md, rimosso 2026-07-25 — decisioni
+conservate qui) — piano di lavoro e decisioni.

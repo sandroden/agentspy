@@ -6,7 +6,8 @@ tags: [decisioni, architettura]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Decisioni prese con Sandro il 2026-07-07 (fonte: PLAN.md):
+Decisioni prese con Sandro il 2026-07-07 (fonte: piano originale del
+progetto, PLAN.md, rimosso 2026-07-25 — decisioni conservate qui):
 
 - **Frontend**: Vue 3 + Vite puro (Pinia, TS, rendering timeline
   custom, nessuna libreria di chart per l'MVP).
@@ -37,4 +38,5 @@ Decisioni prese con Sandro il 2026-07-07 (fonte: PLAN.md):
 
 # Citations
 
-[1] `PLAN.md` del repository — sezione "Decisioni prese con Sandro".
+[1] Piano originale del progetto (PLAN.md, rimosso 2026-07-25 — decisioni
+conservate qui), sezione "Decisioni prese con Sandro".
