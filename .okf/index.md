@@ -4,16 +4,16 @@ okf_version: "0.1"
 
 # agentspy — Knowledge Bundle
 
-Strumento didattico per spiare e visualizzare in tempo reale la
-comunicazione fra Claude Code e l'API Anthropic.
+Educational tool to spy on and visualize, in real time, the
+communication between Claude Code and the Anthropic API.
 
-# Panoramica
+# Overview
 
-* [Architettura di agentspy](architecture.md) - Processo unico Starlette che fa da proxy trasparente, collector e server UI, con tre canali di osservazione componibili.
+* [agentspy architecture](architecture.md) - Single Starlette process acting as transparent proxy, collector and UI server, with three composable observation channels.
 
-# Sezioni
+# Sections
 
-* [Componenti](components/) - Collector server, hook script, wrapper MCP, frontend Vue, proxy standalone legacy, seed demo.
-* [Interfacce](interfaces/) - REST API, WebSocket, ingest API, schema SQLite, formato JSONL.
-* [Design](design/) - Correlazione traffico↔sessioni, tag di raccolta, contabilità token/costi, decisioni architetturali.
-* [Runbook](runbooks/) - Avvio rapido e sviluppo/test.
+* [Components](components/) - Collector server, hook script, MCP wrapper, Vue frontend, legacy standalone proxy, seed demo.
+* [Interfaces](interfaces/) - REST API, WebSocket, ingest API, SQLite schema, JSONL format.
+* [Design](design/) - Traffic↔session correlation, collection tags, token/cost accounting, architectural decisions.
+* [Runbooks](runbooks/) - Quickstart and development/testing.

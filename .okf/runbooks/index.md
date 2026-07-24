@@ -1,5 +1,5 @@
-# Runbook
+# Runbooks
 
-* [Avvio rapido](quickstart.md) - Come avviare il collector, instradare Claude Code attraverso il proxy e aprire la UI.
-* [Matrice agente × provider](agent-provider-matrix.md) - Tutte le varianti di setup (Claude Code/opencode × Anthropic/GLM-via-OpenRouter), cosa cambia in ciascuna e cosa serve per le prossime.
-* [Sviluppo e test](development.md) - Comandi per test del backend, test del wrapper MCP e sviluppo/build del frontend.
+* [Quickstart](quickstart.md) - How to start the collector, route Claude Code through the proxy and open the UI.
+* [Agent × provider matrix](agent-provider-matrix.md) - All setup variants (Claude Code/opencode × Anthropic/GLM-via-OpenRouter), what changes in each and what the next ones need.
+* [Development and testing](development.md) - Commands for backend tests, MCP wrapper tests and frontend development/build.

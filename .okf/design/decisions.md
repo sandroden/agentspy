@@ -1,42 +1,42 @@
 ---
 type: Decision Record
-title: Decisioni architetturali (2026-07-07)
-description: Decisioni prese con Sandro all'avvio del progetto — stack, storage, UX della timeline — e cose esplicitamente rimandate.
-tags: [decisioni, architettura]
+title: Architectural decisions (2026-07-07)
+description: Decisions taken with Sandro at the start of the project — stack, storage, timeline UX — and things explicitly deferred.
+tags: [decisions, architecture]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Decisioni prese con Sandro il 2026-07-07 (fonte: piano originale del
-progetto, PLAN.md, rimosso 2026-07-25 — decisioni conservate qui):
+Decisions taken with Sandro on 2026-07-07 (source: the original project
+plan, PLAN.md, removed 2026-07-25 — decisions kept here):
 
-- **Frontend**: Vue 3 + Vite puro (Pinia, TS, rendering timeline
-  custom, nessuna libreria di chart per l'MVP).
-- **Storage**: SQLite (payload completi + colonne indicizzate) — vedi
+- **Frontend**: plain Vue 3 + Vite (Pinia, TS, custom timeline
+  rendering, no chart library for the MVP).
+- **Storage**: SQLite (full payloads + indexed columns) — see
   [schema](/interfaces/sqlite-schema.md).
-- **Processo unico**: proxy + collector + UI in un solo processo Python
-  sulla porta 8082 — vedi [architettura](/architecture.md).
-- **Timeline verticale** (il tempo scorre verso il basso); i grafici
-  classici (asse x = tempo) solo come vista opzionale futura.
-- **Niente confronto side-by-side sincronizzato**; ogni sessione ha un
-  suo URL così due sessioni si aprono in due tab. Il confronto fra run
-  passa dai [tag di raccolta](/design/run-tagging.md).
-- **Pausa del tempo**: LIVE ↔ PAUSA con scrubber su tutta la storia; i
-  dati si raccolgono comunque, sempre.
-- **Multi-sessione**: una alla volta in timeline, sidebar con elenco;
-  subagenti annidati nella madre, cliccabili, con totali aggregati.
-- **Click su qualunque evento** → pannello di dettaglio col payload
-  completo.
+- **Single process**: proxy + collector + UI in one Python process on
+  port 8082 — see [architecture](/architecture.md).
+- **Vertical timeline** (time flows downward); the classic charts
+  (x-axis = time) only as a future optional view.
+- **No synchronized side-by-side comparison**; each session has its own
+  URL so two sessions open in two tabs. Comparing runs goes through the
+  [collection tags](/design/run-tagging.md).
+- **Time pause**: LIVE ↔ PAUSE with a scrubber over the whole history;
+  data is collected anyway, always.
+- **Multi-session**: one at a time in the timeline, a sidebar with the
+  list; subagents nested in the parent, clickable, with aggregated
+  totals.
+- **Click on any event** → detail panel with the full payload.
 
-# Rimandato / non nell'MVP
+# Deferred / not in the MVP
 
-- Stima token per componente precisa (endpoint `count_tokens`) — oggi
-  char/4, vedi [token accounting](/design/token-accounting.md).
-- Grafico classico con tempo sulle ascisse (vista opzionale).
-- Confronto affiancato di due run.
-- Ricucitura della conversazione dopo `PreCompact`/compattazione.
-- Animazioni avanzate (flussi, transizioni elaborate).
+- Precise per-component token estimate (`count_tokens` endpoint) — today
+  char/4, see [token accounting](/design/token-accounting.md).
+- Classic chart with time on the x-axis (optional view).
+- Side-by-side comparison of two runs.
+- Re-stitching the conversation after `PreCompact`/compaction.
+- Advanced animations (flows, elaborate transitions).
 
 # Citations
 
-[1] Piano originale del progetto (PLAN.md, rimosso 2026-07-25 — decisioni
-conservate qui), sezione "Decisioni prese con Sandro".
+[1] Original project plan (PLAN.md, removed 2026-07-25 — decisions kept
+here), section "Decisions taken with Sandro".

@@ -1,53 +1,53 @@
 ---
 type: Component
-title: Wrapper MCP (agentspy_mcp_wrapper.py)
-description: Relay stdio trasparente che spia il JSON-RPC fra Claude Code e un server MCP reale e lo inoltra al collector.
+title: MCP wrapper (agentspy_mcp_wrapper.py)
+description: Transparent stdio relay that spies on the JSON-RPC between Claude Code and a real MCP server and forwards it to the collector.
 resource: mcp/agentspy_mcp_wrapper.py
 tags: [mcp, json-rpc, python]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Lancia il comando del server MCP reale (dopo `--`) come sottoprocesso e
-relaya lo stdio nei due sensi **riga per riga, byte identici** (MCP
-stdio è JSON-RPC line-delimited). Thread separati per stdin→figlio,
-stdout figlio→padre, stderr passthrough e un `http_worker` con coda
-asincrona.
+Launches the real MCP server command (after `--`) as a subprocess and
+relays the stdio both ways **line by line, byte-identical** (MCP stdio is
+line-delimited JSON-RPC). Separate threads for stdin→child, child
+stdout→parent, stderr passthrough and an `http_worker` with an async
+queue.
 
-**Il relay ha priorità assoluta**: se lo spione o l'endpoint falliscono,
-la riga passa comunque senza ritardi. Gestisce SIGTERM/SIGINT terminando
-il figlio, drena la coda a fine processo (2s) ed esce col returncode del
-figlio. Troncamento payload a 200.000 caratteri.
+**The relay has absolute priority**: if the spy or the endpoint fail, the
+line passes through anyway with no delay. It handles SIGTERM/SIGINT by
+terminating the child, drains the queue at process end (2s) and exits
+with the child's returncode. Payload truncation at 200,000 characters.
 
-La classe `Spy` classifica ogni riga (request / notification / response)
-e accoppia request↔response per `id`, poi POSTa a
-`AGENTSPY_URL/ingest/mcp` (timeout 2s) — vedi
+The `Spy` class classifies each line (request / notification / response)
+and pairs request↔response by `id`, then POSTs to
+`AGENTSPY_URL/ingest/mcp` (2s timeout) — see
 [ingest API](/interfaces/ingest-api.md).
 
-# Configurazione
+# Configuration
 
-Nel config MCP si sostituisce il comando del server col wrapper:
+In the MCP config you replace the server command with the wrapper:
 
 ```json
 {"mcpServers": {"eco": {
   "command": "/path/agentspy/mcp/agentspy_mcp_wrapper.py",
-  "args": ["--name", "eco", "--", "comando-server-reale", "arg1"]
+  "args": ["--name", "eco", "--", "real-server-command", "arg1"]
 }}}
 ```
 
-Argomenti: `--name NAME` (default: basename del comando), `--url URL`
+Arguments: `--name NAME` (default: basename of the command), `--url URL`
 (default: env `AGENTSPY_URL`). Env: `AGENTSPY_URL`, `AGENTSPY_TAG`,
 `AGENTSPY_DEBUG`.
 
-# Aggancio alla sessione
+# Binding to the session
 
-Le `tools/call` vengono legate alla sessione giusta tramite
-`params._meta["claudecode/toolUseId"]` che Claude Code passa nella
-chiamata → `Correlator.session_for_tool_use` (vedi
-[correlazione](/design/correlation.md)). Gli eventi di lifecycle
-(initialize, tools/list) restano senza sessione.
+`tools/call` are bound to the right session through
+`params._meta["claudecode/toolUseId"]`, which Claude Code passes in the
+call → `Correlator.session_for_tool_use` (see
+[correlation](/design/correlation.md)). Lifecycle events (initialize,
+tools/list) remain without a session.
 
-# Test
+# Tests
 
 ```bash
-cd mcp && uv run --with pytest pytest tests/   # con fake_mcp_server.py
+cd mcp && uv run --with pytest pytest tests/   # with fake_mcp_server.py
 ```

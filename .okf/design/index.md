@@ -1,8 +1,8 @@
 # Design
 
-* [Correlazione traffico ↔ sessioni](correlation.md) - Come i round trip del proxy (senza session_id) vengono assegnati a sessioni, turni e subagenti — la parte più delicata del backend.
-* [Tag di raccolta per confrontare strategie](run-tagging.md) - Un tag attraversa proxy (header) e hooks (env) per distinguere run diverse in UI — il meccanismo per il confronto didattico fra strategie.
-* [Contabilità dei token e stima dei costi](token-accounting.md) - Usage reale dalla risposta API per i totali; stima char/4 per la scomposizione per componente; pricing didattico per famiglia di modello.
-* [Riconoscimento di skill e slash-command](skill-recognition.md) - Come agentspy individua e quantifica l'uso di una skill nei dati già catturati — badge tool, trigger di turno e misura del contesto iniettato.
-* [Layer adapter — provider e agent runtime](adapter-layers.md) - Due assi di specializzazione (providers/ per il protocollo LLM, runtimes/ per le convenzioni del coding agent) dietro cui è confinata la conoscenza Anthropic/Claude Code del backend.
-* [Decisioni architetturali (2026-07-07)](decisions.md) - Decisioni prese con Sandro all'avvio del progetto — stack, storage, UX della timeline — e cose esplicitamente rimandate.
+* [Traffic ↔ session correlation](correlation.md) - How the proxy round trips (without a session_id) are assigned to sessions, turns and subagents — the most delicate part of the backend.
+* [Collection tags to compare strategies](run-tagging.md) - A tag crosses both proxy (header) and hooks (env) to tell different runs apart in the UI — the mechanism for the educational comparison between strategies.
+* [Token accounting and cost estimation](token-accounting.md) - Real usage from the API response for the totals; char/4 estimate for the per-component breakdown; educational pricing per model family.
+* [Skill and slash-command recognition](skill-recognition.md) - How agentspy detects and quantifies skill usage in data it already captures — tool badge, turn trigger and a measure of the injected context.
+* [Adapter layers — provider and agent runtime](adapter-layers.md) - Two axes of specialization (providers/ for the LLM protocol, runtimes/ for the coding-agent conventions) behind which the backend's Anthropic/Claude Code knowledge is confined.
+* [Architectural decisions (2026-07-07)](decisions.md) - Decisions taken with Sandro at the start of the project — stack, storage, timeline UX — and things explicitly deferred.

@@ -1,61 +1,62 @@
 ---
 type: Service
 title: Collector server (agentspy_server)
-description: Processo unico Starlette+uvicorn che assembla proxy, ingest, store SQLite, API REST/WS e UI statica sulla porta 8082.
+description: Single Starlette+uvicorn process assembling proxy, ingest, SQLite store, REST/WS API and static UI on port 8082.
 resource: server/agentspy_server
 tags: [backend, python, starlette, uv]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Pacchetto Python `agentspy_server` (uv project, hatchling, Python ≥3.11).
-Entry point: `agentspy = "agentspy_server.app:main"`. È il cuore
-dell'[architettura](/architecture.md).
+Python package `agentspy_server` (uv project, hatchling, Python ≥3.11).
+Entry point: `agentspy = "agentspy_server.app:main"`. It is the core of
+the [architecture](/architecture.md).
 
-# Avvio
+# Startup
 
 ```bash
-cd server && uv run agentspy     # ascolta 127.0.0.1:8082
+cd server && uv run agentspy     # listens on 127.0.0.1:8082
 ```
 
-Variabili d'ambiente: `AGENTSPY_PORT` (default 8082), `AGENTSPY_DB`
+Environment variables: `AGENTSPY_PORT` (default 8082), `AGENTSPY_DB`
 (default `./agentspy.db`), `AGENTSPY_UPSTREAM` (default
 `https://api.anthropic.com`), `AGENTSPY_REHYDRATE_HOURS` (default 48 —
-finestra di reidratazione del Correlator all'avvio, vedi
-[correlazione](/design/correlation.md)), `AGENTSPY_PROVIDER` (default
-`anthropic`) e `AGENTSPY_RUNTIME` (default `claude-code`) — vedi
-[layer adapter](/design/adapter-layers.md).
+the Correlator's rehydration window at startup, see
+[correlation](/design/correlation.md)), `AGENTSPY_PROVIDER` (default
+`anthropic`) and `AGENTSPY_RUNTIME` (default `claude-code`) — see
+[adapter layers](/design/adapter-layers.md).
 
-# Moduli
+# Modules
 
-| Modulo | Ruolo |
-|--------|-------|
-| `app.py` | Assemblaggio Starlette: `create_app(db_path, upstream)` per istanze isolate (test), `main()` legge env e lancia uvicorn. `_handle_round_trip()` collega proxy → correlate → store → WS. Serve `/ui/*` da `frontend/dist` con fallback SPA; catch-all → proxy. |
-| `proxy.py` | `ProxyForwarder.forward()`: puro transport provider-agnostico — inoltro streaming, redazione header sensibili, timing, emissione record. Analisi body e ricostruzione SSE delegate al provider. |
-| `providers/` | [Layer provider](/design/adapter-layers.md): `base.py` (`ProviderAdapter`, `StreamCollector`) + `anthropic.py` (`SSECollector`, `analyze_request_body`, normalizzazione usage). Registry con `get_provider()`. |
-| `runtimes/` | [Layer agent runtime](/design/adapter-layers.md): `base.py` (`AgentRuntime`) + `claude_code.py` (vocabolario hook, header sessione, tool hint, slash-command) + `claude_code_artifacts.py` (ex `context_artifacts.py`). Registry con `get_runtime()`. |
-| `correlate.py` | Assegna round trip a sessioni/turni/subagenti — la parte più delicata; il vocabolario Claude Code arriva dal runtime. Vedi [correlazione](/design/correlation.md). |
-| `ingest.py` | `POST /ingest/hook` e `POST /ingest/mcp`. Vedi [ingest API](/interfaces/ingest-api.md). |
-| `store.py` | SQLite WAL, connessione unica con lock, chiamate su thread; snippet/hint via runtime. Vedi [schema](/interfaces/sqlite-schema.md). |
-| `api.py` | REST read-only. Vedi [REST API](/interfaces/rest-api.md). |
-| `ws.py` | `ConnectionManager` per il broadcast. Vedi [WebSocket](/interfaces/websocket.md). |
+| Module | Role |
+|--------|------|
+| `app.py` | Starlette assembly: `create_app(db_path, upstream)` for isolated instances (tests), `main()` reads env and launches uvicorn. `_handle_round_trip()` connects proxy → correlate → store → WS. Serves `/ui/*` from `frontend/dist` with SPA fallback; catch-all → proxy. |
+| `proxy.py` | `ProxyForwarder.forward()`: pure provider-agnostic transport — streaming forward, redaction of sensitive headers, timing, record emission. Body analysis and SSE reconstruction delegated to the provider. |
+| `providers/` | [Provider layer](/design/adapter-layers.md): `base.py` (`ProviderAdapter`, `StreamCollector`) + `anthropic.py` (`SSECollector`, `analyze_request_body`, usage normalization). Registry via `get_provider()`. |
+| `runtimes/` | [Agent runtime layer](/design/adapter-layers.md): `base.py` (`AgentRuntime`) + `claude_code.py` (hook vocabulary, session header, tool hints, slash-commands) + `claude_code_artifacts.py` (formerly `context_artifacts.py`). Registry via `get_runtime()`. |
+| `correlate.py` | Assigns round trips to sessions/turns/subagents — the most delicate part; the Claude Code vocabulary comes from the runtime. See [correlation](/design/correlation.md). |
+| `ingest.py` | `POST /ingest/hook` and `POST /ingest/mcp`. See [ingest API](/interfaces/ingest-api.md). |
+| `store.py` | SQLite WAL, single locked connection, calls dispatched to threads; snippet/hint via runtime. See [schema](/interfaces/sqlite-schema.md). |
+| `api.py` | Read-only REST. See [REST API](/interfaces/rest-api.md). |
+| `ws.py` | `ConnectionManager` for broadcast. See [WebSocket](/interfaces/websocket.md). |
 
-Solo le vere chiamate al modello (`ProviderAdapter.is_model_call`: body con
-`messages` + path che termina in `/messages`) vengono correlate e persistite
-(scartati HEAD, `/v1/models`, `count_tokens`).
+Only true model calls (`ProviderAdapter.is_model_call`: body with
+`messages` + path ending in `/messages`) are correlated and persisted
+(HEAD, `/v1/models`, `count_tokens` are discarded).
 
-L'emissione del record verso `_handle_round_trip()` è best-effort e fuori dal
-percorso critico: sul path non-streaming è fire-and-forget (`asyncio.create_task`),
-sul ramo SSE è attesa ma protetta da try/except. Un errore di store (DB locked,
-disco pieno) viene loggato e non trasforma un round trip riuscito in un 500.
+Record emission toward `_handle_round_trip()` is best-effort and off the
+critical path: on the non-streaming path it is fire-and-forget
+(`asyncio.create_task`), on the SSE branch it is awaited but guarded by
+try/except. A store error (DB locked, disk full) is logged and does not
+turn a successful round trip into a 500.
 
-# Dipendenze
+# Dependencies
 
 `starlette>=0.37`, `uvicorn>=0.30`, `httpx>=0.27`, `websockets>=12`
-(necessaria: senza, uvicorn rifiuta l'upgrade su `/ws` con 404).
+(required: without it, uvicorn rejects the `/ws` upgrade with a 404).
 Dev: `pytest`, `pytest-asyncio` (asyncio_mode=auto).
 
-# Test
+# Tests
 
 ```bash
-cd server && uv run pytest    # 40+ test: store, proxy, api, correlate
+cd server && uv run pytest    # 40+ tests: store, proxy, api, correlate
 ```

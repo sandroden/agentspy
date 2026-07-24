@@ -1,41 +1,45 @@
 ---
 type: Runbook
-title: Avvio rapido
-description: Come avviare il collector, instradare Claude Code attraverso il proxy e aprire la UI.
-tags: [runbook, avvio]
+title: Quickstart
+description: How to start the collector, route Claude Code through the proxy and open the UI.
+tags: [runbook, getting-started]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-# Passi
+> User-facing install instructions live in
+> [`docs/installation.md`](../../docs/installation.md); this runbook is the
+> minimal internal cheat sheet.
+
+# Steps
 
 ```bash
-# 1. il collector (porta 8082)
+# 1. the collector (port 8082)
 cd server && uv run agentspy
 
-# 2. Claude Code attraverso il proxy
+# 2. Claude Code through the proxy
 ANTHROPIC_BASE_URL=http://127.0.0.1:8082 claude
 
-# 3. la UI
+# 3. the UI
 xdg-open http://127.0.0.1:8082/ui/
 ```
 
-**Nota**: se nell'ambiente c'è `ANTHROPIC_API_KEY` prende precedenza sul
-login claude.ai; in tal caso `env -u ANTHROPIC_API_KEY
-ANTHROPIC_BASE_URL=... claude`.
+**Note**: if `ANTHROPIC_API_KEY` is in the environment it takes
+precedence over the claude.ai login; in that case `env -u
+ANTHROPIC_API_KEY ANTHROPIC_BASE_URL=... claude`.
 
-# Canali opzionali
+# Optional channels
 
-- **Hooks**: copiare la sezione `hooks` di
-  `hooks/settings-example.json` nel `.claude/settings.json` del progetto
-  da osservare — vedi [hook script](/components/hook-script.md).
-- **MCP**: sostituire il comando del server MCP col
+- **Hooks**: copy the `hooks` section of `hooks/settings-example.json`
+  into the `.claude/settings.json` of the project to observe — see
+  [hook script](/components/hook-script.md).
+- **MCP**: replace the MCP server command with the
   [wrapper](/components/mcp-wrapper.md).
-- **Tag di run** per confrontare strategie — vedi
+- **Run tags** to compare strategies — see
   [run tagging](/design/run-tagging.md).
 
-# Provare la UI senza traffico reale
+# Trying the UI without real traffic
 
-Usare il [seed demo](/components/seed-demo.md):
+Use the [seed demo](/components/seed-demo.md):
 
 ```bash
 cd server

@@ -1,103 +1,94 @@
 ---
 type: Runbook
-title: Matrice agente × provider — tutte le varianti di setup
-description: Come instradare le combinazioni Claude Code/opencode × Anthropic/GLM-via-OpenRouter attraverso agentspy, cosa cambia in ciascuna e cosa serve per aggiungerne di nuove.
+title: Agent × provider matrix — all setup variants
+description: How to route the Claude Code/opencode × Anthropic/GLM-via-OpenRouter combinations through agentspy, what changes in each and what it takes to add new ones.
 tags: [runbook, provider, runtime, openrouter, opencode, glm]
 timestamp: 2026-07-16T00:00:00Z
 ---
 
-La regola che governa tutto (vedi [layer adapter](/design/adapter-layers.md)):
+The rule that governs everything (see [adapter layers](/design/adapter-layers.md)):
 
-- il **ProviderAdapter** dipende dal *wire format* dell'endpoint, non dal
-  modello. Finché il traffico parla la Messages API di Anthropic — anche
-  attraverso un gateway compatibile come OpenRouter — il provider è
-  `anthropic`, qualunque modello ci giri sopra (GLM incluso);
-- l'**AgentRuntime** dipende da *chi genera il traffico* (Claude Code,
-  opencode…), non da dove va.
+- the **ProviderAdapter** depends on the endpoint's *wire format*, not on
+  the model. As long as the traffic speaks Anthropic's Messages API — even
+  through a compatible gateway such as OpenRouter — the provider is
+  `anthropic`, whatever model runs on top (GLM included);
+- the **AgentRuntime** depends on *who generates the traffic* (Claude
+  Code, opencode…), not on where it goes.
 
-Ogni istanza di agentspy ha **un** upstream: per osservare due upstream in
-parallelo (es. Anthropic e OpenRouter) si lanciano due istanze con porta e
-DB dedicati, e si punta ciascun agente (base URL + `AGENTSPY_URL` per gli
-hook) alla sua istanza.
+Every agentspy instance has **one** upstream: to observe two upstreams in
+parallel (e.g. Anthropic and OpenRouter) you launch two instances with a
+dedicated port and DB, and point each agent (base URL + `AGENTSPY_URL` for
+the hooks) at its own instance.
 
-# Matrice
+# Matrix
 
-| Variante | Provider | Runtime | Upstream | Auth | Stato |
-|----------|----------|---------|----------|------|-------|
-| Claude Code + Anthropic | `anthropic` | `claude-code` | `api.anthropic.com` (default) | abbonamento o `ANTHROPIC_API_KEY` | in uso |
-| Claude Code + GLM via OpenRouter | `anthropic` | `claude-code` | `https://openrouter.ai/api` | `ANTHROPIC_AUTH_TOKEN=$OPENROUTER_API_KEY` | validata E2E 2026-07-16 |
-| opencode + Anthropic | `anthropic` | `opencode` | `api.anthropic.com` (default) | `ANTHROPIC_API_KEY` a consumo (vedi nota ToS) | validata E2E 2026-07-16 |
-| opencode + GLM via OpenRouter | `anthropic` | `opencode` | `https://openrouter.ai/api` | `OPENROUTER_API_KEY` | da validare (combinazione delle due sopra) |
-| codex / client OpenAI-format | da scrivere | da scrivere | — | — | prospettiva |
+| Variant | Provider | Runtime | Upstream | Auth | Status |
+|---------|----------|---------|----------|------|--------|
+| Claude Code + Anthropic | `anthropic` | `claude-code` | `api.anthropic.com` (default) | subscription or `ANTHROPIC_API_KEY` | in use |
+| Claude Code + GLM via OpenRouter | `anthropic` | `claude-code` | `https://openrouter.ai/api` | `ANTHROPIC_AUTH_TOKEN=$OPENROUTER_API_KEY` | validated E2E 2026-07-16 |
+| opencode + Anthropic | `anthropic` | `opencode` | `api.anthropic.com` (default) | metered `ANTHROPIC_API_KEY` (see ToS note) | validated E2E 2026-07-16 |
+| opencode + GLM via OpenRouter | `anthropic` | `opencode` | `https://openrouter.ai/api` | `OPENROUTER_API_KEY` | to validate (combination of the two above) |
+| codex / OpenAI-format client | to be written | to be written | — | — | prospective |
 
-**Nota ToS (2026)**: gli abbonamenti Claude Pro/Max funzionano SOLO dentro
-Claude Code — i token OAuth in tool terzi sono vietati dai ToS Anthropic
-(aggiornamento 2026-02-19) e bloccati server-side. Con opencode l'unica via
-legittima verso modelli Claude è la API key a consumo. I bridge/workaround
-(es. plugin che impersonano Claude Code) espongono l'account a sospensione.
+**ToS note (2026)**: Claude Pro/Max subscriptions work ONLY inside Claude
+Code — OAuth tokens in third-party tools are forbidden by the Anthropic
+ToS (2026-02-19 update) and blocked server-side. With opencode the only
+legitimate route to Claude models is a metered API key. Bridges/workarounds
+(e.g. plugins that impersonate Claude Code) expose the account to
+suspension.
 
-# 1. Claude Code + Anthropic (setup standard)
+# 1. Claude Code + Anthropic (standard setup)
 
-Vedi [avvio rapido](/runbooks/quickstart.md): istanza default su 8082,
+See [quickstart](/runbooks/quickstart.md): the default instance on 8082,
 `ANTHROPIC_BASE_URL=http://127.0.0.1:8082`.
 
 # 2. Claude Code + GLM via OpenRouter
 
-OpenRouter espone un endpoint Anthropic-compatibile (`/api/v1/messages`):
-Claude Code ci parla nativamente, quindi runtime e provider restano quelli
-di default. Cambia solo l'upstream dell'istanza:
+OpenRouter exposes an Anthropic-compatible endpoint (`/api/v1/messages`):
+Claude Code talks to it natively, so the runtime and provider stay the
+defaults. Only the instance upstream changes:
 
 ```bash
 cd server && AGENTSPY_PORT=8083 AGENTSPY_UPSTREAM=https://openrouter.ai/api \
   AGENTSPY_DB=agentspy-openrouter.db uv run agentspy
 ```
 
-Funzione di lancio (variante spy della `oclaude` di Sandro):
+For the agent launch functions (the `oclaude-spy` shell function with all
+its exports) see
+[`docs/providers-and-gateways.md`](../../docs/providers-and-gateways.md).
 
-```bash
-oclaude-spy () {
-  ( export ANTHROPIC_BASE_URL="http://127.0.0.1:8083"
-    export ANTHROPIC_API_KEY=""
-    export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
-    export ANTHROPIC_MODEL="z-ai/glm-5.2"
-    export ANTHROPIC_SMALL_FAST_MODEL="z-ai/glm-4.7-flash"
-    export AGENTSPY_URL="http://127.0.0.1:8083"
-    export ANTHROPIC_CUSTOM_HEADERS="x-agentspy-tag: glm"   # tag sul traffico proxy
-    claude )
-}
-```
+Everything else works unchanged: the hooks are the Claude Code ones,
+`x-claude-code-session-id` still travels (the CLI sends it), the
+`Authorization` header with the OpenRouter key is redacted before
+persistence. The frontend recognizes the `glm` family (blue color, 200k
+window for 4.x / 1M for 5.x, OpenRouter rates in `pricing.ts`).
 
-Tutto il resto funziona invariato: gli hook sono quelli di Claude Code,
-`x-claude-code-session-id` viaggia comunque (lo manda la CLI), l'header
-`Authorization` con la chiave OpenRouter viene redatto prima della
-persistenza. Il frontend riconosce la famiglia `glm` (colore blu, finestra
-200k per 4.x / 1M per 5.x, tariffe OpenRouter in `pricing.ts`).
+OpenRouter emulation quirks observed in E2E (2026-07-16):
 
-Particolarità dell'emulazione OpenRouter osservate in E2E (2026-07-16):
-
-- `message_start` arriva con usage a **zero** e i token veri stanno in
-  `message_delta`: il collector li accetta dal delta solo in questo caso
-  (se `message_start` li riporta, restano congelati — vedi
+- `message_start` arrives with usage at **zero** and the real tokens are
+  in `message_delta`: the collector accepts them from the delta only in
+  this case (if `message_start` reports them, they stay frozen — see
   [token accounting](/design/token-accounting.md));
-- `message_delta.usage` porta anche il **costo reale** in dollari
-  (`cost`, `cost_details`): è persistito nel payload, non ancora usato
-  dalla UI (che stima da tariffe per famiglia).
+- `message_delta.usage` also carries the **real cost** in dollars
+  (`cost`, `cost_details`): it is persisted in the payload, not yet used
+  by the UI (which estimates from per-family rates).
 
 # 3. opencode + Anthropic
 
-Serve il runtime `opencode` (`AGENTSPY_RUNTIME=opencode` sull'istanza) e il
-plugin di ingest lato opencode: vedi `hooks/opencode/README.md` per
-l'installazione (plugin + `provider.anthropic.options.baseURL` puntato
-all'istanza agentspy). Auth: solo API key a consumo.
+You need the `opencode` runtime (`AGENTSPY_RUNTIME=opencode` on the
+instance) and the ingest plugin on the opencode side: see
+`hooks/opencode/README.md` for the installation (plugin +
+`provider.anthropic.options.baseURL` pointed at the agentspy instance).
+Auth: metered API key only.
 
 # 4. opencode + GLM via OpenRouter
 
-Stessa idea della variante 2 (l'istanza punta a OpenRouter) + runtime
-`opencode` come nella 3. Il punto delicato: il provider `openrouter`
-*nativo* di opencode parla il formato OpenAI, che agentspy non sa ancora
-interpretare. Bisogna invece dichiarare in `opencode.json` un provider
-custom in **formato Anthropic** (SDK `@ai-sdk/anthropic`) puntato
-all'istanza agentspy, con i modelli GLM:
+Same idea as variant 2 (the instance points at OpenRouter) + the
+`opencode` runtime as in 3. The delicate point: opencode's *native*
+`openrouter` provider speaks the OpenAI format, which agentspy does not
+yet know how to interpret. Instead you must declare in `opencode.json` a
+custom provider in **Anthropic format** (SDK `@ai-sdk/anthropic`) pointed
+at the agentspy instance, with the GLM models:
 
 ```jsonc
 {
@@ -114,15 +105,15 @@ all'istanza agentspy, con i modelli GLM:
 }
 ```
 
-Così il wire format resta Messages API lungo tutta la catena
-(opencode → agentspy → OpenRouter) e il provider `anthropic` di agentspy
-continua a funzionare. *Da validare in E2E: sintassi provider custom e
-passaggio dell'apiKey come header corretto.*
+This way the wire format stays Messages API along the whole chain
+(opencode → agentspy → OpenRouter) and agentspy's `anthropic` provider
+keeps working. *To be validated in E2E: the custom-provider syntax and
+passing the apiKey as the correct header.*
 
-# 5. codex / client in formato OpenAI (prospettiva)
+# 5. codex / OpenAI-format client (prospective)
 
-Qui cambia il wire format: serve un nuovo `ProviderAdapter` (parser dello
-stream della Responses/Chat Completions API, normalizzazione di blocchi e
-usage nel modello neutro) più un `AgentRuntime` per il client. È il lavoro
-"grande" descritto in [layer adapter](/design/adapter-layers.md); nessuna
-delle varianti sopra lo richiede.
+Here the wire format changes: it needs a new `ProviderAdapter` (a parser
+for the Responses/Chat Completions API stream, normalizing blocks and
+usage into the neutral model) plus an `AgentRuntime` for the client. It is
+the "big" work described in [adapter layers](/design/adapter-layers.md);
+none of the variants above require it.

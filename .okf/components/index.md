@@ -1,8 +1,8 @@
-# Componenti
+# Components
 
-* [Collector server (agentspy_server)](collector-server.md) - Processo unico Starlette+uvicorn che assembla proxy, ingest, store SQLite, API REST/WS e UI statica sulla porta 8082.
-* [Hook script (agentspy_hook.py)](hook-script.md) - Script hook fire-and-forget che inoltra i payload degli hook di Claude Code al collector; dà session_id reali e confini dei turni.
-* [Plugin opencode (hooks/opencode)](opencode-plugin.md) - Plugin JS per opencode che traduce gli eventi nativi del runtime nel formato neutro dell'ingest API; controparte dello hook script di Claude Code.
-* [Wrapper MCP (agentspy_mcp_wrapper.py)](mcp-wrapper.md) - Relay stdio trasparente che spia il JSON-RPC fra Claude Code e un server MCP reale e lo inoltra al collector.
-* [Frontend (Vue 3)](frontend.md) - UI interattiva per live e replay — dashboard, timeline verticale per turni, context-fill e pannello di dettaglio a tab.
-* [Seed demo (seed_demo.py)](seed-demo.md) - Genera un DB dimostrativo per esplorare la UI senza traffico reale né consumo di token.
+* [Collector server (agentspy_server)](collector-server.md) - Single Starlette+uvicorn process assembling proxy, ingest, SQLite store, REST/WS API and static UI on port 8082.
+* [Hook script (agentspy_hook.py)](hook-script.md) - Fire-and-forget hook script that forwards Claude Code hook payloads to the collector; provides real session_ids and turn boundaries.
+* [opencode plugin (hooks/opencode)](opencode-plugin.md) - JS plugin for opencode that translates the runtime's native events into the neutral ingest API format; counterpart of the Claude Code hook script.
+* [MCP wrapper (agentspy_mcp_wrapper.py)](mcp-wrapper.md) - Transparent stdio relay that spies on the JSON-RPC between Claude Code and a real MCP server and forwards it to the collector.
+* [Frontend (Vue 3)](frontend.md) - Interactive UI for live and replay — dashboard, vertical timeline by turn, context-fill and a tabbed detail panel.
+* [Seed demo (seed_demo.py)](seed-demo.md) - Generates a demo DB to explore the UI without real traffic or token consumption.

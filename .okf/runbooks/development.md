@@ -1,31 +1,35 @@
 ---
 type: Runbook
-title: Sviluppo e test
-description: Comandi per test del backend, test del wrapper MCP e sviluppo/build del frontend.
-tags: [runbook, sviluppo, test]
+title: Development and testing
+description: Commands for backend tests, MCP wrapper tests and frontend development/build.
+tags: [runbook, development, test]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-# Comandi
+> The user-facing development guide is
+> [`docs/development.md`](../../docs/development.md); this runbook focuses
+> on the internal test/attention points.
+
+# Commands
 
 ```bash
-cd server && uv run pytest                       # test collector (19)
-cd mcp && uv run --with pytest pytest tests/     # test wrapper MCP
+cd server && uv run pytest                       # collector tests (19)
+cd mcp && uv run --with pytest pytest tests/     # MCP wrapper tests
 cd frontend && npm run dev                       # UI hot reload (proxy → 8082)
-cd frontend && npm run build                     # build servita dal collector su /ui
+cd frontend && npm run build                     # build served by the collector on /ui
 ```
 
-# Punti d'attenzione
+# Attention points
 
-- La parte delicata è la [correlazione](/design/correlation.md)
-  (`server/agentspy_server/correlate.py`): regole e limiti sono
-  documentati nel docstring del modulo.
-- I test del collector usano come fixture i
-  [JSONL](/interfaces/jsonl-log-format.md) già catturati in `logs/`.
-- Lo schema reale degli hook è stato verificato empiricamente
-  (2026-07-07): i tool hook dei subagenti portano `agent_id` ma il
-  `session_id` della madre.
-- Il DB (`agentspy.db`) e i log restano fuori dal repository.
-- Il frontend in dev gira su Vite con proxy verso `127.0.0.1:8082`; in
-  produzione il [collector](/components/collector-server.md) serve
-  `frontend/dist` su `/ui` (404 esplicito se non compilato).
+- The delicate part is [correlation](/design/correlation.md)
+  (`server/agentspy_server/correlate.py`): rules and limits are
+  documented in the module docstring.
+- The collector tests use as fixtures the
+  [JSONL](/interfaces/jsonl-log-format.md) files already captured in
+  `logs/`.
+- The real hook schema was verified empirically (2026-07-07): the
+  subagents' tool hooks carry `agent_id` but the parent's `session_id`.
+- The DB (`agentspy.db`) and the logs stay outside the repository.
+- The frontend in dev runs on Vite with a proxy to `127.0.0.1:8082`; in
+  production the [collector](/components/collector-server.md) serves
+  `frontend/dist` on `/ui` (explicit 404 if not built).

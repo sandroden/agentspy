@@ -1,27 +1,28 @@
 ---
 type: Script
 title: Seed demo (seed_demo.py)
-description: Genera un DB dimostrativo per esplorare la UI senza traffico reale né consumo di token.
+description: Generates a demo DB to explore the UI without real traffic or token consumption.
 resource: scripts/seed_demo.py
 tags: [demo, tooling]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Importa `Store` e `analyze_request_body` da `agentspy_server`
-(aggiunge `../server` a `sys.path`), cancella e ricrea il DB indicato da
-`AGENTSPY_DB` (default `./agentspy-demo.db`) e lo popola con 3 sessioni:
+Imports `Store` and `analyze_request_body` from `agentspy_server` (adds
+`../server` to `sys.path`), drops and recreates the DB pointed to by
+`AGENTSPY_DB` (default `./agentspy-demo.db`) and populates it with 3
+sessions:
 
-- **A** (live, in evidenza, tag `demo-live`): 4 turni con prompt reali,
-  2-3 round trip per turno, tool use vari, hook completi, un subagente
-  `Explore` (sessione figlia, modello sonnet) e un evento MCP
+- **A** (live, featured, tag `demo-live`): 4 turns with real prompts,
+  2-3 round trips per turn, various tool uses, complete hooks, an
+  `Explore` subagent (child session, sonnet model) and an MCP event
   `context7:query-docs`.
-- La sessione **figlia** del subagente.
-- **B** (chiusa, corta, tag `demo-breve`): fix di un typo, 2 round trip.
+- The subagent's **child** session.
+- **B** (closed, short, tag `demo-breve`): a typo fix, 2 round trips.
 
-I payload hanno la stessa forma di quelli del proxy (request con
-system/tools/messages + analysis, response SSE ricostruita) e includono
-blocchi `<system-reminder>` per esercitare le viste del
-[DetailPanel](/components/frontend.md).
+The payloads have the same shape as the proxy ones (request with
+system/tools/messages + analysis, reconstructed SSE response) and include
+`<system-reminder>` blocks to exercise the
+[DetailPanel](/components/frontend.md) views.
 
 # Examples
 

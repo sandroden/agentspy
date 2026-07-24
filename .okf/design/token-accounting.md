@@ -1,36 +1,37 @@
 ---
 type: Design Note
-title: Contabilità dei token e stima dei costi
-description: Usage reale dalla risposta API per i totali; stima char/4 per la scomposizione per componente; pricing didattico per famiglia di modello.
-tags: [token, usage, costi, cache]
+title: Token accounting and cost estimation
+description: Real usage from the API response for the totals; char/4 estimate for the per-component breakdown; educational pricing per model family.
+tags: [token, usage, costs, cache]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Due livelli di precisione, deliberati:
+Two levels of precision, deliberate:
 
-- **Usage reale (esatto)** — dalla risposta API ricostruita dallo
-  stream SSE: `input_tokens`, `output_tokens`, `cache_read_tokens`,
-  `cache_write_tokens` (5m/1h), thinking. È la fonte per totali,
-  grafici di contesto e costi.
-- **Stima per componente (approssimata)** — `analyze_request_body()`
-  scompone system/tools/messages in caratteri e stima i token come
-  char/4. Serve al context-fill per mostrare *di cosa è fatto* il
-  contesto. Miglioramento previsto: endpoint `count_tokens` per la
-  precisione.
+- **Real usage (exact)** — from the API response reconstructed from the
+  SSE stream: `input_tokens`, `output_tokens`, `cache_read_tokens`,
+  `cache_write_tokens` (5m/1h), thinking. It is the source for totals,
+  context charts and costs.
+- **Per-component estimate (approximate)** — `analyze_request_body()`
+  breaks system/tools/messages down into characters and estimates the
+  tokens as char/4. It serves the context-fill to show *what* the context
+  is made of. Planned improvement: a `count_tokens` endpoint for
+  precision.
 
-# Stima dei costi
+# Cost estimation
 
-`frontend/src/utils/pricing.ts` applica prezzi per famiglia di modello
-(valori didattici in $/Mtoken, non tariffario ufficiale): opus
+`frontend/src/utils/pricing.ts` applies prices per model family
+(educational values in $/Mtoken, not an official price list): opus
 `{in 5, out 25, cache-read 0.5, cache-write 6.25}`, sonnet
-`{3, 15, 0.3, 3.75}`, haiku `{1, 5, 0.1, 1.25}`, fable = fascia opus
-(stima), glm `{0.97, 3.06, 0.18, 0.97}` (tariffe OpenRouter di glm-5.2,
-2026-07; le varianti flash sono sovrastimate). Solo dati reali, nessuna
-proiezione ipotetica.
+`{3, 15, 0.3, 3.75}`, haiku `{1, 5, 0.1, 1.25}`, fable = opus tier
+(estimate), glm `{0.97, 3.06, 0.18, 0.97}` (OpenRouter rates for
+glm-5.2, 2026-07; the flash variants are overestimated). Only real data,
+no hypothetical projection.
 
-# Aggregazione
+# Aggregation
 
-I token dei subagenti (sessioni figlie) sono aggregati nella sessione
-madre (`get_sessions` calcola gli aggregati inclusi i discendenti
-ricorsivi — vedi [schema SQLite](/interfaces/sqlite-schema.md)). Il
-"consumo cumulativo" in dashboard è l'integrale dei token nel tempo.
+The subagents' tokens (child sessions) are aggregated into the parent
+session (`get_sessions` computes the aggregates including recursive
+descendants — see [SQLite schema](/interfaces/sqlite-schema.md)). The
+"cumulative consumption" in the dashboard is the integral of the tokens
+over time.

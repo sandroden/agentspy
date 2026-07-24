@@ -1,58 +1,59 @@
 ---
 type: Design Note
-title: Riconoscimento di skill e slash-command
-description: Come agentspy individua e quantifica l'uso di una skill nei dati già catturati — badge tool, trigger di turno e misura del contesto iniettato.
-tags: [skill, comandi, contesto, didattica]
+title: Skill and slash-command recognition
+description: How agentspy detects and quantifies skill usage in data it already captures — tool badge, turn trigger and a measure of the injected context.
+tags: [skill, commands, context, teaching]
 timestamp: 2026-07-08T00:00:00Z
 ---
 
-Una skill lascia tracce nei dati che agentspy già cattura, in tre punti,
-senza bisogno di nuovi canali di osservazione:
+A skill leaves traces in the data agentspy already captures, at three
+points, with no need for new observation channels:
 
-1. **Tool `Skill`** — quando è il modello a invocarla: nella risposta di
-   un [round trip](/architecture.md) c'è un blocco `tool_use` con
-   `name: "Skill"` e `input: {skill, args}`. Il badge in timeline mostra
-   🎓 col nome della skill (icona in `utils/toolIcon.ts`, hint dal
-   backend `AgentRuntime.tool_hint`, che per `Skill` legge `input.skill`).
-2. **Slash-command** (`/okf:okf …`) — quando la digita l'utente: Claude
-   Code espande il comando *dentro il messaggio user* come wrapper
-   `<command-message>` / `<command-name>` / `<command-args>` seguito dal
-   **corpo dello SKILL.md iniettato verbatim**. È costo di contesto
-   reale e misurabile.
-3. **Read indiretti** — le skill con file di riferimento si manifestano
-   anche come normali `Read` su path che contengono `/skills/`.
+1. **`Skill` tool** — when the model invokes it: the response of a
+   [round trip](/architecture.md) contains a `tool_use` block with
+   `name: "Skill"` and `input: {skill, args}`. The timeline badge shows
+   🎓 with the skill name (icon in `utils/toolIcon.ts`, hint from the
+   backend `AgentRuntime.tool_hint`, which for `Skill` reads
+   `input.skill`).
+2. **Slash-command** (`/okf:okf …`) — when the user types it: Claude Code
+   expands the command *inside the user message* as a wrapper
+   `<command-message>` / `<command-name>` / `<command-args>` followed by
+   the **body of the SKILL.md injected verbatim**. It is a real,
+   measurable context cost.
+3. **Indirect Reads** — skills with reference files also show up as
+   normal `Read` calls on paths containing `/skills/`.
 
-# Cosa mostra la UI
+# What the UI shows
 
-- **Timeline, colonna Tools**: badge 🎓 per il `tool_use` di tipo
-  `Skill` (punto 1).
-- **Timeline, trigger del turno**: se il turno è aperto da uno
-  slash-command, la colonna Trigger mostra `🎓 Command /okf:okf` (teal)
-  invece di `🧑 You`. La rilevazione è in `utils/command.ts`
-  (`parseSlashCommand`), che riconosce sia il wrapper espanso sia la
-  forma grezza `/nome args` che porta l'hook `UserPromptSubmit`.
-- **DetailPanel, tab Richiesta**: il corpo SKILL.md iniettato è reso da
-  `SystemReminderText` come segmento a sé (`splitCommandInjection`),
-  con lo stesso schema dei `<system-reminder>`: box teal in vista
-  espansa, chip `🎓 /okf:okf · N char iniettati` in vista compatta
-  (click → modal). Così il messaggio user si scompone visibilmente nelle
-  sue parti (prompt reale, system-reminder, SKILL.md) e se ne legge il
-  peso in caratteri.
+- **Timeline, Tools column**: 🎓 badge for the `Skill`-type `tool_use`
+  (point 1).
+- **Timeline, turn trigger**: if the turn is opened by a slash-command,
+  the Trigger column shows `🎓 Command /okf:okf` (teal) instead of
+  `🧑 You`. Detection is in `utils/command.ts` (`parseSlashCommand`),
+  which recognizes both the expanded wrapper and the raw form
+  `/name args` that the `UserPromptSubmit` hook carries.
+- **DetailPanel, Request tab**: the injected SKILL.md body is rendered by
+  `SystemReminderText` as a segment of its own (`splitCommandInjection`),
+  with the same scheme as the `<system-reminder>` blocks: a teal box in
+  the expanded view, a `🎓 /okf:okf · N chars injected` chip in the
+  compact view (click → modal). This way the user message visibly
+  decomposes into its parts (real prompt, system-reminder, SKILL.md) and
+  its weight in characters can be read.
 
-# Snippet backend
+# Backend snippet
 
-`ClaudeCodeRuntime.command_snippet` (runtimes/, usato da `store.py`)
-pulisce lo snippet del round trip quando
-il primo messaggio user è uno slash-command: restituisce `/nome args`
-invece dell'XML del wrapper + lo SKILL.md, così liste e trigger restano
-leggibili anche senza hook. La logica è rispecchiata lato client in
-`api/client.ts` (`get_event` ricostruisce lo snippet).
+`ClaudeCodeRuntime.command_snippet` (runtimes/, used by `store.py`)
+cleans up the round-trip snippet when the first user message is a
+slash-command: it returns `/name args` instead of the wrapper XML + the
+SKILL.md, so lists and triggers stay readable even without hooks. The
+logic is mirrored on the client side in `api/client.ts` (`get_event`
+reconstructs the snippet).
 
-# Limiti
+# Limits
 
-- La misura è in caratteri (proxy dei token ~char/4), coerente con la
-  [contabilità dei token](/design/token-accounting.md).
-- La forma grezza distingue uno slash-command da testo libero con
-  un'euristica sul primo token (`/nome` o `/namespace:nome`); non
-  distingue una skill da un comando builtin — è il conteggio dei
-  caratteri iniettati a renderlo evidente.
+- The measure is in characters (a token proxy of ~char/4), consistent
+  with [token accounting](/design/token-accounting.md).
+- The raw form distinguishes a slash-command from free text with a
+  heuristic on the first token (`/name` or `/namespace:name`); it does
+  not distinguish a skill from a builtin command — it is the count of
+  injected characters that makes it evident.

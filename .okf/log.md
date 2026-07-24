@@ -1,23 +1,26 @@
 # Bundle Update Log
 
+## 2026-07-25
+* **Update**: Bundle translated to English (full `.okf/` translation). `README-it.md` and `PLAN.md` removed from the repo; user-facing documentation restructured under `docs/` (slim README + thematic pages). Decisions previously kept in PLAN.md are preserved in [decisions](/design/decisions.md) and [architecture](/architecture.md).
+
 ## 2026-07-17
-* **Creation**: [Plugin opencode](/components/opencode-plugin.md) — secondo `AgentRuntime` (`runtimes/opencode.py` + `opencode_artifacts.py` + plugin JS), validato E2E: correlazione a sessione unica, `callID` == `toolu_…`, artefatti scorporati dal system a blocco unico. Aggiornato [layer adapter](/design/adapter-layers.md).
-* **Creation**: [Matrice agente × provider](/runbooks/agent-provider-matrix.md) — le varianti Claude Code/opencode × Anthropic/GLM-via-OpenRouter, con stato di validazione e particolarità dell'emulazione OpenRouter (usage nel delta, campo `cost`).
-* **Update**: [Token accounting](/design/token-accounting.md) e [frontend](/components/frontend.md) — famiglia `glm` (colore, finestra 200k/1M, tariffe OpenRouter); collector: usage di prompt accettato da `message_delta` solo se `message_start` non ne riporta.
+* **Creation**: [opencode plugin](/components/opencode-plugin.md) — second `AgentRuntime` (`runtimes/opencode.py` + `opencode_artifacts.py` + JS plugin), validated E2E: correlation to a single session, `callID` == `toolu_…`, artifacts split out of the system into a single block. Updated [adapter layers](/design/adapter-layers.md).
+* **Creation**: [Agent × provider matrix](/runbooks/agent-provider-matrix.md) — the Claude Code/opencode × Anthropic/GLM-via-OpenRouter variants, with validation status and the OpenRouter emulation quirks (usage in the delta, `cost` field).
+* **Update**: [Token accounting](/design/token-accounting.md) and [frontend](/components/frontend.md) — `glm` family (color, 200k/1M window, OpenRouter rates); collector: prompt usage accepted from `message_delta` only when `message_start` does not report it.
 
 ## 2026-07-16
-* **Creation**: [Layer adapter — provider e agent runtime](/design/adapter-layers.md) — la conoscenza Anthropic/Claude Code del backend confinata nei package specializzabili `providers/` e `runtimes/`; modello neutro persistito = forma Anthropic. Aggiornati [architettura](/architecture.md), [collector server](/components/collector-server.md), [correlazione](/design/correlation.md), [skill recognition](/design/skill-recognition.md).
-* **Deletion**: Proxy standalone (`agentspy_proxy.py` e relativo concept) — prototipo rimosso dal repo; il [formato JSONL](/interfaces/jsonl-log-format.md) resta documentato come storico (i log in `logs/` servono ancora da fixture nei test).
+* **Creation**: [Adapter layers — provider and agent runtime](/design/adapter-layers.md) — the backend's Anthropic/Claude Code knowledge confined to the specializable packages `providers/` and `runtimes/`; the persisted neutral model = the Anthropic shape. Updated [architecture](/architecture.md), [collector server](/components/collector-server.md), [correlation](/design/correlation.md), [skill recognition](/design/skill-recognition.md).
+* **Deletion**: Standalone proxy (`agentspy_proxy.py` and its concept) — prototype removed from the repo; the [JSONL format](/interfaces/jsonl-log-format.md) stays documented as historical (the logs in `logs/` still serve as test fixtures).
 
 ## 2026-07-08
-* **Update**: [frontend](/components/frontend.md) — rifiniture dashboard: click sui grafici apre il dettaglio in place, rimossi elenco sessioni e box quick start (quest'ultimo dietro il bottone "?" nel footer della sidebar), bolla Claude/LLM in timeline portata a verde (token `--c-llm`).
-* **Creation**: [Riconoscimento di skill e slash-command](/design/skill-recognition.md) — badge 🎓 per il tool `Skill`, trigger di turno per gli slash-command e chip nel dettaglio che misura lo SKILL.md iniettato; aggiornato [frontend](/components/frontend.md) (`utils/command.ts`, icona Skill, SystemReminderText esteso).
+* **Update**: [frontend](/components/frontend.md) — dashboard polish: clicking on the charts opens the detail in place, session list and quick start box removed (the latter behind the "?" button in the sidebar footer), Claude/LLM bubble in the timeline turned green (`--c-llm` token).
+* **Creation**: [Skill and slash-command recognition](/design/skill-recognition.md) — 🎓 badge for the `Skill` tool, turn trigger for slash-commands and a chip in the detail that measures the injected SKILL.md; updated [frontend](/components/frontend.md) (`utils/command.ts`, Skill icon, extended SystemReminderText).
 
 ## 2026-07-07
-* **Update**: [Frontend](/components/frontend.md) — nomi delle due viste (Grafici = dashboard grafica, Timeline = flusso interazioni) e bottone della sidebar diventato toggle bidirezionale fra le due; documentato anche il badge coi round trip nella sidebar.
-* **Initialization**: Creato il bundle OKF derivandolo da README.md, PLAN.md e dal codice sorgente.
-* **Creation**: [Architettura](/architecture.md) con i tre canali di osservazione.
-* **Creation**: Componenti — [collector server](/components/collector-server.md), [hook script](/components/hook-script.md), [wrapper MCP](/components/mcp-wrapper.md), [frontend](/components/frontend.md), proxy standalone (rimosso il 2026-07-16), [seed demo](/components/seed-demo.md).
-* **Creation**: Interfacce — [REST API](/interfaces/rest-api.md), [WebSocket](/interfaces/websocket.md), [ingest API](/interfaces/ingest-api.md), [schema SQLite](/interfaces/sqlite-schema.md), [formato JSONL](/interfaces/jsonl-log-format.md).
-* **Creation**: Design — [correlazione](/design/correlation.md), [run tagging](/design/run-tagging.md), [token accounting](/design/token-accounting.md), [decisioni](/design/decisions.md).
-* **Creation**: Runbook — [avvio rapido](/runbooks/quickstart.md), [sviluppo e test](/runbooks/development.md).
+* **Update**: [Frontend](/components/frontend.md) — names of the two views (Charts = graphical dashboard, Timeline = interaction flow) and the sidebar button turned into a bidirectional toggle between the two; also documented the round-trip badge in the sidebar.
+* **Initialization**: Created the OKF bundle by deriving it from README.md, PLAN.md and the source code.
+* **Creation**: [Architecture](/architecture.md) with the three observation channels.
+* **Creation**: Components — [collector server](/components/collector-server.md), [hook script](/components/hook-script.md), [MCP wrapper](/components/mcp-wrapper.md), [frontend](/components/frontend.md), standalone proxy (removed 2026-07-16), [seed demo](/components/seed-demo.md).
+* **Creation**: Interfaces — [REST API](/interfaces/rest-api.md), [WebSocket](/interfaces/websocket.md), [ingest API](/interfaces/ingest-api.md), [SQLite schema](/interfaces/sqlite-schema.md), [JSONL format](/interfaces/jsonl-log-format.md).
+* **Creation**: Design — [correlation](/design/correlation.md), [run tagging](/design/run-tagging.md), [token accounting](/design/token-accounting.md), [decisions](/design/decisions.md).
+* **Creation**: Runbooks — [quickstart](/runbooks/quickstart.md), [development and testing](/runbooks/development.md).

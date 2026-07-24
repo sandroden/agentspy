@@ -1,30 +1,30 @@
 ---
 type: Data Format
-title: Formato JSONL dei log del proxy standalone
-description: Un record JSON per riga per ogni round trip, catturato a suo tempo dal prototipo standalone (ora rimosso); i file in logs/ restano come fixture nei test.
+title: JSONL format of the standalone proxy logs
+description: One JSON record per line for each round trip, captured back then by the standalone prototype (now removed); the files in logs/ remain as test fixtures.
 resource: logs/
-tags: [jsonl, log, formato-dati]
+tags: [jsonl, log, data-format]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-Prodotto a suo tempo dal prototipo standalone `agentspy_proxy.py` (rimosso
-il 2026-07-16) in file `logs/run-<YYYYMMDD-HHMMSS>.jsonl` — **non** usato dal server, che
-scrive su [SQLite](/interfaces/sqlite-schema.md). I JSONL catturati
-servono da fixture per i test del collector.
+Produced back then by the standalone prototype `agentspy_proxy.py`
+(removed on 2026-07-16) into files `logs/run-<YYYYMMDD-HHMMSS>.jsonl` —
+**not** used by the server, which writes to
+[SQLite](/interfaces/sqlite-schema.md). The captured JSONL files serve as
+fixtures for the collector tests.
 
-# Schema del record
+# Record schema
 
-- Top-level: `id` (contatore), `ts` (ISO UTC), `method`, `path`,
-  `query`, `status`, `timing` (`{ttfb_s, total_s}`), `request`,
-  `response`.
-- `request`: `headers` (con `authorization`/`x-api-key`/`cookie` →
+- Top-level: `id` (counter), `ts` (ISO UTC), `method`, `path`, `query`,
+  `status`, `timing` (`{ttfb_s, total_s}`), `request`, `response`.
+- `request`: `headers` (with `authorization`/`x-api-key`/`cookie` →
   `<redacted>`), `analysis`
   (`{model, stream, max_tokens, system_chars, tools:{count,chars,names},
-  messages:{count,chars,roles}}`), `body` (richiesta integrale:
+  messages:{count,chars,roles}}`), `body` (the full request:
   system/tools/messages).
-- `response`, per tipo:
-  - `type:"sse"` — stream 200: `message` ricostruito, `usage`,
+- `response`, by type:
+  - `type:"sse"` — 200 stream: reconstructed `message`, `usage`,
     `stop_reason`, `events_count`, `content_summary`;
-  - `type:"json"` — risposte non-stream (400/401, count_tokens);
+  - `type:"json"` — non-stream responses (400/401, count_tokens);
   - `type:"raw"` — HEAD/404.
-- Con `AGENTSPY_SAVE_RAW=1` include anche `raw_events` (SSE grezzi).
+- With `AGENTSPY_SAVE_RAW=1` it also includes `raw_events` (raw SSE).

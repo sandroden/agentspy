@@ -1,66 +1,66 @@
 ---
 type: Architecture
-title: Architettura di agentspy
-description: Processo unico Starlette che fa da proxy trasparente, collector e server UI, con tre canali di osservazione componibili.
-tags: [architettura, proxy, collector]
+title: agentspy architecture
+description: Single Starlette process acting as transparent proxy, collector and UI server, with three composable observation channels.
+tags: [architecture, proxy, collector]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
-agentspy è uno strumento didattico per spiare e visualizzare in tempo
-reale la comunicazione fra Claude Code e l'API Anthropic. L'intero
-backend è **un unico processo Python** (Starlette + uvicorn, gestito con
-uv) sulla porta **8082**, implementato dal
+agentspy is an educational tool to spy on and visualize, in real time,
+the communication between Claude Code and the Anthropic API. The whole
+backend is **a single Python process** (Starlette + uvicorn, managed with
+uv) on port **8082**, implemented by the
 [collector server](/components/collector-server.md).
 
 ```
 Claude Code --ANTHROPIC_BASE_URL--> [proxy /v1/*] --forward--> api.anthropic.com
 hooks       --POST /ingest/hook -->  [collector]
-wrapper MCP --POST /ingest/mcp  -->      |
+MCP wrapper --POST /ingest/mcp  -->      |
                                      SQLite (agentspy.db)
                                          |
-frontend  <--WS /ws (live)  +  REST /api/* (replay)  +  /ui (statico)
+frontend  <--WS /ws (live)  +  REST /api/* (replay)  +  /ui (static)
 ```
 
-Routing: `/api/*`, `/ws`, `/ingest/*`, `/ui/*` gestiti localmente;
-**tutto il resto** inoltrato trasparente all'upstream (Claude Code chiama
-anche `HEAD /` e altri path: il forward non va mai rotto).
+Routing: `/api/*`, `/ws`, `/ingest/*`, `/ui/*` handled locally;
+**everything else** forwarded transparently to the upstream (Claude Code
+also calls `HEAD /` and other paths: the forward must never break).
 
-La conoscenza specifica di Anthropic (protocollo wire) e di Claude Code
-(hook, header, artefatti) è confinata in due layer specializzabili —
-`providers/` e `runtimes/` — descritti in
-[layer adapter](/design/adapter-layers.md).
+The Anthropic-specific knowledge (wire protocol) and the Claude
+Code-specific knowledge (hooks, headers, artifacts) is confined to two
+specializable layers — `providers/` and `runtimes/` — described in
+[adapter layers](/design/adapter-layers.md).
 
-# Canali di osservazione
+# Observation channels
 
-Tre canali, tutti componibili; solo il primo è obbligatorio:
+Three channels, all composable; only the first is mandatory:
 
-1. **Proxy** (il cuore): cattura ogni round trip completo — richiesta
-   integrale e risposta ricostruita dallo stream SSE, con usage esatto
-   (input/output, cache read/write 5m/1h, thinking) e timing.
-2. **Hooks** ([hook script](/components/hook-script.md), consigliato):
-   dà session_id reali, confini dei turni (UserPromptSubmit) e ciclo di
-   vita dei subagenti.
-3. **Wrapper MCP** ([mcp wrapper](/components/mcp-wrapper.md), per la
-   didattica MCP): relay stdio trasparente che spia il JSON-RPC.
+1. **Proxy** (the core): captures every complete round trip — the full
+   request and the response reconstructed from the SSE stream, with exact
+   usage (input/output, cache read/write 5m/1h, thinking) and timing.
+2. **Hooks** ([hook script](/components/hook-script.md), recommended):
+   provides real session_ids, turn boundaries (UserPromptSubmit) and the
+   subagent lifecycle.
+3. **MCP wrapper** ([mcp wrapper](/components/mcp-wrapper.md), for MCP
+   teaching): transparent stdio relay that spies on the JSON-RPC.
 
-I tre flussi convergono nella [correlazione](/design/correlation.md),
-che assegna il traffico a sessioni/turni/subagenti, e finiscono nello
-[schema SQLite](/interfaces/sqlite-schema.md). Il
-[frontend](/components/frontend.md) legge via
-[REST](/interfaces/rest-api.md) (replay) e
+The three flows converge in [correlation](/design/correlation.md), which
+assigns traffic to sessions/turns/subagents, and end up in the
+[SQLite schema](/interfaces/sqlite-schema.md). The
+[frontend](/components/frontend.md) reads via
+[REST](/interfaces/rest-api.md) (replay) and
 [WebSocket](/interfaces/websocket.md) (live).
 
-# Unità concettuali
+# Conceptual units
 
-- **Round trip**: una richiesta/risposta verso `/v1/messages`; l'unità
-  della timeline.
-- **Turno**: gruppo di round trip aperto da un prompt utente
-  (UserPromptSubmit o euristica).
-- **Sessione**: conversazione Claude Code; i subagenti sono sessioni
-  figlie (`parent_session_id`) con token aggregati nella madre.
+- **Round trip**: one request/response to `/v1/messages`; the unit of the
+  timeline.
+- **Turn**: a group of round trips opened by a user prompt
+  (UserPromptSubmit or heuristic).
+- **Session**: a Claude Code conversation; subagents are child sessions
+  (`parent_session_id`) with tokens aggregated into the parent.
 
 # Citations
 
-[1] `README.md` del repository — panoramica e avvio rapido.
-[2] Piano originale del progetto (PLAN.md, rimosso 2026-07-25 — decisioni
-conservate qui) — piano di lavoro e decisioni.
+[1] Repository `README.md` — overview and quickstart.
+[2] Original project plan (PLAN.md, removed 2026-07-25 — decisions kept
+here) — work plan and decisions.
