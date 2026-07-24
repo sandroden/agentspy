@@ -1,11 +1,13 @@
 /** Utility to recognize the model family and assign it a color. */
 
-export type ModelFamily = 'opus' | 'sonnet' | 'haiku' | 'fable' | 'glm' | 'unknown'
+export type ModelFamily = 'opus' | 'sonnet' | 'haiku' | 'fable' | 'glm' | 'kimi' | 'unknown'
 
 /**
  * Extracts the family ("opus", "sonnet"...) from a model string. Besides the
- * Anthropic families it recognizes GLM ids as they appear on Anthropic-compatible
- * gateways (e.g. OpenRouter "z-ai/glm-5.2", vendor prefix included).
+ * Anthropic families it recognizes GLM and Kimi (Moonshot) ids as they appear on
+ * Anthropic-compatible gateways (e.g. OpenRouter "z-ai/glm-5.2" or
+ * "moonshotai/kimi-k3", vendor prefix included; Moonshot native "kimi-k3",
+ * "kimi-k2-thinking-turbo").
  */
 export function modelFamily(model: string | null | undefined): ModelFamily {
   if (!model) return 'unknown'
@@ -15,11 +17,14 @@ export function modelFamily(model: string | null | undefined): ModelFamily {
     return family
   }
   if (/(^|\/)glm-/i.test(model)) return 'glm'
+  if (/(^|\/)kimi-/i.test(model)) return 'kimi'
   return 'unknown'
 }
 
 /**
  * Identifying color per model, used in subagent bars and legends.
+ * Covers the Anthropic families plus the gateway families GLM (z-ai/glm-*)
+ * and Kimi/Moonshot (kimi-k3, kimi-k2-thinking-turbo, moonshotai/kimi-k3).
  * `unknown` falls back to the global accent.
  */
 export function modelColor(model: string | null | undefined): string {
@@ -34,6 +39,8 @@ export function modelColor(model: string | null | undefined): string {
       return '#f87171'
     case 'glm':
       return '#60a5fa'
+    case 'kimi':
+      return '#f472b6'
     default:
       return 'var(--accent)'
   }

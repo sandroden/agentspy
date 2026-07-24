@@ -102,7 +102,9 @@ including the grey areas not yet verifiable without real traffic.
 ## See also
 
 - [Providers and gateways](providers-and-gateways.md) — the agent × provider
-  matrix (opencode + Anthropic / GLM rows).
+  matrix (opencode + Anthropic / GLM / Kimi rows), including the custom
+  Anthropic-format provider needed to run opencode against GLM (OpenRouter) or
+  Kimi (Moonshot).
 - [`.okf/components/opencode-plugin.md`](../.okf/components/opencode-plugin.md)
   — internal notes on the plugin.
 - [`.okf/design/adapter-layers.md`](../.okf/design/adapter-layers.md) — the

@@ -33,6 +33,11 @@ const PRICING: Record<string, Pricing> = {
   // charge them as plain input. NB family-level like the others: the cheaper
   // variants (glm-4.7-flash ≈ input $0.06/M) are overestimated here.
   glm: { input: 0.97, output: 3.06, cache_read: 0.18, cache_write: 0.97 },
+  // Kimi via Moonshot (kimi-k3, 2026-07): flat list input $3/M, output $15/M,
+  // cache hit (read) $0.30/M; cache writes are not billed separately, so we
+  // charge them as plain input (same convention as glm). NB family-level: the
+  // K2 variants (kimi-k2-thinking-turbo) are approximated at this tier.
+  kimi: { input: 3, output: 15, cache_read: 0.3, cache_write: 3 },
 }
 
 const DEFAULT_PRICING: Pricing = PRICING.opus

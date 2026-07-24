@@ -14,6 +14,12 @@ describe('modelFamily', () => {
     expect(modelFamily('glm-4.7-flash')).toBe('glm')
   })
 
+  it('recognizes Kimi/Moonshot ids with and without vendor prefix', () => {
+    expect(modelFamily('kimi-k3')).toBe('kimi')
+    expect(modelFamily('moonshotai/kimi-k3')).toBe('kimi')
+    expect(modelFamily('kimi-k2-thinking-turbo')).toBe('kimi')
+  })
+
   it('falls back to unknown for null and unrecognized strings', () => {
     expect(modelFamily(null)).toBe('unknown')
     expect(modelFamily(undefined)).toBe('unknown')
@@ -29,8 +35,10 @@ describe('modelColor', () => {
       modelColor('claude-sonnet-5'),
       modelColor('claude-haiku-4-5'),
       modelColor('claude-fable-5'),
+      modelColor('z-ai/glm-5.2'),
+      modelColor('kimi-k3'),
     ]
-    expect(new Set(colors).size).toBe(4)
+    expect(new Set(colors).size).toBe(6)
   })
 
   it('unknown families fall back to the global accent token', () => {
@@ -59,5 +67,6 @@ describe('abbreviateModel', () => {
   it('drops the vendor prefix from gateway ids', () => {
     expect(abbreviateModel('z-ai/glm-5.2')).toBe('glm-5.2')
     expect(abbreviateModel('glm-4.7-flash')).toBe('glm-4.7-flash')
+    expect(abbreviateModel('moonshotai/kimi-k3')).toBe('kimi-k3')
   })
 })

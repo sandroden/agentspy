@@ -105,9 +105,11 @@ selection/links.
 # Utilities
 
 - `utils/pricing.ts` — API cost estimate per model family (educational
-  values in $/Mtoken; fable = opus tier; glm = OpenRouter rates).
+  values in $/Mtoken; fable = opus tier; glm = OpenRouter rates; kimi =
+  Moonshot rates).
 - `utils/model.ts` — model family/color/abbreviation (including the
-  non-Claude families seen via gateway, e.g. `z-ai/glm-5.2` → glm, blue).
+  non-Claude families seen via gateway, e.g. `z-ai/glm-5.2` → glm, blue;
+  `kimi-k3` / `moonshotai/kimi-k3` → kimi, pink).
 - `utils/toolIcon.ts` — emoji per tool (Read 📄, Edit ✏️, Bash 💻, …;
   `Skill` → 🎓, `mcp__*` → 🔌).
 - `utils/command.ts` — recognizes slash-commands / skills in user

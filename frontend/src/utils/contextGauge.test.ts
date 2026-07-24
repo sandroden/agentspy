@@ -39,6 +39,12 @@ describe('contextSizeFor', () => {
     expect(contextSizeFor('claude-sonnet-4-5')).toBe(1_000_000)
   })
 
+  it('Kimi K2 → 256k, Kimi K3 → 1M (with and without vendor prefix)', () => {
+    expect(contextSizeFor('kimi-k2-thinking-turbo')).toBe(262_144)
+    expect(contextSizeFor('kimi-k3')).toBe(1_000_000)
+    expect(contextSizeFor('moonshotai/kimi-k3')).toBe(1_000_000)
+  })
+
   it('null/undefined and unknown/future ids default to 1M', () => {
     expect(contextSizeFor(null)).toBe(1_000_000)
     expect(contextSizeFor(undefined)).toBe(1_000_000)

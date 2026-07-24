@@ -32,9 +32,10 @@ export const ZONE_NAMES = ['green', 'amber', 'yellow', 'red'] as const
  * Default is 1M: the current families run a 1M window natively (Opus 4.5→4.8,
  * Sonnet 4.5→5, Fable/Mythos 5) and any future model id should inherit that
  * rather than silently regress to 200k (which would put the gauge in a false
- * red at ~5x). Only the known small-window families are pinned to 200k: Haiku
- * (all generations), Claude 1/2/3, and the pre-4.5 Opus/Sonnet 4.x. The "[1m]"
- * marker Claude Code appends to some ids always forces 1M.
+ * red at ~5x). Only the known small-window families are pinned below 1M: Haiku
+ * (all generations), Claude 1/2/3, the pre-4.5 Opus/Sonnet 4.x, GLM 4.x, and
+ * Kimi K2 (256k; Kimi K3 is 1M, covered by the default). The "[1m]" marker
+ * Claude Code appends to some ids always forces 1M.
  */
 export function contextSizeFor(model: string | null | undefined): number {
   if (!model) return 1_000_000
@@ -44,6 +45,7 @@ export function contextSizeFor(model: string | null | undefined): number {
   if (model.includes('haiku')) return 200_000
   if (/claude-[123]([.-]|$)/.test(model)) return 200_000 // Claude 1 / 2 / 3
   if (/glm-4/i.test(model)) return 200_000 // GLM 4.x (~200k); GLM 5.x is 1M (default)
+  if (/kimi-k2/i.test(model)) return 262_144 // Kimi K2 = 256k; K3 is 1M (covered by the default)
 
   // Opus/Sonnet 4.x: 4.5 and later are 1M; earlier 4.x kept the classic 200k.
   if (/opus-4-(5|6|7|8)\b/.test(model)) return 1_000_000

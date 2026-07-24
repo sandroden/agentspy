@@ -2,7 +2,7 @@
 type: Runbook
 title: Agent × provider matrix — all setup variants
 description: How to route the Claude Code/opencode × Anthropic/GLM-via-OpenRouter combinations through agentspy, what changes in each and what it takes to add new ones.
-tags: [runbook, provider, runtime, openrouter, opencode, glm]
+tags: [runbook, provider, runtime, openrouter, opencode, glm, kimi, moonshot]
 timestamp: 2026-07-16T00:00:00Z
 ---
 
@@ -26,8 +26,10 @@ the hooks) at its own instance.
 |---------|----------|---------|----------|------|--------|
 | Claude Code + Anthropic | `anthropic` | `claude-code` | `api.anthropic.com` (default) | subscription or `ANTHROPIC_API_KEY` | in use |
 | Claude Code + GLM via OpenRouter | `anthropic` | `claude-code` | `https://openrouter.ai/api` | `ANTHROPIC_AUTH_TOKEN=$OPENROUTER_API_KEY` | validated E2E 2026-07-16 |
+| Claude Code + Kimi via Moonshot | `anthropic` | `claude-code` | `https://api.moonshot.ai/anthropic` | `ANTHROPIC_AUTH_TOKEN=$MOONSHOT_API_KEY` | to validate |
 | opencode + Anthropic | `anthropic` | `opencode` | `api.anthropic.com` (default) | metered `ANTHROPIC_API_KEY` (see ToS note) | validated E2E 2026-07-16 |
 | opencode + GLM via OpenRouter | `anthropic` | `opencode` | `https://openrouter.ai/api` | `OPENROUTER_API_KEY` | to validate (combination of the two above) |
+| opencode + Kimi via Moonshot | `anthropic` | `opencode` | `https://api.moonshot.ai/anthropic` | `MOONSHOT_API_KEY` | to validate |
 | codex / OpenAI-format client | to be written | to be written | — | — | prospective |
 
 **ToS note (2026)**: Claude Pro/Max subscriptions work ONLY inside Claude
@@ -110,7 +112,29 @@ This way the wire format stays Messages API along the whole chain
 keeps working. *To be validated in E2E: the custom-provider syntax and
 passing the apiKey as the correct header.*
 
-# 5. codex / OpenAI-format client (prospective)
+# 5. Kimi via Moonshot
+
+Moonshot exposes an Anthropic-compatible endpoint
+(`https://api.moonshot.ai/anthropic`), so this is the same scheme as variant 2
+— only the upstream changes. The proxy concatenates `AGENTSPY_UPSTREAM` with
+the request path, so no server change is needed.
+
+```bash
+cd server && AGENTSPY_PORT=8084 \
+  AGENTSPY_UPSTREAM=https://api.moonshot.ai/anthropic \
+  AGENTSPY_DB=agentspy-moonshot.db uv run agentspy
+```
+
+Models: `kimi-k3` (1M context) and the `kimi-k2-*` line (256k). This holds for
+**both** runtimes — Claude Code (via the `kclaude-spy` launch function) and
+opencode (via a custom Anthropic-format provider `kimi-spy` in `opencode.json`,
+as in variant 4). A runtime is per instance, so spying on both in parallel
+needs two instances. K3 is also on OpenRouter as `moonshotai/kimi-k3`, usable
+from the 8083 instance with no new setup (the family regex covers the
+vendor-prefixed id). For the launch functions and the opencode provider block
+see [`docs/providers-and-gateways.md`](../../docs/providers-and-gateways.md).
+
+# 6. codex / OpenAI-format client (prospective)
 
 Here the wire format changes: it needs a new `ProviderAdapter` (a parser
 for the Responses/Chat Completions API stream, normalizing blocks and

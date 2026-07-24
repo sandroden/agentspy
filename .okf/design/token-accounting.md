@@ -25,8 +25,10 @@ Two levels of precision, deliberate:
 `{in 5, out 25, cache-read 0.5, cache-write 6.25}`, sonnet
 `{3, 15, 0.3, 3.75}`, haiku `{1, 5, 0.1, 1.25}`, fable = opus tier
 (estimate), glm `{0.97, 3.06, 0.18, 0.97}` (OpenRouter rates for
-glm-5.2, 2026-07; the flash variants are overestimated). Only real data,
-no hypothetical projection.
+glm-5.2, 2026-07; the flash variants are overestimated), kimi
+`{3, 15, 0.3, 3}` (Moonshot kimi-k3 list prices, 2026-07; the K2
+variants are approximated at this tier). Only real data, no hypothetical
+projection.
 
 # Aggregation
 

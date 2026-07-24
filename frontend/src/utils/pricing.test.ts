@@ -13,6 +13,12 @@ describe('pricingFor', () => {
     expect(pricingFor('gpt-4o')).toEqual(pricingFor('claude-opus-4-8'))
     expect(pricingFor('claude-fable-5').input).toBe(5)
   })
+
+  it('prices the Kimi family off its Moonshot tier', () => {
+    expect(pricingFor('kimi-k3').input).toBe(3)
+    expect(pricingFor('kimi-k3').output).toBe(15)
+    expect(pricingFor('kimi-k3')).not.toEqual(pricingFor('claude-opus-4-8'))
+  })
 })
 
 describe('estimateCost', () => {
