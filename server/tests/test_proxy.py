@@ -10,7 +10,11 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from agentspy_server.providers.anthropic import SSECollector, analyze_request_body
+from agentspy_server.providers.anthropic import (
+    AnthropicAdapter,
+    SSECollector,
+    analyze_request_body,
+)
 from agentspy_server.proxy import ProxyForwarder, redact_headers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -324,3 +328,29 @@ def test_analyze_request_body_on_real_captured_log():
         if isinstance(body, dict):
             analysis = analyze_request_body(body)
             assert "model" in analysis
+
+
+def test_normalize_usage_splits_cache_write_by_ttl():
+    """Il tier della cache (5m vs 1h) arriva alle colonne DB: il write a 1h
+    costa il doppio dell'input, quello a 5m 1.25x, quindi senza split il costo
+    è sottostimato. Senza cache_creation -> None (tier ignoto), non 0."""
+    adapter = AnthropicAdapter()
+    usage = adapter.normalize_usage(
+        {
+            "input_tokens": 159,
+            "output_tokens": 7251,
+            "cache_read_input_tokens": 86747,
+            "cache_creation_input_tokens": 8415,
+            "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 8415,
+            },
+        }
+    )
+    assert usage["cache_write_tokens"] == 8415
+    assert usage["cache_write_5m_tokens"] == 0
+    assert usage["cache_write_1h_tokens"] == 8415
+
+    plain = adapter.normalize_usage({"input_tokens": 10, "cache_creation_input_tokens": 120})
+    assert plain["cache_write_5m_tokens"] is None
+    assert plain["cache_write_1h_tokens"] is None

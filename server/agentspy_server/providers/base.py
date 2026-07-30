@@ -74,5 +74,8 @@ class ProviderAdapter(ABC):
         """Traduce l'usage wire nei nomi neutri delle colonne DB.
 
         Chiavi attese in output (tutte opzionali): ``input_tokens``,
-        ``output_tokens``, ``cache_read_tokens``, ``cache_write_tokens``.
+        ``output_tokens``, ``cache_read_tokens``, ``cache_write_tokens`` e —
+        per i provider che espongono il TTL della cache — il suo split
+        ``cache_write_5m_tokens`` / ``cache_write_1h_tokens`` (assenti o None
+        se il tier non è noto: non vanno appiattiti a 0).
         """

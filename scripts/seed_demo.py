@@ -122,14 +122,25 @@ def hook_payload(name: str, session_id: str, extra: dict | None = None) -> dict:
 
 
 def add_rt(sid: str, turn: int, t0: float, model: str, messages: list, resp_blocks: list,
-           usage: dict, tools_used: list[str], dur: float = 6.0, stop: str = "end_turn") -> None:
+           usage: dict, tools_used: list[str], dur: float = 6.0, stop: str = "end_turn",
+           cache_ttl: str = "1h") -> None:
+    # TTL con cui i token sono messi in cache, come lo sceglie Claude Code sul
+    # traffico reale: 1h nelle sessioni principali, 5m nei subagenti Task. Il
+    # tier sta nella usage (`cache_creation`) e nelle colonne, perché i due
+    # costano diverso (2x vs 1.25x l'input).
+    write = usage["cache_creation_input_tokens"]
+    m5 = write if cache_ttl == "5m" else 0
+    h1 = write if cache_ttl == "1h" else 0
+    usage = {**usage, "cache_creation": {"ephemeral_5m_input_tokens": m5,
+                                         "ephemeral_1h_input_tokens": h1}}
     store.insert_event(
         session_id=sid, kind="round_trip", subkind=None, turn_index=turn,
         ts_start=t0, ts_end=t0 + dur, ttfb_s=round(dur * 0.3, 3), model=model,
         status=200, stop_reason=stop,
         input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
         cache_read_tokens=usage["cache_read_input_tokens"],
-        cache_write_tokens=usage["cache_creation_input_tokens"],
+        cache_write_tokens=write,
+        cache_write_5m_tokens=m5, cache_write_1h_tokens=h1,
         tool_names=tools_used,
         payload=rt_payload(model, messages, resp_blocks, usage, stop, t0, dur),
     )
@@ -215,7 +226,8 @@ for turn, prompt in enumerate(prompts, start=1):
                 blocks.append({"type": "tool_use", "id": f"toolu_s{j}", "name": "Grep",
                                "input": {"arg": "test_auth"}})
             add_rt(SUB, 1, st, "claude-sonnet-5", smsgs, blocks, usage,
-                   ["Grep"] if j < 2 else [], stop="tool_use" if j < 2 else "end_turn")
+                   ["Grep"] if j < 2 else [], stop="tool_use" if j < 2 else "end_turn",
+                   cache_ttl="5m")
             sub_cache += 2000
             st += 8
         add_hook(A, "SubagentStop", turn, st, {"agent_id": agent_id})

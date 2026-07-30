@@ -1,12 +1,16 @@
 <script setup lang="ts">
 /**
- * "What the context is made of" (featured): stacked area per round trip with 4
- * series — cache_read, cache_write, new input, output. Hover: tooltip with the
- * breakdown; click: navigate to the session and select the event.
+ * "What the context is made of" (featured): stacked area per round trip with
+ * cache_read, the cache_write split by TTL (1h / 5m / tier not reported), new
+ * input and output. The cache-write tiers are separate series because they cost
+ * differently (2×input vs 1.25×input) and Claude Code mixes them across a
+ * session. Hover: tooltip with the breakdown; click: navigate to the session
+ * and select the event.
  */
 import { computed, ref } from 'vue'
 import type { StatsItem } from '../../types'
 import { useElementWidth } from '../../composables/useElementSize'
+import { cacheWriteTiers } from '../../utils/cache'
 import { formatTokens } from '../../utils/format'
 
 const props = defineProps<{
@@ -17,10 +21,12 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'jump', sessionId: string, eventId: number): void }>()
 
 const LAYERS = [
-  { key: 'cache_read_tokens', label: 'cache_read', color: '#4f9dff' },
-  { key: 'cache_write_tokens', label: 'cache_write', color: '#a78bfa' },
-  { key: 'input_tokens', label: 'new input', color: '#3ecf6e' },
-  { key: 'output_tokens', label: 'output', color: '#f0883e' },
+  { key: 'cache_read', label: 'cache_read', color: '#4f9dff', value: (s: StatsItem) => s.cache_read_tokens },
+  { key: 'cache_write_1h', label: 'cache_write 1h', color: '#7c5cf0', value: (s: StatsItem) => cacheWriteTiers(s).h1 },
+  { key: 'cache_write_5m', label: 'cache_write 5m', color: '#c4b5fd', value: (s: StatsItem) => cacheWriteTiers(s).m5 },
+  { key: 'cache_write_na', label: 'cache_write (TTL n/a)', color: '#8d8da6', value: (s: StatsItem) => cacheWriteTiers(s).unknown },
+  { key: 'input', label: 'new input', color: '#3ecf6e', value: (s: StatsItem) => s.input_tokens },
+  { key: 'output', label: 'output', color: '#f0883e', value: (s: StatsItem) => s.output_tokens },
 ] as const
 
 const el = ref<HTMLElement | null>(null)
@@ -29,8 +35,12 @@ const height = 260
 const margin = { top: 14, right: 16, bottom: 26, left: 52 }
 
 function total(s: StatsItem): number {
-  return LAYERS.reduce((sum, l) => sum + s[l.key], 0)
+  return LAYERS.reduce((sum, l) => sum + l.value(s), 0)
 }
+
+/** Layers with at least one non-zero point: keeps the legend and the tooltip
+ *  free of the tiers this run never used (typically "TTL n/a"). */
+const activeLayers = computed(() => LAYERS.filter((l) => props.stats.some((s) => l.value(s) > 0)))
 
 const maxIndex = computed(() => Math.max(0, props.stats.length - 1))
 const yMax = computed(() => Math.max(1, ...props.stats.map(total)))
@@ -46,10 +56,10 @@ function yFor(v: number): number {
   return margin.top + innerH - (v / yMax.value) * innerH
 }
 
-/** X columns with the cumulative bounds of the 4 series. Single column -> two edges. */
+/** X columns with the cumulative bounds of the series. Single column -> two edges. */
 interface Column {
   x: number
-  bounds: number[] // 5 values: 0, cumulative after each layer
+  bounds: number[] // 0 followed by the cumulative after each layer
 }
 
 const columns = computed<Column[]>(() => {
@@ -58,7 +68,7 @@ const columns = computed<Column[]>(() => {
     const bounds = [0]
     let acc = 0
     for (const l of LAYERS) {
-      acc += s[l.key]
+      acc += l.value(s)
       bounds.push(acc)
     }
     return { x, bounds }
@@ -137,7 +147,7 @@ const hasData = computed(() => props.stats.length > 0)
     </p>
     <template v-else>
       <div class="legend">
-        <span v-for="l in LAYERS" :key="l.key" class="legend-item">
+        <span v-for="l in activeLayers" :key="l.key" class="legend-item">
           <i class="swatch" :style="{ backgroundColor: l.color }"></i>{{ l.label }}
         </span>
       </div>
@@ -182,9 +192,9 @@ const hasData = computed(() => props.stats.length > 0)
         :style="{ left: tooltip.x + 'px' }"
       >
         <strong>turn {{ tooltip.item.turn_index ?? '—' }}</strong>
-        <span v-for="l in LAYERS" :key="l.key" class="row">
+        <span v-for="l in activeLayers" :key="l.key" class="row">
           <i class="swatch" :style="{ backgroundColor: l.color }"></i>
-          {{ l.label }}: {{ formatTokens(tooltip.item[l.key]) }}
+          {{ l.label }}: {{ formatTokens(l.value(tooltip.item)) }}
         </span>
       </div>
     </template>

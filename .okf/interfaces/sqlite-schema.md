@@ -28,6 +28,8 @@ events(id INTEGER PK,
        model TEXT, status INTEGER, stop_reason TEXT,
        input_tokens INT, output_tokens INT,
        cache_read_tokens INT, cache_write_tokens INT,
+       cache_write_5m_tokens INT,      -- cache write split by TTL; NULL when
+       cache_write_1h_tokens INT,      -- the provider doesn't report the tier
        tool_names TEXT,                -- JSON array
        payload TEXT,                   -- full JSON (request+response)
        dedup_key TEXT)                 -- idempotent natural key (sha256)
@@ -51,6 +53,19 @@ the rows with `dedup_key NULL`, `CREATE UNIQUE INDEX IF NOT EXISTS`. Only
 if byte-identical rows already duplicated emerge are the copies removed,
 keeping the `MIN(id)` (a logged action; on the live DB there are 0).
 Verified on a copy of a real DB: no rows removed.
+
+# Cache-TTL migration
+
+`_migrate_cache_tiers_locked` (same startup, same pattern) adds
+`cache_write_5m_tokens` / `cache_write_1h_tokens` and backfills them from
+`payload -> response.usage.cache_creation`, which has always carried the
+tier: nothing is invented, the value was simply not promoted to a column.
+Restricted to `kind='round_trip'` with both columns still NULL (idempotent,
+negligible on later starts), and guarded by `json_valid(payload)` because
+`json_extract` on malformed text raises instead of returning NULL. Measured
+on a copy of the live DB (155 MB, 471 round trips): ~2 s, 0 rows where
+`cache_write_tokens != 5m + 1h`. NULL is preserved as "tier unknown" —
+never flattened to 0 — see [token accounting](/design/token-accounting.md).
 
 # Key Store methods
 

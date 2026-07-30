@@ -106,7 +106,12 @@ selection/links.
 
 - `utils/pricing.ts` — API cost estimate per model family (educational
   values in $/Mtoken; fable = opus tier; glm = OpenRouter rates; kimi =
-  Moonshot rates).
+  Moonshot rates), with a separate rate per cache-write TTL — see
+  [token accounting](/design/token-accounting.md).
+- `utils/cache.ts` — `cacheWriteTiers()`: splits `cache_write` into
+  5m / 1h / unknown tier. Used by the composition chart, the context-fill
+  bars, the "cache write TTL" card and the detail panel, so the tiers read
+  the same everywhere.
 - `utils/model.ts` — model family/color/abbreviation (including the
   non-Claude families seen via gateway, e.g. `z-ai/glm-5.2` → glm, blue;
   `kimi-k3` / `moonshotai/kimi-k3` → kimi, pink).

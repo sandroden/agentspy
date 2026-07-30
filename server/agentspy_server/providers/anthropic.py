@@ -203,9 +203,19 @@ class AnthropicAdapter(ProviderAdapter):
         return {}
 
     def normalize_usage(self, usage: dict) -> dict:
+        # `cache_creation` riporta il TTL con cui i token appena scritti sono
+        # stati messi in cache (5 minuti o 1 ora). Il tier NON è un dettaglio
+        # estetico: il write a 1h costa 2x l'input, quello a 5m 1.25x, quindi
+        # senza split il costo della cache è sottostimato. Assente sui provider
+        # Anthropic-compatibili che non lo espongono -> None (non 0): a valle
+        # "tier ignoto" e "zero token scritti in quel tier" restano distinti.
+        creation = usage.get("cache_creation")
+        creation = creation if isinstance(creation, dict) else {}
         return {
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
             "cache_read_tokens": usage.get("cache_read_input_tokens"),
             "cache_write_tokens": usage.get("cache_creation_input_tokens"),
+            "cache_write_5m_tokens": creation.get("ephemeral_5m_input_tokens"),
+            "cache_write_1h_tokens": creation.get("ephemeral_1h_input_tokens"),
         }

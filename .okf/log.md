@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-07-28
+* **Update**: Cache-write TTL split (5m / 1h) promoted from the payload to the `cache_write_5m_tokens` / `cache_write_1h_tokens` columns, with an additive migration + backfill on existing round trips ([SQLite schema](/interfaces/sqlite-schema.md), [adapter layers](/design/adapter-layers.md)). Per-tier pricing (1h = 2×input, 5m = 1.25×) and the tier series in the dashboard/context-fill charts ([token accounting](/design/token-accounting.md)).
+
 ## 2026-07-25
 * **Update**: `kimi` family (Moonshot) in the frontend — pink color, 256k window for K2 / 1M for K3, Moonshot kimi-k3 list prices in `pricing.ts` ([token accounting](/design/token-accounting.md), [frontend](/components/frontend.md)). Two new rows in the [agent × provider matrix](/runbooks/agent-provider-matrix.md) (Claude Code / opencode + Kimi via Moonshot, upstream `https://api.moonshot.ai/anthropic`, port 8084, status "to validate") plus a dedicated section; new "Kimi via Moonshot" section in [`docs/providers-and-gateways.md`](../docs/providers-and-gateways.md).
 * **Update**: Bundle translated to English (full `.okf/` translation). `README-it.md` and `PLAN.md` removed from the repo; user-facing documentation restructured under `docs/` (slim README + thematic pages). Decisions previously kept in PLAN.md are preserved in [decisions](/design/decisions.md) and [architecture](/architecture.md).

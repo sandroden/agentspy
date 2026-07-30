@@ -18,6 +18,10 @@ function normalizeUsage(u: NullableUsage | null | undefined): Usage {
     output_tokens: u?.output_tokens ?? 0,
     cache_read_tokens: u?.cache_read_tokens ?? 0,
     cache_write_tokens: u?.cache_write_tokens ?? 0,
+    // NOT normalized to 0: null means "the provider didn't report the TTL",
+    // which is different from "0 tokens written with that TTL".
+    cache_write_5m_tokens: u?.cache_write_5m_tokens ?? null,
+    cache_write_1h_tokens: u?.cache_write_1h_tokens ?? null,
   }
 }
 
@@ -77,6 +81,8 @@ interface RawEventRow {
   output_tokens: number | null
   cache_read_tokens: number | null
   cache_write_tokens: number | null
+  cache_write_5m_tokens: number | null
+  cache_write_1h_tokens: number | null
   tool_names: string[] | null
   payload: unknown
   artifacts?: ContextArtifact[]

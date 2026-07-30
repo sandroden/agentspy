@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS events (
     output_tokens INTEGER,
     cache_read_tokens INTEGER,
     cache_write_tokens INTEGER,
+    -- split di cache_write per TTL della cache (5 minuti / 1 ora): NULL se il
+    -- provider non lo espone, così "tier ignoto" != "0 token in quel tier"
+    cache_write_5m_tokens INTEGER,
+    cache_write_1h_tokens INTEGER,
     tool_names TEXT,
     payload TEXT,
     dedup_key TEXT
@@ -190,6 +194,7 @@ class Store:
             except sqlite3.OperationalError:
                 pass
             self._migrate_dedup_key_locked()
+            self._migrate_cache_tiers_locked()
             self._conn.commit()
         # Il DB può contenere prompt/risposte in chiaro: restringiamo i permessi
         # al solo proprietario. Best-effort (WAL/SHM potrebbero non esistere,
@@ -250,6 +255,38 @@ class Store:
         self._conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_dedup ON events(dedup_key)"
         )
+
+    def _migrate_cache_tiers_locked(self) -> None:
+        """Migrazione additiva del split cache_write per TTL (5m/1h), col lock già preso.
+
+        1. ALTER TABLE per le due colonne (guardato da PRAGMA table_info);
+        2. backfill dai round trip già registrati: il tier è sempre stato nel
+           payload (`response.usage.cache_creation`), semplicemente non era
+           promosso a colonna, quindi non si inventa nulla e non si perde
+           precisione. Solo righe kind='round_trip' (indice idx_events_kind) con
+           entrambe le colonne ancora NULL: idempotente e a costo trascurabile
+           agli avvii successivi.
+
+        `json_valid` protegge da payload non-JSON (json_extract su testo
+        malformato è un errore, non un NULL)."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(events)").fetchall()}
+        for col in ("cache_write_5m_tokens", "cache_write_1h_tokens"):
+            if col not in cols:
+                self._conn.execute(f"ALTER TABLE events ADD COLUMN {col} INTEGER")
+
+        cur = self._conn.execute(
+            "UPDATE events SET"
+            " cache_write_5m_tokens ="
+            "  json_extract(payload,'$.response.usage.cache_creation.ephemeral_5m_input_tokens'),"
+            " cache_write_1h_tokens ="
+            "  json_extract(payload,'$.response.usage.cache_creation.ephemeral_1h_input_tokens')"
+            " WHERE kind='round_trip'"
+            "  AND cache_write_5m_tokens IS NULL AND cache_write_1h_tokens IS NULL"
+            "  AND payload IS NOT NULL AND json_valid(payload)"
+            "  AND json_extract(payload,'$.response.usage.cache_creation') IS NOT NULL"
+        )
+        if cur.rowcount:
+            logger.info("agentspy: migrazione cache tier: %d round trip aggiornati", cur.rowcount)
 
     def close(self) -> None:
         with self._lock:
@@ -405,6 +442,8 @@ class Store:
         output_tokens: int | None = None,
         cache_read_tokens: int | None = None,
         cache_write_tokens: int | None = None,
+        cache_write_5m_tokens: int | None = None,
+        cache_write_1h_tokens: int | None = None,
         tool_names: list[str] | None = None,
         payload: dict | None = None,
     ) -> int:
@@ -418,12 +457,14 @@ class Store:
             cur = self._conn.execute(
                 "INSERT OR IGNORE INTO events (session_id, kind, subkind, turn_index, agent_id,"
                 " ts_start, ts_end, ttfb_s, model, status, stop_reason, input_tokens, output_tokens,"
-                " cache_read_tokens, cache_write_tokens, tool_names, payload, dedup_key)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " cache_read_tokens, cache_write_tokens, cache_write_5m_tokens,"
+                " cache_write_1h_tokens, tool_names, payload, dedup_key)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     session_id, kind, subkind, turn_index, agent_id, ts_start, ts_end, ttfb_s,
                     model, status, stop_reason, input_tokens, output_tokens, cache_read_tokens,
-                    cache_write_tokens, tool_names_json, payload_json, dedup_key,
+                    cache_write_tokens, cache_write_5m_tokens, cache_write_1h_tokens,
+                    tool_names_json, payload_json, dedup_key,
                 ),
             )
             self._conn.commit()
@@ -452,7 +493,11 @@ class Store:
                 " SUM(COALESCE(input_tokens,0)) AS input_tokens,"
                 " SUM(COALESCE(output_tokens,0)) AS output_tokens,"
                 " SUM(COALESCE(cache_read_tokens,0)) AS cache_read_tokens,"
-                " SUM(COALESCE(cache_write_tokens,0)) AS cache_write_tokens"
+                " SUM(COALESCE(cache_write_tokens,0)) AS cache_write_tokens,"
+                # aggregati per TTL: il residuo (cache_write - 5m - 1h) è la
+                # quota a tier ignoto, ricavabile a valle senza altra colonna
+                " SUM(COALESCE(cache_write_5m_tokens,0)) AS cache_write_5m_tokens,"
+                " SUM(COALESCE(cache_write_1h_tokens,0)) AS cache_write_1h_tokens"
                 " FROM events GROUP BY session_id"
             ).fetchall()
         own_agg = {r["session_id"]: dict(r) for r in agg_rows}
@@ -476,6 +521,8 @@ class Store:
                 "output_tokens": agg.get("output_tokens", 0) or 0,
                 "cache_read_tokens": agg.get("cache_read_tokens", 0) or 0,
                 "cache_write_tokens": agg.get("cache_write_tokens", 0) or 0,
+                "cache_write_5m_tokens": agg.get("cache_write_5m_tokens", 0) or 0,
+                "cache_write_1h_tokens": agg.get("cache_write_1h_tokens", 0) or 0,
             }
             usage_incl = dict(usage)
             for child_id in descendants(s["id"]):
@@ -529,6 +576,8 @@ class Store:
                 "output_tokens": row["output_tokens"],
                 "cache_read_tokens": row["cache_read_tokens"],
                 "cache_write_tokens": row["cache_write_tokens"],
+                "cache_write_5m_tokens": row["cache_write_5m_tokens"],
+                "cache_write_1h_tokens": row["cache_write_1h_tokens"],
             },
             "tool_names": json.loads(row["tool_names"]) if row["tool_names"] else [],
             "tool_uses": (
@@ -621,6 +670,8 @@ class Store:
                     "output_tokens": row["output_tokens"],
                     "cache_read_tokens": row["cache_read_tokens"],
                     "cache_write_tokens": row["cache_write_tokens"],
+                    "cache_write_5m_tokens": row["cache_write_5m_tokens"],
+                    "cache_write_1h_tokens": row["cache_write_1h_tokens"],
                     "system_chars": analysis.get("system_chars"),
                     "tools_chars": (analysis.get("tools") or {}).get("chars"),
                     "messages_chars": (analysis.get("messages") or {}).get("chars"),

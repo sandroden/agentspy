@@ -17,6 +17,14 @@ export interface Usage {
   output_tokens: number
   cache_read_tokens: number
   cache_write_tokens: number
+  /**
+   * cache_write split by the TTL the write was made with (5 minutes / 1 hour):
+   * the 1h tier costs twice the input, the 5m tier 1.25×, so the split drives
+   * the cost estimate. null when the provider doesn't report the tier — the
+   * unknown share is cache_write_tokens minus the two, never folded into 5m.
+   */
+  cache_write_5m_tokens: number | null
+  cache_write_1h_tokens: number | null
 }
 
 export interface Session {
@@ -134,6 +142,9 @@ export interface StatsItem {
   output_tokens: number
   cache_read_tokens: number
   cache_write_tokens: number
+  /** cache_write split by TTL; null when the provider doesn't report the tier. */
+  cache_write_5m_tokens: number | null
+  cache_write_1h_tokens: number | null
   /** char (not token) estimates of the request's system/tools/messages; null if unavailable. */
   system_chars: number | null
   tools_chars: number | null

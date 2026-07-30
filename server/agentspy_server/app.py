@@ -132,6 +132,8 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
         output_tokens=usage.get("output_tokens"),
         cache_read_tokens=usage.get("cache_read_tokens"),
         cache_write_tokens=usage.get("cache_write_tokens"),
+        cache_write_5m_tokens=usage.get("cache_write_5m_tokens"),
+        cache_write_1h_tokens=usage.get("cache_write_1h_tokens"),
         tool_names=_tool_names_from_response(response),
         payload=record,
     )

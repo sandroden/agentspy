@@ -27,7 +27,9 @@ concrete combinations are in the
 Key decision: the internal model that is persisted and rendered — content
 blocks `text|thinking|tool_use|tool_result|image`, usage with neutral
 names (`input_tokens`, `output_tokens`, `cache_read_tokens`,
-`cache_write_tokens`) in the DB columns — is deliberately **derived from
+`cache_write_tokens` plus the TTL split `cache_write_5m_tokens` /
+`cache_write_1h_tokens`, null when the provider doesn't report it) in the
+DB columns — is deliberately **derived from
 Anthropic's Messages API**. Consequences:
 
 - for Anthropic the translation is ~identity → the DBs already captured

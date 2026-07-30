@@ -7,6 +7,7 @@ import { computed, provide, ref, watch, watchEffect } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import { fetchEventDetail } from '../api/client'
 import type { EventDetail, EventSummary } from '../types'
+import { cacheWriteTiers } from '../utils/cache'
 import { formatDuration, formatTime, formatTokens } from '../utils/format'
 import Collapsible from './detail/Collapsible.vue'
 import ContentBlock from './detail/ContentBlock.vue'
@@ -135,20 +136,20 @@ const usageDonut = computed(() => {
 })
 
 /**
- * Split of cache_write into the 5-minute vs 1-hour ephemeral tiers, when the
- * API reports it (usage.cache_creation). Didactic: shows *which* cache TTL
- * Claude Code chose for the freshly written tokens. Zero tiers are omitted;
- * if the object is missing or both tiers are zero it returns null (nothing
- * shown, behaviour unchanged).
+ * Split of cache_write by cache TTL (5 minutes vs 1 hour), read from the usage
+ * columns the server derives from `usage.cache_creation`. Didactic: shows
+ * *which* TTL Claude Code chose for the freshly written tokens — and it is also
+ * what the two tiers cost (2×input at 1h, 1.25× at 5m). Empty tiers are
+ * omitted; the "n/a" row appears only for providers that don't report the TTL.
  */
 const cacheCreationSplit = computed<{ label: string; value: number }[] | null>(() => {
-  if (detail.value?.kind !== 'round_trip') return null
-  const cc = asRecord(rawUsage.value.cache_creation)
-  const m5 = Number(cc.ephemeral_5m_input_tokens) || 0
-  const h1 = Number(cc.ephemeral_1h_input_tokens) || 0
+  const u = detail.value?.usage
+  if (detail.value?.kind !== 'round_trip' || !u) return null
+  const t = cacheWriteTiers(u)
   const parts: { label: string; value: number }[] = []
-  if (m5 > 0) parts.push({ label: '5m', value: m5 })
-  if (h1 > 0) parts.push({ label: '1h', value: h1 })
+  if (t.h1 > 0) parts.push({ label: '1h', value: t.h1 })
+  if (t.m5 > 0) parts.push({ label: '5m', value: t.m5 })
+  if (t.unknown > 0) parts.push({ label: 'TTL n/a', value: t.unknown })
   return parts.length ? parts : null
 })
 

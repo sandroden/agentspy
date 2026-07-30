@@ -162,8 +162,19 @@ const selection = computed(() => {
       output_tokens: acc.output_tokens + s.output_tokens,
       cache_read_tokens: acc.cache_read_tokens + s.cache_read_tokens,
       cache_write_tokens: acc.cache_write_tokens + s.cache_write_tokens,
+      // il costo della selezione dipende dal TTL dei cache write (1h = 2×input,
+      // 5m = 1.25×): senza i tier la stima ricadrebbe tutta sul tier economico
+      cache_write_5m_tokens: (acc.cache_write_5m_tokens ?? 0) + (s.cache_write_5m_tokens ?? 0),
+      cache_write_1h_tokens: (acc.cache_write_1h_tokens ?? 0) + (s.cache_write_1h_tokens ?? 0),
     }),
-    { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 }
+    {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      cache_write_5m_tokens: 0,
+      cache_write_1h_tokens: 0,
+    }
   )
   const tokens = slice.reduce((sum, s) => sum + consumed(s), 0)
   return {

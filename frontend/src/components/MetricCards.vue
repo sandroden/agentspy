@@ -6,6 +6,7 @@
  */
 import { computed } from 'vue'
 import type { Session, StatsItem, Usage } from '../types'
+import { cacheWriteTiers } from '../utils/cache'
 import { formatTokens } from '../utils/format'
 import { estimateCost, formatCost } from '../utils/pricing'
 
@@ -69,17 +70,36 @@ const featuredUsage = computed<Usage>(() =>
       output_tokens: acc.output_tokens + s.output_tokens,
       cache_read_tokens: acc.cache_read_tokens + s.cache_read_tokens,
       cache_write_tokens: acc.cache_write_tokens + s.cache_write_tokens,
+      // the tiers drive the cost (1h = 2×input, 5m = 1.25×input): summed as 0
+      // when unreported, the unknown share stays visible as the residual
+      cache_write_5m_tokens: (acc.cache_write_5m_tokens ?? 0) + (s.cache_write_5m_tokens ?? 0),
+      cache_write_1h_tokens: (acc.cache_write_1h_tokens ?? 0) + (s.cache_write_1h_tokens ?? 0),
     }),
     {
       input_tokens: 0,
       output_tokens: 0,
       cache_read_tokens: 0,
       cache_write_tokens: 0,
+      cache_write_5m_tokens: 0,
+      cache_write_1h_tokens: 0,
     },
   ),
 )
 
 const cost = computed(() => estimateCost(featuredUsage.value, props.model))
+
+/** Share of the cache writes per TTL: which caching strategy the session used
+ *  (the two tiers cost differently, so the mix explains the cost too). */
+const cacheTtlMix = computed(() => {
+  const t = cacheWriteTiers(featuredUsage.value)
+  const total = t.m5 + t.h1 + t.unknown
+  if (total === 0) return null
+  const parts: string[] = []
+  if (t.h1 > 0) parts.push(`1h ${Math.round((t.h1 / total) * 100)}%`)
+  if (t.m5 > 0) parts.push(`5m ${Math.round((t.m5 / total) * 100)}%`)
+  if (t.unknown > 0) parts.push(`n/a ${Math.round((t.unknown / total) * 100)}%`)
+  return { text: parts.join(' · '), total, tiers: t }
+})
 </script>
 
 <template>
@@ -116,6 +136,12 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
         >
       </span>
       <span class="value">{{ subagents.length }}</span>
+    </div>
+    <div v-if="cacheTtlMix" class="card">
+      <span class="label">
+        <span class="ic">⏱️</span>cache write TTL · {{ formatTokens(cacheTtlMix.total) }} tok
+      </span>
+      <span class="value value--mix">{{ cacheTtlMix.text }}</span>
     </div>
     <div class="card">
       <span class="label"><span class="ic">💰</span>estimated cost</span>
@@ -199,6 +225,12 @@ const cost = computed(() => estimateCost(featuredUsage.value, props.model))
   font-variant-numeric: tabular-nums;
   color: var(--text);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* "1h 68% · 5m 32%": due valori in una card, quindi un filo più compatto */
+.value--mix {
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .label {

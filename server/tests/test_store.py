@@ -394,3 +394,60 @@ def test_reassign_session_recomputes_turns_from_prompts(tmp_path):
     }
     assert turns == {5.0: 0, 11.0: 1, 21.0: 2}
     store.close()
+
+
+def test_cache_tier_migration_backfills_split_from_payload(tmp_path):
+    """Su un DB con schema vecchio (senza le colonne del TTL) l'apertura
+    aggiunge cache_write_5m/1h_tokens e le backfilla dal payload già salvato:
+    il tier c'era da sempre in response.usage.cache_creation, non era solo
+    promosso a colonna. Chi non espone cache_creation resta a NULL (tier
+    ignoto, diverso da 0)."""
+    db_path = tmp_path / "old_tiers.db"
+    raw = sqlite3.connect(db_path)
+    raw.executescript(_OLD_EVENTS_SCHEMA)
+    raw.execute("INSERT INTO sessions (id, started_at, live) VALUES ('s1', 1.0, 1)")
+    with_tier = json.dumps(
+        {
+            "request": {"body": {}},
+            "response": {
+                "message": {"content": []},
+                "usage": {
+                    "cache_creation_input_tokens": 8415,
+                    "cache_creation": {
+                        "ephemeral_5m_input_tokens": 0,
+                        "ephemeral_1h_input_tokens": 8415,
+                    },
+                },
+            },
+        },
+        ensure_ascii=False,
+    )
+    without_tier = json.dumps(
+        {"request": {"body": {}}, "response": {"message": {"content": []}, "usage": {}}},
+        ensure_ascii=False,
+    )
+    raw.execute(
+        "INSERT INTO events (session_id, kind, turn_index, ts_start, ts_end,"
+        " cache_write_tokens, payload) VALUES ('s1','round_trip',1,100.0,101.0,8415,?)",
+        (with_tier,),
+    )
+    raw.execute(
+        "INSERT INTO events (session_id, kind, turn_index, ts_start, ts_end,"
+        " cache_write_tokens, payload) VALUES ('s1','round_trip',2,200.0,201.0,120,?)",
+        (without_tier,),
+    )
+    raw.commit()
+    raw.close()
+
+    store = Store(db_path)  # apre e migra
+    events = store.get_session_events("s1")
+    first, second = (e["usage"] for e in events)
+    assert (first["cache_write_5m_tokens"], first["cache_write_1h_tokens"]) == (0, 8415)
+    assert (second["cache_write_5m_tokens"], second["cache_write_1h_tokens"]) == (None, None)
+
+    # aggregato di sessione: somma per tier, il residuo resta implicito
+    session = next(s for s in store.get_sessions() if s["id"] == "s1")
+    assert session["usage"]["cache_write_tokens"] == 8535
+    assert session["usage"]["cache_write_1h_tokens"] == 8415
+    assert session["usage"]["cache_write_5m_tokens"] == 0
+    store.close()

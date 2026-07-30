@@ -22,11 +22,14 @@ describe('pricingFor', () => {
 })
 
 describe('estimateCost', () => {
+  // cache write with the TTL not reported by the provider: priced at the 5m tier
   const usage: Usage = {
     input_tokens: 1000,
     output_tokens: 200,
     cache_read_tokens: 10_000,
     cache_write_tokens: 500,
+    cache_write_5m_tokens: null,
+    cache_write_1h_tokens: null,
   }
 
   it('sums the four buckets at the model tier (dollars)', () => {
@@ -42,12 +45,39 @@ describe('estimateCost', () => {
     )
   })
 
+  it('prices a 1h cache write at twice the input, a 5m one at 1.25x', () => {
+    const base = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 1000 }
+    const oneHour: Usage = { ...base, cache_write_5m_tokens: 0, cache_write_1h_tokens: 1000 }
+    const fiveMin: Usage = { ...base, cache_write_5m_tokens: 1000, cache_write_1h_tokens: 0 }
+    // opus input 5 µ$/token: 1h = 10, 5m = 6.25
+    expect(estimateCost(oneHour, 'claude-opus-4-8')).toBeCloseTo(0.01, 9)
+    expect(estimateCost(fiveMin, 'claude-opus-4-8')).toBeCloseTo(0.00625, 9)
+    // the unreported tier stays at the cheaper price: it must not inflate
+    expect(estimateCost({ ...base, cache_write_5m_tokens: null, cache_write_1h_tokens: null }, 'claude-opus-4-8'))
+      .toBeCloseTo(0.00625, 9)
+  })
+
+  it('mixes the tiers within a single round trip', () => {
+    const mixed: Usage = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 1000,
+      cache_write_5m_tokens: 400,
+      cache_write_1h_tokens: 600,
+    }
+    // 400*6.25 + 600*10 = 8500 µ$
+    expect(estimateCost(mixed, 'claude-opus-4-8')).toBeCloseTo(0.0085, 9)
+  })
+
   it('zero usage costs nothing', () => {
     const empty: Usage = {
       input_tokens: 0,
       output_tokens: 0,
       cache_read_tokens: 0,
       cache_write_tokens: 0,
+      cache_write_5m_tokens: 0,
+      cache_write_1h_tokens: 0,
     }
     expect(estimateCost(empty, 'claude-opus-4-8')).toBe(0)
   })

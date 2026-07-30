@@ -2,11 +2,12 @@
 // "Context fill" view: a stacked horizontal bar for each round trip of the
 // open session (spy.stats), in chronological order like the timeline. Total
 // width is proportional to input+cache_read+cache_write (common scale = the
-// session's max); cache_read/cache_write/new segments plus a separate tick
-// for output. Click on a bar -> spy.select(id).
+// session's max); cache_read, cache_write split by TTL (1h / 5m), new segments
+// plus a separate tick for output. Click on a bar -> spy.select(id).
 import { computed } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import type { StatsItem } from '../types'
+import { cacheWriteTiers } from '../utils/cache'
 import { formatTime, formatTokens } from '../utils/format'
 
 const spy = useSpyStore()
@@ -39,11 +40,24 @@ function abbreviateModel(model: string | null): string {
   return model.length > 14 ? `${model.slice(0, 14)}…` : model
 }
 
+/** Tier del cache_write: i due TTL costano diverso (1h = 2x input, 5m = 1.25x),
+ *  quindi la barra li separa invece di sommarli. */
+function tiers(s: StatsItem) {
+  return cacheWriteTiers(s)
+}
+
 function tooltip(s: StatsItem): string {
+  const t = tiers(s)
+  const writeDetail = [
+    t.h1 > 0 ? `1h ${t.h1}` : null,
+    t.m5 > 0 ? `5m ${t.m5}` : null,
+    t.unknown > 0 ? `TTL n/a ${t.unknown}` : null,
+  ].filter(Boolean)
   const lines = [
     `new input: ${s.input_tokens} tokens`,
     `cache_read: ${s.cache_read_tokens} tokens`,
-    `cache_write: ${s.cache_write_tokens} tokens`,
+    `cache_write: ${s.cache_write_tokens} tokens` +
+      (writeDetail.length ? ` (${writeDetail.join(' · ')})` : ''),
     `output: ${s.output_tokens} tokens`,
   ]
   if (s.system_chars != null) lines.push(`system: ~${s.system_chars} chars`)
@@ -86,7 +100,8 @@ function select(eventId: number) {
 
       <div class="legend">
         <span class="legend-item"><i class="swatch cache-read"></i>cache_read</span>
-        <span class="legend-item"><i class="swatch cache-write"></i>cache_write</span>
+        <span class="legend-item"><i class="swatch cache-write-1h"></i>cache_write 1h</span>
+        <span class="legend-item"><i class="swatch cache-write-5m"></i>cache_write 5m</span>
         <span class="legend-item"><i class="swatch new"></i>new</span>
         <span class="legend-item"><i class="swatch output"></i>output</span>
       </div>
@@ -105,7 +120,9 @@ function select(eventId: number) {
           </div>
           <div class="bar-track" :title="tooltip(s)">
             <div class="segment cache-read" :style="{ width: pct(s.cache_read_tokens) }"></div>
-            <div class="segment cache-write" :style="{ width: pct(s.cache_write_tokens) }"></div>
+            <div class="segment cache-write-1h" :style="{ width: pct(tiers(s).h1) }"></div>
+            <div class="segment cache-write-5m" :style="{ width: pct(tiers(s).m5) }"></div>
+            <div class="segment cache-write-na" :style="{ width: pct(tiers(s).unknown) }"></div>
             <div class="segment new" :style="{ width: pct(s.input_tokens) }"></div>
           </div>
           <div class="output-track" :title="tooltip(s)">
@@ -124,6 +141,9 @@ function select(eventId: number) {
   border-bottom: 1px solid var(--border);
   --cf-cache-read: #4a5a72;
   --cf-cache-write: #4f8aa3;
+  /* i due TTL come varianti dello stesso colore: 1h pieno, 5m schiarito */
+  --cf-cache-write-5m: #86b8c9;
+  --cf-cache-write-na: #7e8590;
   --cf-new: #e0a23d;
   --cf-output: #b06fd6;
 }
@@ -182,8 +202,12 @@ function select(eventId: number) {
   background-color: var(--cf-cache-read);
 }
 
-.swatch.cache-write {
+.swatch.cache-write-1h {
   background-color: var(--cf-cache-write);
+}
+
+.swatch.cache-write-5m {
+  background-color: var(--cf-cache-write-5m);
 }
 
 .swatch.new {
@@ -245,8 +269,16 @@ function select(eventId: number) {
   background-color: var(--cf-cache-read);
 }
 
-.segment.cache-write {
+.segment.cache-write-1h {
   background-color: var(--cf-cache-write);
+}
+
+.segment.cache-write-5m {
+  background-color: var(--cf-cache-write-5m);
+}
+
+.segment.cache-write-na {
+  background-color: var(--cf-cache-write-na);
 }
 
 .segment.new {
