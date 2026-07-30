@@ -24,8 +24,10 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ served on /ui
   backoff reconnection 1s→10s.
 - `stores/spy.ts` (Pinia) — central state: sessions, events per session,
   cursor/live (time pause), selected event with a details cache, unseen
-  badge. Getters `sessionTree` (parent/child tree) and `visibleEvents`
-  (filtered by live/cursor). The player only navigates the steps that
+  badge. Getters `sessionTree` (parent/child tree), `visibleEvents`
+  (filtered by live/cursor) and the playhead ones — `playerSteps`,
+  `playerPosition` ("event N/M"), `cursorEvent` — shared by `TimeControls`
+  and the timeline metrics. The player only navigates the steps that
   produce visible rows (`isPlayerStep`): with `showHooks` off (default,
   persisted in localStorage) the SessionStart/UserPromptSubmit/Stop hooks
   are skipped by `step`/`setCursor` — no "empty" clicks at the start of a
@@ -53,6 +55,16 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ served on /ui
   (`SessionSummaryBar`, replacing the old input/output/cache summary), so
   the "numbers" read the same across the two pages; the sub-agents card
   is clickable only in the dashboard (prop `clickableSubagents`).
+  **Playhead-aware**: with the props `cursorTs` / `cursorEventId` /
+  `cursorLabel` (passed only by the timeline, and only while paused) the
+  session cards describe the run *up to the player's position* — cut by
+  timestamp via `utils/playhead.ts`, since `stats` holds round trips only
+  while the player also steps over hooks — and each shows what the round
+  trip under the cursor added ("+38.1k questo step"). The
+  "incl. sub-agents" row deliberately stays on the run's final totals: the
+  cut is about the session you are stepping through, so a single step can
+  be weighed against the whole. Without those props (dashboard, LIVE) the
+  behaviour is unchanged.
 - **DashboardView** (`/ui/`): the "featured" session — `SessionHeader` +
   `MetricCards`, `ContextChart` (context per round trip),
   `CompositionChart` (stacked area cache_read/write/input/output),
@@ -70,8 +82,14 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ served on /ui
   slots), vertical `TimelineView` grouped by turn (`TurnGroup`,
   `EventCard`, `HookMarker`, `McpCard`, `SubagentBlock`, `UsageBar`),
   `ContextFillPanel` (stacked bar per round trip), `TimeControls`
-  (LIVE/PAUSE + scrubber, space and arrows, "⚓ hooks" toggle and an
-  "event n/m" counter over the visible steps). `HookMarker` is the pill
+  (LIVE/PAUSE + scrubber, space and arrows, "⚓ hooks" toggle, an
+  "event n/m" counter over the visible steps and a compact
+  `tok · $cost (+step)` readout). That readout lives in the **sticky** player
+  bar on purpose: the MetricCards scroll out of the viewport as soon as the
+  timeline advances, and the number you want while stepping is precisely
+  token/cost at that point. Same source and same helpers as the cards
+  (`utils/usage`, `utils/playhead`), so the two cannot disagree.
+  `HookMarker` is the pill
   marker of a hook (visible only with the toggle on): it shows that
   Claude Code gave room for a reaction there (in the future: hooks that
   block tool calls) and clicking it opens the payload in the DetailPanel.
@@ -112,6 +130,16 @@ selection/links.
   5m / 1h / unknown tier. Used by the composition chart, the context-fill
   bars, the "cache write TTL" card and the detail panel, so the tiers read
   the same everywhere.
+- `utils/playhead.ts` — `statsUpTo()` / `statsForEvent()`: the round trips
+  up to the player's timestamp, and the one under the cursor. Pure
+  functions (unit-tested) so the cut has one definition.
+- `utils/usage.ts` — `contextTokens` / `consumedTokens` / `aggregateUsage` /
+  `totalConsumed` / `peakContext`: the token totals of a series of round
+  trips, shared by MetricCards and the player readout.
+- `composables/useSessionStats.ts` — per-round-trip stats of the open
+  session kept fresh (`spy.stats` only loads at openSession; the composable
+  reloads `statsBySession` as round trips arrive), used by
+  `SessionSummaryBar` and `TimeControls`.
 - `utils/model.ts` — model family/color/abbreviation (including the
   non-Claude families seen via gateway, e.g. `z-ai/glm-5.2` → glm, blue;
   `kimi-k3` / `moonshotai/kimi-k3` → kimi, pink).

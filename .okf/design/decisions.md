@@ -21,7 +21,9 @@ plan, PLAN.md, removed 2026-07-25 — decisions kept here):
   URL so two sessions open in two tabs. Comparing runs goes through the
   [collection tags](/design/run-tagging.md).
 - **Time pause**: LIVE ↔ PAUSE with a scrubber over the whole history;
-  data is collected anyway, always.
+  data is collected anyway, always. While paused the session metrics
+  (tokens, cost, peak context) follow the playhead instead of showing the
+  final totals — see [frontend](/components/frontend.md).
 - **Multi-session**: one at a time in the timeline, a sidebar with the
   list; subagents nested in the parent, clickable, with aggregated
   totals.

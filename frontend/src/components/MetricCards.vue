@@ -3,12 +3,20 @@
  * Grid of key metrics for a session, plus sub-agent totals. Shared by the
  * dashboard and the timeline (SessionSummaryBar), so the "numbers" read the
  * same everywhere. Real data only: no counterfactual estimates.
+ *
+ * With the timeline paused, the session cards describe the run *up to the
+ * player's position* (`cursorTs`) and show what the round trip under the
+ * cursor added — that is how you see what a single step costs against the
+ * whole. The sub-agent row stays the run's final total: the cut is deliberately
+ * about the session you are stepping through, not its children.
  */
 import { computed } from 'vue'
 import type { Session, StatsItem, Usage } from '../types'
 import { cacheWriteTiers } from '../utils/cache'
 import { formatTokens } from '../utils/format'
+import { statsForEvent, statsUpTo } from '../utils/playhead'
 import { estimateCost, formatCost } from '../utils/pricing'
+import { aggregateUsage, consumedTokens, contextTokens, peakContext, totalConsumed } from '../utils/usage'
 
 const props = defineProps<{
   stats: StatsItem[]
@@ -19,33 +27,38 @@ const props = defineProps<{
   subagents: Session[]
   /** la card sub-agents è cliccabile (emette jump-subagents); nella timeline no. */
   clickableSubagents?: boolean
+  /** ts del player: le card della sessione si fermano lì. null/assente (LIVE,
+   *  dashboard) = nessun taglio, comportamento di sempre. */
+  cursorTs?: number | null
+  /** id dell'evento sotto il cursore, per il contributo del singolo step. */
+  cursorEventId?: number | null
+  /** etichetta della posizione, es. "evento 12/59". */
+  cursorLabel?: string | null
 }>()
+
+/** Round trip fino al player (tutti quando non c'è taglio). */
+const stats = computed(() => statsUpTo(props.stats, props.cursorTs ?? null))
+
+/** Il round trip su cui è fermo il player: null se il cursore è su un hook. */
+const stepStat = computed(() => statsForEvent(props.stats, props.cursorEventId ?? null))
+
+const atCursor = computed(() => props.cursorTs != null)
 
 const emit = defineEmits<{ (e: 'jump-subagents'): void }>()
 
-/** Tokens "in context" for a round trip: new input + cache read + cache write. */
-function contextTokens(s: StatsItem): number {
-  return s.input_tokens + s.cache_read_tokens + s.cache_write_tokens
-}
+const peak = computed(() => peakContext(stats.value))
 
-/** Tokens consumed (contribution to the integral): context + output. */
-function consumedTokens(s: StatsItem): number {
-  return contextTokens(s) + s.output_tokens
-}
+const consumed = computed(() => totalConsumed(stats.value))
 
-const peakContext = computed(() =>
-  props.stats.length ? Math.max(...props.stats.map(contextTokens)) : 0,
-)
+const ratio = computed(() => (peak.value > 0 ? consumed.value / peak.value : 0))
 
-const totalConsumed = computed(() => props.stats.reduce((sum, s) => sum + consumedTokens(s), 0))
+const roundTrips = computed(() => stats.value.length)
 
-const ratio = computed(() => (peakContext.value > 0 ? totalConsumed.value / peakContext.value : 0))
-
-const roundTrips = computed(() => props.stats.length)
-
-/** Total round trips of the run: featured + all sub-agents. */
+/** Total round trips of the run: featured + all sub-agents. The "incl.
+ *  sub-agents" row answers "how much did the whole run cost?", so it stays on
+ *  the final totals even when the player cuts the session cards. */
 const roundTripsInclSub = computed(() =>
-  props.subagents.reduce((sum, s) => sum + s.round_trips, roundTrips.value),
+  props.subagents.reduce((sum, s) => sum + s.round_trips, props.stats.length),
 )
 
 const subagentTokens = computed(() =>
@@ -55,38 +68,44 @@ const subagentTokens = computed(() =>
   }, 0),
 )
 
-/** Total consumed including sub-agents: the run's true integral. */
-const totalConsumedInclSub = computed(() => totalConsumed.value + subagentTokens.value)
+/** Total consumed including sub-agents: the run's true integral (untouched by
+ *  the playhead, see roundTripsInclSub). */
+const totalConsumedInclSub = computed(
+  () => totalConsumed(props.stats) + subagentTokens.value,
+)
 
 /** Sub-agent cost, each priced with its own model's rates. */
 const subagentCost = computed(() =>
   props.subagents.reduce((sum, s) => sum + estimateCost(s.usage, s.model ?? props.model), 0),
 )
 
-const featuredUsage = computed<Usage>(() =>
-  props.stats.reduce(
-    (acc, s) => ({
-      input_tokens: acc.input_tokens + s.input_tokens,
-      output_tokens: acc.output_tokens + s.output_tokens,
-      cache_read_tokens: acc.cache_read_tokens + s.cache_read_tokens,
-      cache_write_tokens: acc.cache_write_tokens + s.cache_write_tokens,
-      // the tiers drive the cost (1h = 2×input, 5m = 1.25×input): summed as 0
-      // when unreported, the unknown share stays visible as the residual
-      cache_write_5m_tokens: (acc.cache_write_5m_tokens ?? 0) + (s.cache_write_5m_tokens ?? 0),
-      cache_write_1h_tokens: (acc.cache_write_1h_tokens ?? 0) + (s.cache_write_1h_tokens ?? 0),
-    }),
-    {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_tokens: 0,
-      cache_write_tokens: 0,
-      cache_write_5m_tokens: 0,
-      cache_write_1h_tokens: 0,
-    },
-  ),
-)
+const featuredUsage = computed<Usage>(() => aggregateUsage(stats.value))
 
 const cost = computed(() => estimateCost(featuredUsage.value, props.model))
+
+/** Costo dell'intera sessione, cursore o no: somma al costo dei sub-agenti per
+ *  il totale del run. */
+const costAll = computed(() => estimateCost(aggregateUsage(props.stats), props.model))
+
+/** Contributo del round trip sotto il cursore: quanto è costato QUESTO step,
+ *  la lettura didattica che il totale cumulato da solo non dà. */
+const stepContribution = computed(() => {
+  const s = stepStat.value
+  if (!s || !atCursor.value) return null
+  const usage: Usage = {
+    input_tokens: s.input_tokens,
+    output_tokens: s.output_tokens,
+    cache_read_tokens: s.cache_read_tokens,
+    cache_write_tokens: s.cache_write_tokens,
+    cache_write_5m_tokens: s.cache_write_5m_tokens,
+    cache_write_1h_tokens: s.cache_write_1h_tokens,
+  }
+  return {
+    context: contextTokens(s),
+    consumed: consumedTokens(s),
+    cost: estimateCost(usage, s.model ?? props.model),
+  }
+})
 
 /** Share of the cache writes per TTL: which caching strategy the session used
  *  (the two tiers cost differently, so the mix explains the cost too). */
@@ -104,14 +123,25 @@ const cacheTtlMix = computed(() => {
 
 <template>
   <div class="metric-cards">
-    <span class="group-label">Session</span>
+    <span class="group-label">
+      Session
+      <span v-if="atCursor && cursorLabel" class="at-cursor" :title="'Le card della sessione si fermano al punto del player: ' + cursorLabel">
+        ❚❚ fino a {{ cursorLabel }}
+      </span>
+    </span>
     <div class="card">
       <span class="label"><span class="ic">📈</span>peak context</span>
-      <span class="value">{{ formatTokens(peakContext) }}</span>
+      <span class="value">{{ formatTokens(peak) }}</span>
+      <span v-if="stepContribution" class="step-note">
+        questo step: {{ formatTokens(stepContribution.context) }}
+      </span>
     </div>
     <div class="card">
       <span class="label"><span class="ic">🧮</span>tokens consumed (integral)</span>
-      <span class="value">{{ formatTokens(totalConsumed) }}</span>
+      <span class="value">{{ formatTokens(consumed) }}</span>
+      <span v-if="stepContribution" class="step-note">
+        +{{ formatTokens(stepContribution.consumed) }} questo step
+      </span>
     </div>
     <div class="card">
       <span class="label"><span class="ic">⚖️</span>consumption / peak</span>
@@ -146,6 +176,9 @@ const cacheTtlMix = computed(() => {
     <div class="card">
       <span class="label"><span class="ic">💰</span>estimated cost</span>
       <span class="value">{{ formatCost(cost) }}</span>
+      <span v-if="stepContribution" class="step-note">
+        +{{ formatCost(stepContribution.cost) }} questo step
+      </span>
     </div>
 
     <template v-if="subagents.length">
@@ -159,10 +192,11 @@ const cacheTtlMix = computed(() => {
         <span class="value">{{ roundTripsInclSub }}</span>
       </div>
       <!-- il costo dell'intero run (sessione + tutti i sub-agent): il numero
-           che risponde a "quanto è costato tutto?", quindi non attenuato -->
+           che risponde a "quanto è costato tutto?", quindi non attenuato e non
+           tagliato dal player -->
       <div class="card card--total">
         <span class="label"><span class="ic">💰</span>total cost (incl. sub-agents)</span>
-        <span class="value">{{ formatCost(cost + subagentCost) }}</span>
+        <span class="value">{{ formatCost(costAll + subagentCost) }}</span>
       </div>
     </template>
   </div>
@@ -225,6 +259,29 @@ const cacheTtlMix = computed(() => {
   font-variant-numeric: tabular-nums;
   color: var(--text);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* posizione del player accanto al titolo del gruppo: chiarisce che i numeri
+   sotto non sono il totale della sessione ma il cumulato fino a lì */
+.at-cursor {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background-color: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+/* contributo del singolo round trip sotto il cursore */
+.step-note {
+  font-size: 0.65rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* "1h 68% · 5m 32%": due valori in una card, quindi un filo più compatto */

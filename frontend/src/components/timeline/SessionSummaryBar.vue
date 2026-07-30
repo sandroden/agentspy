@@ -3,7 +3,8 @@
 // "numbers" — the same MetricCards used by the dashboard (peak context,
 // consumed tokens, estimated cost, sub-agents…) — plus a "?" button to bring
 // the tips back.
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
+import { useSessionStats } from '../../composables/useSessionStats'
 import { useSpyStore } from '../../stores/spy'
 import type { Session } from '../../types'
 import MetricCards from '../MetricCards.vue'
@@ -12,24 +13,26 @@ const emit = defineEmits<{ (e: 'show-tips'): void }>()
 
 const spy = useSpyStore()
 
-const session = computed(() => spy.currentSession)
+// Le card leggono le stats per round trip (come la dashboard), tenute fresche
+// dal composable condiviso con la barra del player.
+const { session, stats } = useSessionStats()
 
-// Le card leggono le stats per round trip (come la dashboard): caricale per la
-// sessione aperta e ricaricale quando arrivano nuovi round trip.
-watch(
-  () => (session.value ? `${session.value.id}:${session.value.round_trips}` : null),
-  () => {
-    if (session.value) void spy.loadStatsFor(session.value.id, true)
-  },
-  { immediate: true },
-)
-
-const stats = computed(() => (session.value ? (spy.statsBySession[session.value.id] ?? []) : []))
-
-/** prompt utente della sessione aperta (gli hook UserPromptSubmit sono già in events). */
+/** prompt utente fino al punto del player (gli hook UserPromptSubmit sono già
+ *  in events): in pausa deve contare come le altre card, non l'intera sessione. */
 const promptCount = computed(
-  () => spy.events.filter((e) => e.kind === 'hook' && e.subkind === 'UserPromptSubmit').length,
+  () =>
+    spy.visibleEvents.filter((e) => e.kind === 'hook' && e.subkind === 'UserPromptSubmit').length,
 )
+
+/** Posizione del player passata alle card: in LIVE nessun taglio (null), in
+ *  pausa le metriche della sessione si fermano all'evento corrente. */
+const cursorTs = computed(() => (spy.live ? null : (spy.cursorEvent?.ts_start ?? null)))
+const cursorEventId = computed(() => (spy.live ? null : (spy.cursorEvent?.id ?? null)))
+const cursorLabel = computed(() => {
+  if (spy.live) return null
+  const { index, total } = spy.playerPosition
+  return total > 0 ? `evento ${index + 1}/${total}` : null
+})
 
 /** discendenti (ricorsivi) della sessione aperta. */
 const subagents = computed<Session[]>(() => {
@@ -57,6 +60,9 @@ const subagents = computed<Session[]>(() => {
       :model="session.model"
       :prompt-count="promptCount"
       :subagents="subagents"
+      :cursor-ts="cursorTs"
+      :cursor-event-id="cursorEventId"
+      :cursor-label="cursorLabel"
     />
     <button class="show-btn" title="Show the explanations" @click="emit('show-tips')">?</button>
   </div>

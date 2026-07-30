@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
+import { useSessionStats } from '../composables/useSessionStats'
 import { useSpyStore } from '../stores/spy'
-import { formatTime } from '../utils/format'
+import { formatTime, formatTokens } from '../utils/format'
+import { statsForEvent, statsUpTo } from '../utils/playhead'
+import { estimateCost, formatCost } from '../utils/pricing'
+import { aggregateUsage, consumedTokens, totalConsumed } from '../utils/usage'
 
 const spy = useSpyStore()
+
+const { session, stats } = useSessionStats()
 
 const total = computed(() => spy.events.length)
 const maxIndex = computed(() => Math.max(total.value - 1, 0))
@@ -14,29 +20,44 @@ const currentEvent = computed(() => spy.events[currentIndex.value] ?? null)
  * indici grezzi di `events`: con gli hook nascosti gli indici grezzi
  * salterebbero (event 3/15 → 5/15) e il pallino dello scrubber non
  * partirebbe mai dal bordo (⏮ atterra sul primo round trip, che negli
- * indici grezzi è già a un terzo della barra). */
-const stepIndices = computed<number[]>(() => {
-  const out: number[] = []
-  spy.events.forEach((e, i) => {
-    if (spy.isPlayerStep(e)) out.push(i)
-  })
-  return out
-})
-const stepTotal = computed(() => stepIndices.value.length)
-/** posizione 0-based dello step corrente: ultimo step con indice ≤ cursore. */
-const currentStep = computed(() => {
-  let pos = -1
-  for (const idx of stepIndices.value) {
-    if (idx > currentIndex.value) break
-    pos++
-  }
-  return Math.max(pos, 0)
-})
+ * indici grezzi è già a un terzo della barra). Il calcolo sta nello store
+ * perché lo condividono le metriche della timeline (vedi MetricCards). */
+const stepIndices = computed(() => spy.playerSteps)
+const stepTotal = computed(() => spy.playerPosition.total)
+const currentStep = computed(() => spy.playerPosition.index)
 
 const label = computed(() => {
   if (stepTotal.value === 0) return 'no events'
   return `event ${currentStep.value + 1}/${stepTotal.value} — ${formatTime(currentEvent.value?.ts_start)}`
 })
+
+/**
+ * Token e costo del punto in cui siamo, in forma compatta e SEMPRE visibile:
+ * le MetricCards scorrono fuori dalla viewport appena la timeline avanza,
+ * mentre questa barra è sticky. Stessa sorgente e stessi helper delle card
+ * (utils/usage + utils/playhead), quindi i numeri non possono divergere.
+ */
+const upToCursor = computed(() =>
+  statsUpTo(stats.value, spy.live ? null : (spy.cursorEvent?.ts_start ?? null))
+)
+
+const readout = computed(() => {
+  if (upToCursor.value.length === 0) return null
+  const model = session.value?.model ?? null
+  const step = spy.live ? null : statsForEvent(stats.value, spy.cursorEvent?.id ?? null)
+  return {
+    tokens: totalConsumed(upToCursor.value),
+    cost: estimateCost(aggregateUsage(upToCursor.value), model),
+    stepTokens: step ? consumedTokens(step) : null,
+    stepCost: step ? estimateCost(aggregateUsage([step]), step.model ?? model) : null,
+  }
+})
+
+const readoutTitle = computed(() =>
+  spy.live
+    ? 'token consumati e costo stimato della sessione (intera: il player è in LIVE)'
+    : 'token consumati e costo stimato fino al punto del player; in corsivo il contributo di questo round trip'
+)
 
 function onSlider(e: Event) {
   const pos = Number((e.target as HTMLInputElement).value)
@@ -87,6 +108,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <button :disabled="total === 0" title="end" @click="spy.setCursor(maxIndex)">⏭</button>
 
     <span class="label">{{ label }}</span>
+
+    <span v-if="readout" class="readout" :title="readoutTitle">
+      <span class="ro-val">{{ formatTokens(readout.tokens) }}</span> tok ·
+      <span class="ro-val">{{ formatCost(readout.cost) }}</span>
+      <em v-if="readout.stepTokens != null">
+        (+{{ formatTokens(readout.stepTokens) }} · +{{ formatCost(readout.stepCost ?? 0) }})
+      </em>
+    </span>
 
     <button
       class="hooks-btn"
@@ -154,5 +183,30 @@ button:disabled {
   color: var(--muted);
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* lettura compatta di token/costo al punto del player: sta nella barra sticky
+   perché è il numero che deve restare sotto gli occhi mentre si scorre */
+.readout {
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background-color: var(--panel-alt);
+}
+
+.readout .ro-val {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* contributo del round trip corrente: presente ma subordinato al cumulato */
+.readout em {
+  font-style: normal;
+  opacity: 0.75;
 }
 </style>

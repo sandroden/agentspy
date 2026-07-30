@@ -91,6 +91,36 @@ export const useSpyStore = defineStore('spy', () => {
     selectedEventId.value != null ? (detailCache.value[selectedEventId.value] ?? null) : null
   )
 
+  /** Indici (in `events`) degli eventi che sono step veri del player: con gli
+   *  hook nascosti gli indici grezzi salterebbero. Qui e non in TimeControls
+   *  perché anche le metriche della timeline devono sapere "a che step siamo". */
+  const playerSteps = computed<number[]>(() => {
+    const out: number[] = []
+    events.value.forEach((e, i) => {
+      if (isPlayerStep(e)) out.push(i)
+    })
+    return out
+  })
+
+  /** Evento su cui è fermo il player (in LIVE: l'ultimo arrivato). */
+  const cursorEvent = computed<EventSummary | null>(() => {
+    if (events.value.length === 0) return null
+    const i = Math.min(Math.max(cursor.value, 0), events.value.length - 1)
+    return events.value[i] ?? null
+  })
+
+  /** Posizione 0-based dello step corrente e totale degli step (per "event N/M"). */
+  const playerPosition = computed<{ index: number; total: number }>(() => {
+    const max = Math.max(events.value.length - 1, 0)
+    const current = Math.min(Math.max(cursor.value, 0), max)
+    let pos = -1
+    for (const idx of playerSteps.value) {
+      if (idx > current) break
+      pos++
+    }
+    return { index: Math.max(pos, 0), total: playerSteps.value.length }
+  })
+
   /**
    * Per ogni round trip, gli elementi del contesto visti per la PRIMA volta in
    * quel round trip (la "canzone del mercato" resa inline): al primo RT compare
@@ -441,6 +471,9 @@ export const useSpyStore = defineStore('spy', () => {
     currentSession,
     visibleEvents,
     selectedDetail,
+    playerSteps,
+    playerPosition,
+    cursorEvent,
     newArtifactsByEvent,
     cumulativeArtifacts,
     // actions

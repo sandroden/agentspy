@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-07-30
+* **Update**: Timeline metrics follow the playhead — while paused the session cards (and a new compact `tok · $cost (+step)` readout in the sticky player bar) describe the run up to the player's position, with the contribution of the round trip under the cursor; the "incl. sub-agents" row stays on the final totals ([frontend](/components/frontend.md), [decisions](/design/decisions.md)). New `utils/playhead.ts`, `utils/usage.ts`, `composables/useSessionStats.ts`; playhead getters (`playerSteps`, `playerPosition`, `cursorEvent`) moved into the store.
+
 ## 2026-07-28
 * **Update**: Cache-write TTL split (5m / 1h) promoted from the payload to the `cache_write_5m_tokens` / `cache_write_1h_tokens` columns, with an additive migration + backfill on existing round trips ([SQLite schema](/interfaces/sqlite-schema.md), [adapter layers](/design/adapter-layers.md)). Per-tier pricing (1h = 2×input, 5m = 1.25×) and the tier series in the dashboard/context-fill charts ([token accounting](/design/token-accounting.md)).
 
