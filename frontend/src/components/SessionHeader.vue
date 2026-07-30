@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * Intestazione di sezione condivisa da Timeline e Dashboard (stesso corpo e
- * stesso carattere del brand "AgentSpy" nella sidebar): nome della sessione,
- * stato live e una riga di metadati (modello · durata · token · round trip).
+ * Section header shared by Timeline and Dashboard (same size and same font as
+ * the "AgentSpy" brand in the sidebar): session name, live state and a
+ * metadata row (model · duration · tokens · round trips).
  */
 import { computed } from 'vue'
 import type { Session } from '../types'
@@ -14,7 +14,7 @@ const props = defineProps<{
   session: Session
 }>()
 
-/** Nome principale: il tag scelto dall'utente, altrimenti il titolo, altrimenti l'id. */
+/** Main name: the tag chosen by the user, failing that the title, failing that the id. */
 const name = computed(() => {
   const s = props.session
   if (s.tag) return s.tag
@@ -22,12 +22,12 @@ const name = computed(() => {
   return s.id.length > 12 ? `${s.id.slice(0, 12)}…` : s.id
 })
 
-/** Nome secondario accanto al principale (il titolo, quando il tag è già il nome). */
+/** Secondary name next to the main one (the title, when the tag is already the name). */
 const subName = computed(() => (props.session.tag ? props.session.title : null))
 
 const isSub = computed(() => !!props.session.parent_session_id)
 
-/** Token totali consumati dalla sessione (input + output + cache). */
+/** Total tokens consumed by the session (input + output + cache). */
 const totalTokens = computed(() => {
   const u = props.session.usage
   return u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
@@ -60,7 +60,7 @@ const totalTokens = computed(() => {
         {{ session.round_trips }} round trip{{ session.round_trips === 1 ? '' : 's' }}
       </span>
     </div>
-    <!-- righe extra della pagina (es. link parent/subagenti nella timeline) -->
+    <!-- extra page rows (e.g. parent/sub-agent links in the timeline) -->
     <slot />
   </header>
 </template>
@@ -76,7 +76,7 @@ const totalTokens = computed(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  /* stessa altezza della riga brand nella sidebar */
+  /* same height as the brand row in the sidebar */
   min-height: 34px;
 }
 
@@ -87,7 +87,7 @@ const totalTokens = computed(() => {
   min-width: 0;
 }
 
-/* stesso corpo/peso del brand "AgentSpy" nella sidebar */
+/* same size/weight as the "AgentSpy" brand in the sidebar */
 .name {
   font-size: 1.15rem;
   font-weight: 700;

@@ -17,7 +17,7 @@ sessions:
   `Explore` subagent (child session, sonnet model) and an MCP event
   `context7:query-docs`.
 - The subagent's **child** session.
-- **B** (closed, short, tag `demo-breve`): a typo fix, 2 round trips.
+- **B** (closed, short, tag `demo-short`): a typo fix, 2 round trips.
 
 The payloads have the same shape as the proxy ones (request with
 system/tools/messages + analysis, reconstructed SSE response) and include

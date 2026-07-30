@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Lista presentazionale degli elementi che compongono una richiesta all'LLM
-// (inventario didattico). Nessun contenuto: solo icona + etichetta + dimensione
-// + eventuale path/nota. Riusata sia nel DetailPanel (per round trip) sia nel
-// pannello cumulativo di sessione (Fase B).
+// Presentational list of the items making up a request to the LLM (a teaching
+// inventory). No content: just icon + label + size + optional path/note.
+// Reused both in the DetailPanel (per round trip) and in the cumulative
+// session panel (Phase B).
 import type { ContextArtifact } from '../../types'
 import { formatTokens } from '../../utils/format'
 import { relativizeText } from '../../utils/toolIcon'
@@ -11,14 +11,14 @@ import { artifactIcon } from '../../utils/artifactMeta'
 const props = defineProps<{
   artifacts: ContextArtifact[]
   cwd?: string | null
-  /** Mostra un badge (es. "new"/"cached") accanto a ogni riga. */
+  /** Shows a badge (e.g. "new"/"cached") next to each row. */
   badgeFor?: (a: ContextArtifact) => { text: string; tone: 'new' | 'cached' } | null
 }>()
 
 const emit = defineEmits<{ (e: 'pick', a: ContextArtifact): void }>()
 
 function sizeLabel(a: ContextArtifact): string {
-  if (a.count != null && a.kind === 'tools') return `${a.count} tool`
+  if (a.count != null && a.kind === 'tools') return `${a.count} tools`
   if (a.chars != null) return `${formatTokens(a.chars)} char`
   return ''
 }

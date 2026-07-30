@@ -60,7 +60,7 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ served on /ui
   session cards describe the run *up to the player's position* — cut by
   timestamp via `utils/playhead.ts`, since `stats` holds round trips only
   while the player also steps over hooks — and each shows what the round
-  trip under the cursor added ("+38.1k questo step"). The
+  trip under the cursor added ("+38.1k this step"). The
   "incl. sub-agents" row deliberately stays on the run's final totals: the
   cut is about the session you are stepping through, so a single step can
   be weighed against the whole. Without those props (dashboard, LIVE) the

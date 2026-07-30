@@ -1,8 +1,8 @@
-"""Endpoint REST: GET /api/sessions, /api/sessions/{id}/events, /api/events/{id},
+"""REST endpoints: GET /api/sessions, /api/sessions/{id}/events, /api/events/{id},
 /api/sessions/{id}/stats.
 
-Lo store è sincrono (sqlite3): le chiamate sono spostate su un thread per non
-bloccare l'event loop di uvicorn durante l'I/O su disco.
+The store is synchronous (sqlite3): calls are moved onto a thread so uvicorn's
+event loop is not blocked during disk I/O.
 """
 
 from __future__ import annotations
@@ -44,9 +44,9 @@ async def session_stats(request: Request) -> JSONResponse:
 
 
 async def _delete_and_broadcast(request: Request, ids: list[str]) -> list[str]:
-    """Elimina le sessioni (con discendenti) e notifica i client via WS un
-    ``session_removed`` per ciascun id rimosso, così le sidebar aperte si
-    aggiornano anche senza refetch."""
+    """Delete the sessions (with descendants) and notify clients over WS with a
+    ``session_removed`` for each removed id, so open sidebars update even
+    without a refetch."""
     store = request.app.state.store
     ws_manager = request.app.state.ws_manager
     deleted = await asyncio.to_thread(store.delete_sessions, ids)
@@ -65,7 +65,7 @@ async def delete_sessions_bulk(request: Request) -> JSONResponse:
     body = await request.json()
     ids = body.get("ids") if isinstance(body, dict) else None
     if not isinstance(ids, list):
-        return JSONResponse({"error": "campo 'ids' mancante o non valido"}, status_code=400)
+        return JSONResponse({"error": "missing or invalid 'ids' field"}, status_code=400)
     deleted = await _delete_and_broadcast(request, [str(i) for i in ids])
     return JSONResponse({"deleted": deleted})
 

@@ -1,44 +1,43 @@
-"""Assegna i round trip del proxy e gli eventi hook/mcp a sessioni/turni/subagenti.
+"""Assigns proxy round trips and hook/mcp events to sessions/turns/subagents.
 
-Il traffico HTTP verso l'API Anthropic non porta session_id: lo ricaviamo con
-le regole descritte in `.okf/design/correlation.md`, in ordine di forza:
+HTTP traffic towards the Anthropic API carries no session_id: we derive it with
+the rules described in `.okf/design/correlation.md`, in order of strength:
 
-1. ``tool_use_id``: l'hook ``PreToolUse`` porta ``session_id`` + ``tool_use_id``;
-   il round trip precedente conteneva un blocco ``tool_use`` con quell'id
-   (``toolu_...``) prodotto dal modello: lega la conversazione API alla sessione
-   hook, sostituendo la sessione sintetica creata fino a quel momento.
-2. ``UserPromptSubmit``: quando arriva, avanza il turno (``turn_index += 1``)
-   in modo autoritativo per quella sessione (da quel momento la sessione ha
-   "hooks attivi" e l'euristica sul testo utente viene disattivata).
-3. **Fingerprint di conversazione**: sha256 di (system serializzato + primo
-   messaggio user). Round trip successivi con lo stesso fingerprint (la
-   conversazione cresce: più messages, stesso prefisso) vengono incatenati
-   alla stessa sessione, anche senza alcun hook.
-4. Header ``x-agentspy-tag`` → tag della sessione (round trip) o campo ``tag``
-   del body di ingest (hook/mcp).
-5. ``SubagentStart``/``SubagentStop`` → sessione figlia con
-   ``parent_session_id``, agganciata al genitore tramite il ``tool_use_id``
-   della chiamata Task/Agent (stesso meccanismo del punto 1) o, se il payload
-   dell'hook lo fornisce già esplicitamente, tramite ``parent_session_id``.
+1. ``tool_use_id``: the ``PreToolUse`` hook carries ``session_id`` +
+   ``tool_use_id``; the previous round trip contained a ``tool_use`` block with
+   that id (``toolu_...``) produced by the model: it ties the API conversation
+   to the hook session, replacing the synthetic session created so far.
+2. ``UserPromptSubmit``: when it arrives, it advances the turn
+   (``turn_index += 1``) authoritatively for that session (from then on the
+   session has "hooks active" and the user-text heuristic is disabled).
+3. **Conversation fingerprint**: sha256 of (serialized system + first user
+   message). Later round trips with the same fingerprint (the conversation
+   grows: more messages, same prefix) are chained to the same session, even
+   without any hook.
+4. ``x-agentspy-tag`` header → session tag (round trip) or ``tag`` field of the
+   ingest body (hook/mcp).
+5. ``SubagentStart``/``SubagentStop`` → child session with
+   ``parent_session_id``, attached to the parent via the ``tool_use_id`` of the
+   Task/Agent call (same mechanism as point 1) or, if the hook payload already
+   provides it explicitly, via ``parent_session_id``.
 
-Limiti noti (MVP, degradano senza rompersi):
-* Senza alcun hook, tutte le sessioni sono sintetiche (``syn-<fingerprint[:12]>``)
-  e i turni sono euristici: nuovo turno quando l'ultimo messaggio ``user`` del
-  round trip è testuale e NON è un risultato di tool (``tool_result``), e il
-  testo differisce dall'ultimo prompt visto per quella sessione.
-* Il fingerprint usa system + primo messaggio user: due conversazioni distinte
-  con lo *stesso* system prompt e lo stesso primissimo messaggio (raro ma
-  possibile con prompt di test identici) collidono nella stessa sessione
-  sintetica finché non arriva un hook a disambiguarle.
-* Lo schema esatto dei payload hook di Claude Code (nomi dei campi per
-  ``SubagentStart``/``SubagentStop``) non è stato verificato empiricamente in
-  questa fase (F5 lo farà con sessioni reali); qui si accettano più varianti
-  ragionevoli di nome campo (``parent_tool_use_id``/``tool_use_id``,
-  ``parent_session_id`` esplicito se presente) per essere robusti a piccole
-  differenze di schema.
-* Richieste fuori ordine (retry/parallelismo) non sono gestite esplicitamente:
-  l'euristica turno può comportarsi in modo imprevedibile se i round trip
-  arrivano al collector in un ordine diverso da quello temporale reale.
+Known limits (MVP, they degrade without breaking):
+* Without any hook, all sessions are synthetic (``syn-<fingerprint[:12]>``)
+  and turns are heuristic: a new turn when the last ``user`` message of the
+  round trip is textual and is NOT a tool result (``tool_result``), and the
+  text differs from the last prompt seen for that session.
+* The fingerprint uses system + first user message: two distinct conversations
+  with the *same* system prompt and the same very first message (rare but
+  possible with identical test prompts) collide in the same synthetic session
+  until a hook arrives to disambiguate them.
+* The exact schema of Claude Code's hook payloads (field names for
+  ``SubagentStart``/``SubagentStop``) has not been verified empirically at this
+  stage (F5 will do it with real sessions); here several reasonable field-name
+  variants are accepted (``parent_tool_use_id``/``tool_use_id``, explicit
+  ``parent_session_id`` if present) to be robust to small schema differences.
+* Out-of-order requests (retry/parallelism) are not handled explicitly: the
+  turn heuristic can behave unpredictably if round trips reach the collector in
+  an order different from the real temporal one.
 """
 
 from __future__ import annotations
@@ -51,10 +50,10 @@ from .runtimes import AgentRuntime, get_runtime
 
 
 def _strip_volatile(obj):
-    """Rimuove ricorsivamente i campi che variano fra round trip della stessa
-    conversazione: i marker ``cache_control`` si spostano quando il checkpoint
-    di cache avanza, e cambierebbero il fingerprint di una conversazione che
-    in realtà è la stessa."""
+    """Recursively removes the fields that vary between round trips of the same
+    conversation: the ``cache_control`` markers move when the cache checkpoint
+    advances, and would change the fingerprint of a conversation that is in fact
+    the same one."""
     if isinstance(obj, dict):
         return {k: _strip_volatile(v) for k, v in obj.items() if k != "cache_control"}
     if isinstance(obj, list):
@@ -63,18 +62,18 @@ def _strip_volatile(obj):
 
 
 def fingerprint(system, first_user_message, session_key: str | None = None) -> str:
-    """sha256 di (system serializzato + primo messaggio user + discriminante di
-    sessione), usato per incatenare round trip della stessa conversazione senza
-    hook.
+    """sha256 of (serialized system + first user message + session
+    discriminator), used to chain round trips of the same conversation without
+    hooks.
 
-    ``session_key`` è l'header ``x-claude-code-session-id`` che Claude Code
-    (cli >= 2.x) manda su OGNI richiesta: senza di esso due run concorrenti con
-    lo stesso system e lo stesso primo prompt (es. due sessioni di test, o il
-    traffico di servizio "genera titolo" identico fra sessioni diverse)
-    collasserebbero nella stessa sessione sintetica. Verificato empiricamente:
-    l'header è stabile entro una conversazione (per le sessioni reali coincide
-    con il loro id) e distinto fra run diversi. Quando assente (cli vecchia), il
-    fingerprint degrada al comportamento precedente (solo system + primo user)."""
+    ``session_key`` is the ``x-claude-code-session-id`` header that Claude Code
+    (cli >= 2.x) sends on EVERY request: without it two concurrent runs with the
+    same system and the same first prompt (e.g. two test sessions, or the
+    "generate title" service traffic, identical across different sessions) would
+    collapse into the same synthetic session. Verified empirically: the header is
+    stable within a conversation (for real sessions it matches their id) and
+    distinct between different runs. When absent (old cli), the fingerprint
+    degrades to the previous behaviour (system + first user only)."""
     payload = (
         json.dumps(_strip_volatile(system), sort_keys=True, ensure_ascii=False)
         + "|"
@@ -86,8 +85,8 @@ def fingerprint(system, first_user_message, session_key: str | None = None) -> s
 
 
 def _header_ci(headers: dict | None, name: str) -> str | None:
-    """Lettura case-insensitive di un header dal record (gli header salvati sono
-    già in minuscolo, ma non diamo per scontata la normalizzazione)."""
+    """Case-insensitive read of a header from the record (stored headers are
+    already lowercase, but we do not take the normalization for granted)."""
     if not headers:
         return None
     target = name.lower()
@@ -98,12 +97,12 @@ def _header_ci(headers: dict | None, name: str) -> str | None:
 
 
 def fingerprint_inputs(record: dict, session_id_header: str):
-    """Estrae (system, primo messaggio user, session_key, messages) da un record
-    di round trip. Condiviso fra la correlazione live e la reidratazione dal DB,
-    così i fingerprint ricalcolati all'avvio combaciano con quelli vivi.
+    """Extracts (system, first user message, session_key, messages) from a round
+    trip record. Shared between live correlation and rehydration from the DB, so
+    the fingerprints recomputed at startup match the live ones.
 
-    ``session_id_header`` è il nome dell'header con cui l'agent runtime marca la
-    sessione (conoscenza del runtime, non della correlazione)."""
+    ``session_id_header`` is the name of the header with which the agent runtime
+    marks the session (runtime knowledge, not correlation knowledge)."""
     body = (record.get("request") or {}).get("body") or {}
     messages = body.get("messages") or []
     system = body.get("system")
@@ -114,9 +113,9 @@ def fingerprint_inputs(record: dict, session_id_header: str):
 
 
 def _extract_user_text(content) -> str | None:
-    """Testo del messaggio user, se presente. Concatena TUTTI i blocchi 'text':
-    Claude Code affianca al prompt dell'utente blocchi di system-reminder, e il
-    solo primo blocco potrebbe essere identico fra turni diversi."""
+    """Text of the user message, if present. Concatenates ALL 'text' blocks:
+    Claude Code puts system-reminder blocks alongside the user prompt, and the
+    first block alone could be identical across different turns."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -131,8 +130,8 @@ def _extract_user_text(content) -> str | None:
 
 
 def _is_tool_result_message(content) -> bool:
-    """True se il messaggio user è (anche solo in parte) un tool_result:
-    continuazione automatica del loop tool, non un nuovo turno utente."""
+    """True if the user message is (even only in part) a tool_result: automatic
+    continuation of the tool loop, not a new user turn."""
     if isinstance(content, list):
         return any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
     return False
@@ -150,28 +149,28 @@ class SessionState:
 
 
 class Correlator:
-    """Stato di correlazione in memoria. Metodi puri sui dati passati, senza I/O."""
+    """In-memory correlation state. Pure methods on the passed data, no I/O."""
 
     def __init__(self, runtime: AgentRuntime | None = None):
         self.runtime = runtime or get_runtime()
         self.session_state: dict[str, SessionState] = {}
         self.fingerprint_to_session: dict[str, str] = {}
-        # id (toolu_...) del blocco tool_use prodotto da un round trip -> fingerprint
-        # della conversazione in cui è comparso, per il join con PreToolUse/SubagentStart.
+        # id (toolu_...) of the tool_use block produced by a round trip -> fingerprint
+        # of the conversation it appeared in, for the join with PreToolUse/SubagentStart.
         self.tool_use_to_fingerprint: dict[str, str] = {}
-        # prompt testuale di UserPromptSubmit -> LISTA di session_id reali che lo
-        # hanno inviato: permette di legare conversazioni SENZA tool call (che non
-        # hanno tool_use_id da joinare) al loro session_id, confrontando l'ultimo
-        # messaggio user. È una lista (non un singolo id) perché due run concorrenti
-        # possono inviare lo stesso identico prompt: il matching sceglie la run
-        # giusta col session_key dell'header, senza che l'una sovrascriva l'altra.
+        # textual prompt of UserPromptSubmit -> LIST of real session_ids that sent
+        # it: it allows tying conversations WITHOUT tool calls (which have no
+        # tool_use_id to join on) to their session_id, by comparing the last user
+        # message. It is a list (not a single id) because two concurrent runs can
+        # send the very same prompt: the matching picks the right run with the
+        # session_key from the header, without one overwriting the other.
         self.prompt_to_sessions: dict[str, list[str]] = {}
 
     def _remember_prompt(self, prompt: str, session_id: str) -> None:
         lst = self.prompt_to_sessions.setdefault(prompt, [])
         if session_id not in lst:
             lst.append(session_id)
-        # tetto globale sul numero di (prompt, sessione) ricordati
+        # global ceiling on the number of remembered (prompt, session) pairs
         total = sum(len(v) for v in self.prompt_to_sessions.values())
         while total > 200 and self.prompt_to_sessions:
             oldest = next(iter(self.prompt_to_sessions))
@@ -181,14 +180,15 @@ class Correlator:
             total -= 1
 
     def _match_pending_prompt(self, content, preferred_session_id: str | None = None) -> str | None:
-        """Cerca fra i prompt registrati da UserPromptSubmit uno che coincida
-        con un blocco text del messaggio user (Claude Code affianca al prompt
-        blocchi di system-reminder: il confronto è per singolo blocco).
+        """Looks among the prompts registered by UserPromptSubmit for one that
+        matches a text block of the user message (Claude Code puts
+        system-reminder blocks alongside the prompt: the comparison is per single
+        block).
 
-        Se più run hanno inviato lo stesso prompt, ``preferred_session_id`` (il
-        session_key dell'header del round trip, che per le sessioni reali coincide
-        col loro id) seleziona la run corretta; altrimenti si prende la più
-        vecchia in attesa (FIFO)."""
+        If several runs sent the same prompt, ``preferred_session_id`` (the
+        session_key from the round trip header, which for real sessions matches
+        their id) selects the correct run; otherwise the oldest pending one is
+        taken (FIFO)."""
         texts: list[str] = []
         if isinstance(content, str):
             texts.append(content)
@@ -217,14 +217,14 @@ class Correlator:
         return self.session_state.setdefault(session_id, SessionState())
 
     def rehydrate(self, sessions: list[dict], events: list[dict]) -> None:
-        """Ricostruisce lo stato in memoria da uno snapshot del DB (best-effort).
+        """Rebuilds the in-memory state from a DB snapshot (best-effort).
 
-        Al riavvio il Correlator ripartirebbe vuoto: turn_index da 1 (round trip
-        rinumerati e sovrapposti), round trip senza hook che creano nuove syn-,
-        join MCP/subagente (tool_use_id) persi. Qui si ripristina l'essenziale
-        dagli eventi già salvati: gli id di sessione sono quelli DEFINITIVI (post
-        merge) del DB, quindi i fingerprint ricalcolati puntano già alla sessione
-        giusta. ``events`` è atteso ordinato per ts_start."""
+        On restart the Correlator would start empty: turn_index from 1 (round
+        trips renumbered and overlapping), round trips without hooks creating new
+        syn-, MCP/subagent joins (tool_use_id) lost. Here the essentials are
+        restored from the events already saved: session ids are the DEFINITIVE
+        ones (post merge) from the DB, so the recomputed fingerprints already
+        point to the right session. ``events`` is expected ordered by ts_start."""
         for s in sessions:
             st = self._state(s["id"])
             st.tag = st.tag or s.get("tag")
@@ -262,18 +262,18 @@ class Correlator:
                         self.tool_use_to_fingerprint[block["id"]] = fp
 
     def session_for_tool_use(self, tool_use_id: str | None) -> str | None:
-        """Sessione della conversazione in cui è comparso un tool_use.
+        """Session of the conversation in which a tool_use appeared.
 
-        Usato per legare gli eventi MCP alla sessione: Claude Code passa il
-        tool_use id nel campo params._meta["claudecode/toolUseId"] della
-        tools/call JSON-RPC."""
+        Used to tie MCP events to the session: Claude Code passes the tool_use id
+        in the params._meta["claudecode/toolUseId"] field of the JSON-RPC
+        tools/call."""
         if not tool_use_id:
             return None
         fp = self.tool_use_to_fingerprint.get(tool_use_id)
         return self.fingerprint_to_session.get(fp) if fp else None
 
     def _merge_session(self, synthetic_id: str, real_id: str) -> None:
-        """Sostituisce una sessione sintetica con l'id reale scoperto via hook."""
+        """Replaces a synthetic session with the real id discovered via hook."""
         if synthetic_id == real_id:
             return
         old = self.session_state.pop(synthetic_id, None)
@@ -293,9 +293,9 @@ class Correlator:
     # -- round trip (proxy) ---------------------------------------------
 
     def correlate_round_trip(self, record: dict) -> dict:
-        """Assegna session_id/turn_index/agent_id a un round trip del proxy.
+        """Assigns session_id/turn_index/agent_id to a proxy round trip.
 
-        Ritorna {"session_id", "turn_index", "agent_id", "is_new_session", "is_new_turn"}.
+        Returns {"session_id", "turn_index", "agent_id", "is_new_session", "is_new_turn"}.
         """
         system, first_user, session_key, messages = fingerprint_inputs(
             record, self.runtime.session_id_header
@@ -312,11 +312,10 @@ class Correlator:
                 self.fingerprint_to_session[fp] = session_id
             is_new_session = True
 
-        # binding via prompt (regola 2): una conversazione ancora sintetica il
-        # cui ultimo messaggio user coincide con un prompt annunciato da
-        # UserPromptSubmit appartiene a quella sessione reale. Copre le
-        # conversazioni senza tool call, dove il join per tool_use_id non
-        # scatterà mai.
+        # binding via prompt (rule 2): a still-synthetic conversation whose last
+        # user message matches a prompt announced by UserPromptSubmit belongs to
+        # that real session. It covers conversations without tool calls, where
+        # the join by tool_use_id will never fire.
         merged_from: list[str] = []
         if session_id.startswith("syn-") and messages:
             last_message = self.runtime.last_user_message(messages)
@@ -337,15 +336,15 @@ class Correlator:
         if tag:
             state.tag = tag
 
-        # Aggancio alla sessione madre via header x-claude-code-session-id
-        # (claude-cli >= 2.x lo manda su ogni richiesta). NON sostituisce la
-        # correlazione per fingerprint: le conversazioni dei subagenti portano
-        # l'id della MADRE e devono poter migrare nella sessione figlia al
-        # primo PreToolUse (il merge scatta solo su owner "syn-"). Qui la
-        # sintetica viene solo nidificata sotto la madre, così il traffico di
-        # servizio non resta orfano in cima alla sidebar. Solo se la madre è
-        # già nota via hook: la sidebar nasconde i figli di sessioni che non
-        # esistono come riga nel DB.
+        # Attachment to the parent session via the x-claude-code-session-id
+        # header (claude-cli >= 2.x sends it on every request). It does NOT
+        # replace correlation by fingerprint: subagent conversations carry the
+        # PARENT's id and must be able to migrate into the child session on the
+        # first PreToolUse (the merge only fires on a "syn-" owner). Here the
+        # synthetic is only nested under the parent, so service traffic is not
+        # left orphaned at the top of the sidebar. Only if the parent is already
+        # known via hook: the sidebar hides the children of sessions that do not
+        # exist as a row in the DB.
         if session_id.startswith("syn-") and state.parent_session_id is None:
             mother = self.session_state.get(session_key) if session_key else None
             if mother is not None and mother.has_hooks:
@@ -366,8 +365,8 @@ class Correlator:
                     state.last_user_text = text
                     is_new_turn = True
 
-        # registra i tool_use prodotti in questa risposta per il futuro join
-        # con PreToolUse / SubagentStart via tool_use_id.
+        # register the tool_use blocks produced in this response for the future
+        # join with PreToolUse / SubagentStart via tool_use_id.
         message = (record.get("response") or {}).get("message") or {}
         for block in message.get("content", []) or []:
             if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id") and fp:
@@ -386,12 +385,12 @@ class Correlator:
     # -- hook events ------------------------------------------------------
 
     def correlate_hook(self, payload: dict, tag: str | None = None) -> dict:
-        """Assegna/aggiorna lo stato di sessione a partire da un evento hook.
+        """Assigns/updates the session state starting from a hook event.
 
-        ``payload`` è il JSON dell'hook così come lo manda Claude Code (via
-        ``hooks/agentspy_hook.py``): ci si aspetta almeno ``session_id`` e
-        ``hook_event_name``. Ritorna {"session_id", "turn_index", "agent_id",
-        "parent_session_id", "is_new_turn"}.
+        ``payload`` is the hook JSON exactly as Claude Code sends it (via
+        ``hooks/agentspy_hook.py``): at least ``session_id`` and
+        ``hook_event_name`` are expected. Returns {"session_id", "turn_index",
+        "agent_id", "parent_session_id", "is_new_turn"}.
         """
         session_id = payload.get("session_id")
         hook_name = payload.get("hook_event_name")
@@ -402,10 +401,10 @@ class Correlator:
             if tag:
                 state.tag = tag
 
-        # Schema reale (verificato in F5): gli hook generati DENTRO un
-        # subagente portano agent_id/agent_type ma il session_id della MADRE.
-        # L'evento appartiene quindi alla sessione figlia "sub-<agent_id>";
-        # SubagentStart/Stop restano invece marker sulla timeline della madre.
+        # Real schema (verified in F5): hooks generated INSIDE a subagent carry
+        # agent_id/agent_type but the PARENT's session_id. The event therefore
+        # belongs to the child session "sub-<agent_id>"; SubagentStart/Stop stay
+        # instead as markers on the parent's timeline.
         child_session = None
         target_id, target = session_id, state
         if agent_id and session_id:
@@ -454,11 +453,11 @@ class Correlator:
             "agent_id": target.agent_id if target else None,
             "parent_session_id": target.parent_session_id if target else None,
             "is_new_turn": is_new_turn,
-            # sessioni sintetiche assorbite: il chiamante DEVE riassegnarne
-            # gli eventi (store.reassign_session) e notificare i client.
+            # absorbed synthetic sessions: the caller MUST reassign their events
+            # (store.reassign_session) and notify the clients.
             "merged_from": merged_from,
-            # sessione figlia scoperta/aggiornata da questo hook: il chiamante
-            # la upserta nello store (con live=False su SubagentStop).
+            # child session discovered/updated by this hook: the caller upserts
+            # it into the store (with live=False on SubagentStop).
             "child_session": child_session,
             "child_ended": bool(agent_id) and hook_name == self.runtime.hook_subagent_stop,
         }

@@ -94,9 +94,9 @@ export interface EventSummary {
 
 /** Full row (GET /api/events/:id): EventSummary + full payload. */
 /**
- * Un elemento che compone la richiesta all'LLM (inventario didattico).
- * Nessun contenuto: solo identità + dimensione. Calcolato lato server da
- * context_artifacts.py sul request.body.
+ * An element making up the request to the LLM (didactic inventory).
+ * No content: only identity + size. Computed server-side by
+ * context_artifacts.py on the request.body.
  */
 export type ArtifactKind =
   | 'system'
@@ -126,7 +126,7 @@ export interface EventDetail extends EventSummary {
    * it as raw data to explore in the UI.
    */
   payload: unknown
-  /** Inventario degli elementi del contesto della richiesta. */
+  /** Inventory of the request's context elements. */
   artifacts?: ContextArtifact[]
 }
 
@@ -149,7 +149,7 @@ export interface StatsItem {
   system_chars: number | null
   tools_chars: number | null
   messages_chars: number | null
-  /** Inventario degli elementi del contesto per questo round trip. */
+  /** Inventory of the context elements for this round trip. */
   artifacts?: ContextArtifact[]
 }
 

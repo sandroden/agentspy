@@ -1,8 +1,8 @@
-"""Registry dei runtime dell'agente.
+"""Registry of the agent runtimes.
 
-Il runtime attivo si sceglie con AGENTSPY_RUNTIME (default: claude-code).
-Per aggiungerne uno: implementare AgentRuntime in un modulo qui accanto e
-registrarlo in RUNTIMES.
+The active runtime is selected with AGENTSPY_RUNTIME (default: claude-code).
+To add one: implement AgentRuntime in a module next to this one and register
+it in RUNTIMES.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def get_runtime(name: str | None = None) -> AgentRuntime:
         return RUNTIMES[name]()
     except KeyError:
         raise ValueError(
-            f"runtime sconosciuto: {name!r} (disponibili: {', '.join(sorted(RUNTIMES))})"
+            f"unknown runtime: {name!r} (available: {', '.join(sorted(RUNTIMES))})"
         ) from None
 
 

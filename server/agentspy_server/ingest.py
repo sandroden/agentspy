@@ -1,6 +1,6 @@
-"""Endpoint di ingestione: POST /ingest/hook (Claude Code hooks) e POST
-/ingest/mcp (wrapper MCP). Correlano l'evento con correlate.Correlator,
-salvano su store e notificano via WebSocket.
+"""Ingest endpoints: POST /ingest/hook (Claude Code hooks) and POST
+/ingest/mcp (MCP wrapper). They correlate the event with correlate.Correlator,
+save it to the store and notify over WebSocket.
 """
 
 from __future__ import annotations
@@ -28,14 +28,14 @@ async def ingest_hook(request: Request) -> JSONResponse:
     session_id = info["session_id"]
     hook_name = payload.get("hook_event_name")
 
-    # sessioni sintetiche identificate ora con questa sessione reale: sposta
-    # gli eventi già salvati e avvisa i client di dimenticare l'id sintetico.
+    # synthetic sessions just identified with this real session: move the
+    # events already saved and tell clients to forget the synthetic id.
     for merged_id in info.get("merged_from") or []:
         await asyncio.to_thread(store.reassign_session, merged_id, session_id)
         await ws_manager.broadcast({"type": "session_removed", "id": merged_id})
 
-    # sessione figlia (subagente) scoperta da questo hook: assicura la riga
-    # con il legame alla madre; su SubagentStop viene chiusa.
+    # child session (subagent) discovered by this hook: ensure the row with
+    # the link to the parent; it is closed on SubagentStop.
     child = info.get("child_session")
     if child:
         await asyncio.to_thread(
@@ -61,7 +61,7 @@ async def ingest_hook(request: Request) -> JSONResponse:
             started_at=ts,
             ended_at=ts,
             live=not ending,
-            # per relativizzare in UI i path dei tool su file
+            # to relativize file tool paths in the UI
             cwd=payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
         )
 
@@ -101,9 +101,9 @@ async def ingest_mcp(request: Request) -> JSONResponse:
     session_id = body.get("session_id")
     server_name = body.get("server_name")
 
-    # Claude Code passa il tool_use id della conversazione API dentro la
-    # tools/call: è il ponte che lega l'evento MCP alla sessione (gli eventi
-    # di lifecycle — initialize, tools/list — restano senza sessione).
+    # Claude Code passes the API conversation's tool_use id inside the
+    # tools/call: it is the bridge tying the MCP event to the session (lifecycle
+    # events — initialize, tools/list — stay without a session).
     turn_index = None
     if not session_id:
         meta = (body.get("params") or {}).get("_meta") or {}

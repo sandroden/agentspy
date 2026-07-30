@@ -1,13 +1,13 @@
-"""Popola un DB agentspy dimostrativo per provare la UI senza traffico reale.
+"""Populate a demo agentspy DB to try the UI without real traffic.
 
-Crea tre sessioni: una live con 4 turni, tool use, un subagente e un evento
-MCP; la sessione figlia del subagente; una sessione breve già chiusa. I
-payload hanno la stessa forma di quelli prodotti dal proxy (request con
-system/tools/messages + analysis, response SSE ricostruita), inclusi blocchi
-``<system-reminder>`` nei messaggi user per esercitare le viste del pannello
-di dettaglio.
+Creates three sessions: a live one with 4 turns, tool use, a subagent and an
+MCP event; the subagent's child session; a short session already closed. The
+payloads have the same shape as those produced by the proxy (request with
+system/tools/messages + analysis, rebuilt SSE response), including
+``<system-reminder>`` blocks in the user messages to exercise the detail
+panel views.
 
-Uso (dalla dir server/, il DB di default è ./agentspy-demo.db):
+Usage (from the server/ dir, the default DB is ./agentspy-demo.db):
 
     uv run python ../scripts/seed_demo.py
     AGENTSPY_DB=./agentspy-demo.db uv run agentspy
@@ -43,7 +43,7 @@ TOOLS = [
 
 REMINDER_1 = (
     "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n"
-    "# claudeMd\nCodebase and user instructions are shown below...\n" + "contesto utile. " * 120
+    "# claudeMd\nCodebase and user instructions are shown below...\n" + "useful context. " * 120
     + "\n</system-reminder>"
 )
 REMINDER_2 = (
@@ -62,9 +62,9 @@ def user_msg(prompt: str) -> dict:
     }
 
 
-# Corpo SKILL.md iniettato da Claude Code quando si invoca /okf:okf: è costo di
-# contesto reale, ed è ciò che le nuove viste (badge trigger + chip nel
-# dettaglio) mettono in evidenza e misurano.
+# SKILL.md body injected by Claude Code when /okf:okf is invoked: it is real
+# context cost, and it is what the new views (trigger badge + chip in the
+# detail panel) highlight and measure.
 SKILL_BODY = (
     "# Open Knowledge Format (OKF) skill\n\n"
     "OKF represents knowledge as a directory of markdown files with YAML "
@@ -76,9 +76,9 @@ SKILL_BODY = (
 
 
 def command_user_msg(name: str, args: str, body: str) -> dict:
-    """Messaggio user come lo compone Claude Code per uno slash-command: il
-    wrapper <command-*> seguito dallo SKILL.md iniettato, tutto in un blocco
-    text (più il solito system-reminder di contesto)."""
+    """User message as Claude Code composes it for a slash-command: the
+    <command-*> wrapper followed by the injected SKILL.md, all in one text
+    block (plus the usual context system-reminder)."""
     injected = (
         f"<command-message>{name}</command-message>\n"
         f"<command-name>/{name}</command-name>\n"
@@ -124,10 +124,10 @@ def hook_payload(name: str, session_id: str, extra: dict | None = None) -> dict:
 def add_rt(sid: str, turn: int, t0: float, model: str, messages: list, resp_blocks: list,
            usage: dict, tools_used: list[str], dur: float = 6.0, stop: str = "end_turn",
            cache_ttl: str = "1h") -> None:
-    # TTL con cui i token sono messi in cache, come lo sceglie Claude Code sul
-    # traffico reale: 1h nelle sessioni principali, 5m nei subagenti Task. Il
-    # tier sta nella usage (`cache_creation`) e nelle colonne, perché i due
-    # costano diverso (2x vs 1.25x l'input).
+    # TTL the tokens are cached with, as Claude Code picks it on real traffic:
+    # 1h in main sessions, 5m in Task subagents. The tier lives in the usage
+    # (`cache_creation`) and in the columns, because the two cost differently
+    # (2x vs 1.25x the input).
     write = usage["cache_creation_input_tokens"]
     m5 = write if cache_ttl == "5m" else 0
     h1 = write if cache_ttl == "1h" else 0
@@ -151,19 +151,19 @@ def add_hook(sid: str, name: str, turn: int, t0: float, extra: dict | None = Non
                        ts_start=t0, ts_end=t0, payload=hook_payload(name, sid, extra))
 
 
-# ---------------------------------------------------------------- sessione A (live, featured)
+# ---------------------------------------------------------------- session A (live, featured)
 A = "0a1b2c3d-1111-2222-3333-444455556666"
 tA = NOW - 1500
-store.upsert_session(A, tag="demo-live", title="Refactor API autenticazione", model="claude-fable-5",
+store.upsert_session(A, tag="demo-live", title="Refactor authentication API", model="claude-fable-5",
                      started_at=tA, live=True)
 add_hook(A, "SessionStart", 0, tA)
 
 model_a = "claude-fable-5"
 prompts = [
-    "Analizza il modulo di autenticazione e proponi un refactor",
-    "Applica il refactor proposto al file auth.py",
-    "Aggiungi i test per il nuovo flusso token",
-    "Lancia i test e sistema gli errori",
+    "Analyze the authentication module and propose a refactor",
+    "Apply the proposed refactor to the auth.py file",
+    "Add tests for the new token flow",
+    "Run the tests and fix the errors",
 ]
 cache_read = 18000
 t = tA + 5
@@ -172,7 +172,7 @@ for turn, prompt in enumerate(prompts, start=1):
     add_hook(A, "UserPromptSubmit", turn, t, {"prompt": prompt})
     t += 1
     msgs = msgs + [user_msg(prompt)]
-    # 2-3 round trip per turno (uso tool + risposta finale)
+    # 2-3 round trips per turn (tool use + final answer)
     n_rt = 3 if turn in (2, 4) else 2
     for i in range(n_rt):
         is_last = i == n_rt - 1
@@ -185,8 +185,8 @@ for turn, prompt in enumerate(prompts, start=1):
         if not is_last:
             tool = ["Read", "Bash", "Edit", "Grep", "Write", "TodoWrite"][(turn + i) % 6]
             blocks = [
-                {"type": "thinking", "thinking": "Ragiono sul da farsi..."},
-                {"type": "text", "text": f"Procedo con {tool} sul modulo auth."},
+                {"type": "thinking", "thinking": "Thinking about what to do next..."},
+                {"type": "text", "text": f"Going ahead with {tool} on the auth module."},
                 {"type": "tool_use", "id": f"toolu_{turn}_{i}", "name": tool,
                  "input": {"arg": "auth.py"}},
             ]
@@ -197,31 +197,31 @@ for turn, prompt in enumerate(prompts, start=1):
                 {"role": "assistant", "content": blocks},
                 {"role": "user", "content": [{"type": "tool_result",
                                               "tool_use_id": f"toolu_{turn}_{i}",
-                                              "content": "risultato del tool " + "riga\n" * 40}]},
+                                              "content": "tool result " + "line\n" * 40}]},
             ]
         else:
             blocks = [{"type": "text",
-                       "text": f"Fatto: completato il punto '{prompt[:40]}...'. Riepilogo tecnico."}]
+                       "text": f"Done: completed the item '{prompt[:40]}...'. Technical summary."}]
             add_rt(A, turn, t, model_a, msgs, blocks, usage, [])
             msgs = msgs + [{"role": "assistant", "content": blocks}]
         cache_read += cache_write + inp + out
         t += 9
-    # turno 3: subagente
+    # turn 3: subagent
     if turn == 3:
         agent_id = "agent-explore-42"
         SUB = f"sub-{agent_id}"
         add_hook(A, "SubagentStart", turn, t, {"agent_id": agent_id, "agent_type": "Explore"})
-        store.upsert_session(SUB, title="Explora suite di test", model="claude-sonnet-5",
+        store.upsert_session(SUB, title="Explore the test suite", model="claude-sonnet-5",
                              parent_session_id=A, agent_id=agent_id,
                              started_at=t, ended_at=t + 60, live=False)
         sub_cache = 9000
         st = t + 1
-        smsgs: list = [user_msg("Esplora i test esistenti del modulo auth")]
+        smsgs: list = [user_msg("Explore the existing tests of the auth module")]
         for j in range(3):
             usage = {"input_tokens": 200, "output_tokens": 700,
                      "cache_read_input_tokens": sub_cache,
                      "cache_creation_input_tokens": 1200 if j == 0 else 300}
-            blocks = [{"type": "text", "text": f"Passo {j+1} dell'esplorazione."}]
+            blocks = [{"type": "text", "text": f"Step {j+1} of the exploration."}]
             if j < 2:
                 blocks.append({"type": "tool_use", "id": f"toolu_s{j}", "name": "Grep",
                                "input": {"arg": "test_auth"}})
@@ -235,35 +235,36 @@ for turn, prompt in enumerate(prompts, start=1):
     add_hook(A, "Stop", turn, t)
     t += 20
 
-# turno 5: invocazione di una skill via slash-command (/okf:okf) — esercita
-# il badge trigger "🎓 Command" e la chip che misura lo SKILL.md iniettato; il
-# primo round trip delega a un'altra skill col tool Skill (badge 🎓 nei Tools).
+# turn 5: skill invocation via slash-command (/okf:okf) — exercises the
+# "🎓 Command" trigger badge and the chip measuring the injected SKILL.md; the
+# first round trip delegates to another skill with the Skill tool (🎓 badge in
+# Tools).
 add_hook(A, "UserPromptSubmit", 5, t, {"prompt": "/okf:okf produce .okf"})
 t += 1
 msgs = msgs + [command_user_msg("okf:okf", "produce .okf", SKILL_BODY)]
 skill_usage = {"input_tokens": 320, "output_tokens": 600,
                "cache_read_input_tokens": cache_read, "cache_creation_input_tokens": 2200}
 skill_blocks = [
-    {"type": "text", "text": "Per produrre il bundle mi appoggio alla skill dei documenti."},
+    {"type": "text", "text": "To produce the bundle I lean on the documents skill."},
     {"type": "tool_use", "id": "toolu_5_0", "name": "Skill",
-     "input": {"skill": "document-skills:pdf", "args": "estrai struttura"}},
+     "input": {"skill": "document-skills:pdf", "args": "extract structure"}},
 ]
 add_rt(A, 5, t, model_a, msgs, skill_blocks, skill_usage, ["Skill"], stop="tool_use")
 add_hook(A, "PreToolUse", 5, t + 6.2, {"tool_name": "Skill", "tool_input": {"skill": "document-skills:pdf"}})
 msgs = msgs + [
     {"role": "assistant", "content": skill_blocks},
     {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_5_0",
-                                  "content": "skill document-skills:pdf caricata"}]},
+                                  "content": "skill document-skills:pdf loaded"}]},
 ]
 t += 9
-final5 = [{"type": "text", "text": "Bundle OKF prodotto in .okf/ e validato."}]
+final5 = [{"type": "text", "text": "OKF bundle produced in .okf/ and validated."}]
 add_rt(A, 5, t, model_a, msgs, final5,
        {"input_tokens": 260, "output_tokens": 380,
         "cache_read_input_tokens": cache_read + 3000, "cache_creation_input_tokens": 300}, [])
 msgs = msgs + [{"role": "assistant", "content": final5}]
 add_hook(A, "Stop", 5, t + 6)
 
-# evento MCP nella sessione A
+# MCP event in session A
 store.insert_event(
     session_id=A, kind="mcp", subkind="context7:query-docs", turn_index=2,
     ts_start=tA + 120, ts_end=tA + 121.5,
@@ -273,20 +274,20 @@ store.insert_event(
              "result": {"content": [{"type": "text", "text": "starlette WebSocket docs…"}]}},
 )
 
-# ---------------------------------------------------------------- sessione B (chiusa, corta)
+# ---------------------------------------------------------------- session B (closed, short)
 B = "0b2c3d4e-7777-8888-9999-aaaabbbbcccc"
 tB = NOW - 5400
-store.upsert_session(B, tag="demo-breve", title="Fix typo nel README", model="claude-sonnet-5",
+store.upsert_session(B, tag="demo-short", title="Fix typo in the README", model="claude-sonnet-5",
                      started_at=tB, ended_at=tB + 90, live=False)
 add_hook(B, "SessionStart", 0, tB)
-add_hook(B, "UserPromptSubmit", 1, tB + 2, {"prompt": "Correggi i typo nel README"})
-bmsgs = [user_msg("Correggi i typo nel README")]
+add_hook(B, "UserPromptSubmit", 1, tB + 2, {"prompt": "Fix the typos in the README"})
+bmsgs = [user_msg("Fix the typos in the README")]
 bc = 12000
 for i in range(2):
     usage = {"input_tokens": 120, "output_tokens": 500,
              "cache_read_input_tokens": bc, "cache_creation_input_tokens": 800 if i == 0 else 100}
     blocks = ([{"type": "tool_use", "id": f"toolu_b{i}", "name": "Edit", "input": {"arg": "README.md"}}]
-              if i == 0 else [{"type": "text", "text": "Typo corretti."}])
+              if i == 0 else [{"type": "text", "text": "Typos fixed."}])
     add_rt(B, 1, tB + 4 + i * 10, "claude-sonnet-5", bmsgs, blocks, usage,
            ["Edit"] if i == 0 else [], stop="tool_use" if i == 0 else "end_turn")
     bc += 1000
@@ -294,7 +295,7 @@ add_hook(B, "Stop", 1, tB + 30)
 
 store.close()
 sessions = Store(DB).get_sessions()
-print(f"DB {DB}: {len(sessions)} sessioni")
+print(f"DB {DB}: {len(sessions)} sessions")
 for s in sessions:
-    print(" -", s["id"][:16], s.get("title"), "live" if s.get("live") else "chiusa",
+    print(" -", s["id"][:16], s.get("title"), "live" if s.get("live") else "closed",
           "rt:", s.get("round_trips"))

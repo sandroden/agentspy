@@ -1,19 +1,20 @@
-"""Inventario didattico degli elementi che compongono una richiesta all'LLM.
+"""Educational inventory of the elements making up a request to the LLM.
 
-Dettaglio implementativo del runtime Claude Code (esposto via
-``ClaudeCodeRuntime.extract_artifacts``): il modo in cui Claude Code inietta
-istruzioni e allegati nel contesto — i marcatori "Contents of…", "Called the X
-tool", gli avvisi sui file troppo grandi — è conoscenza sua.
+Implementation detail of the Claude Code runtime (exposed via
+``ClaudeCodeRuntime.extract_artifacts``): the way Claude Code injects
+instructions and attachments into the context — the "Contents of…", "Called the
+X tool" markers, the notices about files that are too large — is its own
+knowledge.
 
-A partire dal `request.body` catturato dal proxy (system / tools / messages),
-estrae la lista tipizzata di *artefatti* che entrano nel contesto: system
-prompt, CLAUDE.md/MEMORY.md, immagini, file allegati via `@`, tools.
+Starting from the `request.body` captured by the proxy (system / tools /
+messages), it extracts the typed list of *artifacts* entering the context:
+system prompt, CLAUDE.md/MEMORY.md, images, files attached via `@`, tools.
 
-Non trasmette il contenuto: solo identità + dimensione. Vedi il piano in
-`.claude/plans/` e i concept OKF (`token-accounting.md`).
+It does not transmit the content: only identity + size. See the plan in
+`.claude/plans/` and the OKF concepts (`token-accounting.md`).
 
-Modulo a sé (nessun import da `proxy`/`store`) per restare riusabile e privo di
-import circolari.
+Standalone module (no import from `proxy`/`store`) to stay reusable and free of
+circular imports.
 """
 
 from __future__ import annotations
@@ -22,36 +23,36 @@ import json
 import re
 from typing import Any
 
-# Marcatore con cui Claude Code inietta i file di istruzioni nel system-reminder
-# del primo user message: `Contents of <path> (<descrizione>):`
+# Marker with which Claude Code injects the instruction files into the
+# system-reminder of the first user message: `Contents of <path> (<description>):`
 _CONTENTS_RE = re.compile(r"Contents of (\S+) \(([^)]+)\):")
 
-# Marcatore adiacente a un'immagine incollata: `[Image: source: <path>]`
+# Marker adjacent to a pasted image: `[Image: source: <path>]`
 _IMAGE_SOURCE_RE = re.compile(r"\[Image: source: ([^\]]+)\]")
 
-# Blocco `role:"system"` con cui Claude Code pre-carica un `@file` come se fosse
-# l'output di una Read (eager loading lato client; non è un vero tool_result).
+# `role:"system"` block with which Claude Code preloads an `@file` as if it were
+# the output of a Read (client-side eager loading; not a real tool_result).
 _CALLED_TOOL_RE = re.compile(
     r'^Called the (\w+) tool with the following input: (\{.*?\})\s*\n'
     r'Result of calling the \w+ tool:\n',
     re.DOTALL,
 )
 
-# Avviso `role:"system"` con cui Claude Code segnala un `@file` troppo grande
-# per l'eager loading (osservato coi PDF): il file è solo *referenziato*, il
-# contenuto NON è nel contesto finché il modello non lo legge con Read.
+# `role:"system"` notice with which Claude Code flags an `@file` too large for
+# eager loading (observed with PDFs): the file is only *referenced*, the content
+# is NOT in the context until the model reads it with Read.
 _FILE_REF_RE = re.compile(r"^PDF file: (\S+) \(([^)]+)\)\. This PDF is too large")
 
 _BILLING_PREFIX = "x-anthropic-billing-header:"
 
-# Tool le cui `tool_result` iniettano nel contesto il *contenuto di un file*
-# (identità = il path), non l'output di un comando. Un `@file` allegato
-# dall'utente è lo stesso tipo di contenuto: differisce solo l'origine.
+# Tools whose `tool_result` injects into the context the *content of a file*
+# (identity = the path), not the output of a command. An `@file` attached by the
+# user is the same kind of content: only the origin differs.
 _FILE_READ_TOOLS = {"Read"}
 
 
 def _jsize(obj: Any) -> int:
-    """Dimensione in caratteri della serializzazione JSON (stima del peso)."""
+    """Size in characters of the JSON serialization (weight estimate)."""
     try:
         return len(json.dumps(obj, ensure_ascii=False))
     except (TypeError, ValueError):
@@ -59,7 +60,7 @@ def _jsize(obj: Any) -> int:
 
 
 def _block_text(block: Any) -> str:
-    """Testo di un blocco messaggio (`{type:'text', text:...}`) o stringa."""
+    """Text of a message block (`{type:'text', text:...}`) or string."""
     if isinstance(block, str):
         return block
     if isinstance(block, dict) and block.get("type") == "text":
@@ -68,7 +69,7 @@ def _block_text(block: Any) -> str:
 
 
 def _iter_message_blocks(messages: list[Any]):
-    """Genera (role, block) per ogni blocco di ogni messaggio."""
+    """Yields (role, block) for every block of every message."""
     for msg in messages:
         if not isinstance(msg, dict):
             continue
@@ -82,23 +83,23 @@ def _iter_message_blocks(messages: list[Any]):
 
 
 def _claude_md_label(path: str, description: str) -> tuple[str, str]:
-    """Restituisce (kind, label) per un marcatore `Contents of`."""
+    """Returns (kind, label) for a `Contents of` marker."""
     desc = description.lower()
     if "auto-memory" in desc or path.endswith("MEMORY.md"):
         return "memory", "MEMORY.md"
-    # CLAUDE.md globale vive sotto ~/.claude/, quello di progetto no.
+    # The global CLAUDE.md lives under ~/.claude/, the project one does not.
     if "/.claude/CLAUDE.md" in path:
-        return "claude-md", "CLAUDE.md (globale)"
+        return "claude-md", "CLAUDE.md (global)"
     if path.endswith("CLAUDE.md"):
-        return "claude-md", "CLAUDE.md (progetto)"
-    # Altri file iniettati con lo stesso marcatore (es. MEMORY index).
+        return "claude-md", "CLAUDE.md (project)"
+    # Other files injected with the same marker (e.g. MEMORY index).
     return "claude-md", path.rsplit("/", 1)[-1]
 
 
 def _extract_system(system: Any) -> list[dict[str, Any]]:
-    """Un artifact `system` sommando i blocchi, escluso il billing header.
+    """One `system` artifact summing the blocks, billing header excluded.
 
-    `system` può essere una lista di blocchi, una stringa o None.
+    `system` may be a list of blocks, a string or None.
     """
     if system is None:
         return []
@@ -113,11 +114,11 @@ def _extract_system(system: Any) -> list[dict[str, Any]]:
     for block in system:
         text = _block_text(block)
         if text.startswith(_BILLING_PREFIX):
-            continue  # header di billing, non fa parte del system prompt
+            continue  # billing header, not part of the system prompt
         texts.append(text)
 
-    # Fallback: se l'esclusione ha svuotato tutto (billing assente/formato
-    # diverso), non azzerare mai il system prompt.
+    # Fallback: if the exclusion emptied everything (billing absent/different
+    # format), never zero out the system prompt.
     if not texts:
         texts = [_block_text(b) for b in system]
 
@@ -128,7 +129,7 @@ def _extract_system(system: Any) -> list[dict[str, Any]]:
 
 
 def _extract_instruction_files(messages: list[Any]) -> list[dict[str, Any]]:
-    """CLAUDE.md/MEMORY.md dai marcatori `Contents of` nel system-reminder."""
+    """CLAUDE.md/MEMORY.md from the `Contents of` markers in the system-reminder."""
     artifacts: list[dict[str, Any]] = []
     seen: set[str] = set()
     for role, block in _iter_message_blocks(messages):
@@ -153,7 +154,7 @@ def _extract_instruction_files(messages: list[Any]) -> list[dict[str, Any]]:
 
 
 def _message_blocks(msg: Any) -> list[Any]:
-    """I blocchi di contenuto di un messaggio (str normalizzata a blocco text)."""
+    """The content blocks of a message (str normalised to a text block)."""
     if not isinstance(msg, dict):
         return []
     content = msg.get("content")
@@ -167,24 +168,24 @@ def _has_tool_result(blocks: list[Any]) -> bool:
 
 
 def _image_weight(block: dict[str, Any]) -> int:
-    """Peso in caratteri di un blocco image (lunghezza del base64)."""
+    """Weight in characters of an image block (length of the base64)."""
     data = (block.get("source") or {}).get("data") or ""
     return len(data) if isinstance(data, str) else _jsize(data)
 
 
 def _extract_images(messages: list[Any]) -> list[dict[str, Any]]:
-    """Un artifact per immagine incollata dall'utente nei messages.
+    """One artifact per image pasted by the user in the messages.
 
-    Le immagini che stanno in un messaggio con un `tool_result` sono output di
-    tool (es. pagine di un PDF renderizzate da una Read), non allegati
-    dell'utente: si saltano qui e il loro peso è attribuito all'artefatto
-    `read-file` in `_extract_read_files`.
+    Images living in a message with a `tool_result` are tool output (e.g. PDF
+    pages rendered by a Read), not user attachments: they are skipped here and
+    their weight is attributed to the `read-file` artifact in
+    `_extract_read_files`.
     """
-    # Solo i messaggi senza tool_result trasportano immagini incollate.
+    # Only messages without a tool_result carry pasted images.
     eligible = [_message_blocks(m) for m in messages]
     eligible = [blocks for blocks in eligible if blocks and not _has_tool_result(blocks)]
 
-    # Path sorgente disponibili dai marcatori adiacenti `[Image: source: X]`.
+    # Source paths available from the adjacent `[Image: source: X]` markers.
     sources: list[str] = []
     for blocks in eligible:
         for block in blocks:
@@ -198,7 +199,7 @@ def _extract_images(messages: list[Any]) -> list[dict[str, Any]]:
             if not isinstance(block, dict) or block.get("type") != "image":
                 continue
             path = sources[idx] if idx < len(sources) else None
-            label = path.rsplit("/", 1)[-1] if path else "Immagine"
+            label = path.rsplit("/", 1)[-1] if path else "Image"
             artifacts.append(
                 {
                     "kind": "image",
@@ -213,10 +214,10 @@ def _extract_images(messages: list[Any]) -> list[dict[str, Any]]:
 
 
 def _extract_at_files(messages: list[Any]) -> list[dict[str, Any]]:
-    """File pre-caricati via `@` — blocco `role:"system"` `Called the … tool`.
+    """Files preloaded via `@` — `role:"system"` block `Called the … tool`.
 
-    Distinto dai veri tool_result (che hanno `role:"user"` e un `tool_use`
-    agganciato): qui l'utente ha pre-allegato il file, l'LLM non ha deciso nulla.
+    Distinct from real tool_results (which have `role:"user"` and an attached
+    `tool_use`): here the user pre-attached the file, the LLM decided nothing.
     """
     artifacts: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -235,14 +236,14 @@ def _extract_at_files(messages: list[Any]) -> list[dict[str, Any]]:
         if not file_path or file_path in seen:
             continue
         seen.add(file_path)
-        # chars = dimensione del contenuto iniettato (dopo l'header del marcatore)
+        # chars = size of the injected content (after the marker header)
         result = text[match.end():]
         artifacts.append(
             {
                 "kind": "at-file",
                 "label": "@" + file_path.rsplit("/", 1)[-1],
                 "path": file_path,
-                "description": f"pre-caricato via {tool}",
+                "description": f"pre-loaded via {tool}",
                 "chars": len(result),
             }
         )
@@ -250,14 +251,14 @@ def _extract_at_files(messages: list[Any]) -> list[dict[str, Any]]:
 
 
 def _extract_file_refs(messages: list[Any]) -> list[dict[str, Any]]:
-    """File allegati via `@` ma solo *referenziati* (contenuto non caricato).
+    """Files attached via `@` but only *referenced* (content not loaded).
 
-    Quando l'`@file` è troppo grande per l'eager loading (osservato coi PDF),
-    Claude Code inietta un avviso `role:"system"` ("PDF file: <path> … too
-    large … use the Read tool") invece del contenuto. È comunque un allegato
-    dell'utente — differisce da `at-file` perché nel contesto entra solo
-    l'avviso (poche centinaia di char), non il file: quello arriverà, se il
-    modello decide di leggerlo, come `read-file`.
+    When the `@file` is too large for eager loading (observed with PDFs),
+    Claude Code injects a `role:"system"` notice ("PDF file: <path> … too
+    large … use the Read tool") instead of the content. It is still a user
+    attachment — it differs from `at-file` because only the notice enters the
+    context (a few hundred chars), not the file: that will arrive, if the model
+    decides to read it, as a `read-file`.
     """
     artifacts: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -272,14 +273,14 @@ def _extract_file_refs(messages: list[Any]) -> list[dict[str, Any]]:
         if file_path in seen:
             continue
         seen.add(file_path)
-        # Nel contesto pesa solo l'avviso (primo paragrafo del blocco system).
+        # Only the notice weighs on the context (first paragraph of the system block).
         notice = text.split("\n\n", 1)[0]
         artifacts.append(
             {
                 "kind": "file-ref",
                 "label": "@" + file_path.rsplit("/", 1)[-1],
                 "path": file_path,
-                "description": f"referenziato via @ ({info}) — contenuto non caricato",
+                "description": f"referenced via @ ({info}) — content not loaded",
                 "chars": len(notice),
             }
         )
@@ -287,7 +288,7 @@ def _extract_file_refs(messages: list[Any]) -> list[dict[str, Any]]:
 
 
 def _content_len(content: Any) -> int:
-    """Peso in caratteri del `content` di un tool_result (str o lista di blocchi)."""
+    """Weight in characters of a tool_result `content` (str or list of blocks)."""
     if isinstance(content, str):
         return len(content)
     if isinstance(content, list):
@@ -302,19 +303,19 @@ def _content_len(content: Any) -> int:
 
 
 def _extract_read_files(messages: list[Any]) -> list[dict[str, Any]]:
-    """File caricati nel contesto da una `Read` decisa dall'LLM.
+    """Files loaded into the context by a `Read` decided by the LLM.
 
-    A differenza di `_extract_at_files` (file pre-allegati dall'utente via `@`,
-    blocco `role:"system"`), qui il modello ha chiesto la Read: nel body è un
-    `tool_use` (role assistant) il cui `tool_result` (role user) trasporta il
-    contenuto del file. Si correla `tool_result.tool_use_id → tool_use.input`
-    per risalire al path. Stesso *contenuto* di un `@file`, diversa *origine*.
+    Unlike `_extract_at_files` (files pre-attached by the user via `@`,
+    `role:"system"` block), here the model asked for the Read: in the body it is
+    a `tool_use` (role assistant) whose `tool_result` (role user) carries the
+    file content. `tool_result.tool_use_id → tool_use.input` is correlated to
+    get back to the path. Same *content* as an `@file`, different *origin*.
 
-    Il chip compare nel round trip in cui il `tool_result` entra nel body (quello
-    *successivo* alla Read), non in quello che emette il `tool_use`: prima di
-    allora il file non è ancora nel contesto, c'è solo la richiesta di leggerlo.
+    The chip shows up in the round trip where the `tool_result` enters the body
+    (the one *after* the Read), not in the one emitting the `tool_use`: before
+    then the file is not in the context yet, there is only the request to read it.
     """
-    # tool_use_id → (nome tool, input) raccolti dai messaggi assistant.
+    # tool_use_id → (tool name, input) collected from the assistant messages.
     uses: dict[str, tuple[str, dict[str, Any]]] = {}
     for _role, block in _iter_message_blocks(messages):
         if not isinstance(block, dict) or block.get("type") != "tool_use":
@@ -329,9 +330,9 @@ def _extract_read_files(messages: list[Any]) -> list[dict[str, Any]]:
         if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
         blocks = _message_blocks(msg)
-        # Immagini fratelle del tool_result nello stesso messaggio: sono il
-        # contenuto del file letto (es. pagine di un PDF renderizzate JPEG da
-        # Read), quindi pesano sull'artefatto read-file, non come "image".
+        # Images sibling to the tool_result in the same message: they are the
+        # content of the file read (e.g. PDF pages rendered as JPEG by Read), so
+        # they weigh on the read-file artifact, not as "image".
         sibling_images = 0
         msg_artifacts: list[dict[str, Any]] = []
         for block in blocks:
@@ -355,14 +356,14 @@ def _extract_read_files(messages: list[Any]) -> list[dict[str, Any]]:
                     "kind": "read-file",
                     "label": file_path.rsplit("/", 1)[-1],
                     "path": file_path,
-                    "description": f"letto dall'agente via {name}",
+                    "description": f"read by the agent via {name}",
                     "chars": chars,
                 }
                 by_path[file_path] = existing
                 artifacts.append(existing)
             else:
-                # Letture ripetute dello stesso file (es. PDF a blocchi di
-                # pagine): un solo artefatto, pesi sommati.
+                # Repeated reads of the same file (e.g. PDF in page chunks):
+                # a single artifact, weights summed.
                 existing["chars"] += chars
             msg_artifacts.append(existing)
         if sibling_images and len(msg_artifacts) == 1:
@@ -371,7 +372,7 @@ def _extract_read_files(messages: list[Any]) -> list[dict[str, Any]]:
 
 
 def _extract_tools(tools: Any) -> list[dict[str, Any]]:
-    """Voce aggregata secondaria per i tool disponibili (già visibili altrove)."""
+    """Secondary aggregate entry for the available tools (already visible elsewhere)."""
     if not tools or not isinstance(tools, list):
         return []
     return [
@@ -385,10 +386,10 @@ def _extract_tools(tools: Any) -> list[dict[str, Any]]:
 
 
 def extract_artifacts(body: Any) -> list[dict[str, Any]]:
-    """Inventario degli artefatti che compongono la richiesta `body`.
+    """Inventory of the artifacts making up the `body` request.
 
-    Ritorna una lista di dict `{kind, label, path?, description?, chars?,
-    count?, media_type?}`. Robusto a `body` non-dict o parziale.
+    Returns a list of dicts `{kind, label, path?, description?, chars?,
+    count?, media_type?}`. Robust to a non-dict or partial `body`.
     """
     if not isinstance(body, dict):
         return []

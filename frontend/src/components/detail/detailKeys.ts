@@ -1,10 +1,10 @@
 import type { InjectionKey, Ref } from 'vue'
 
-/** Flag "vista compatta" del DetailPanel, fornito ai discendenti (ContentBlock
- *  → SystemReminderText) per collassare le sezioni <system-reminder>. */
+/** DetailPanel's "compact view" flag, provided to the descendants (ContentBlock
+ *  → SystemReminderText) to collapse the <system-reminder> sections. */
 export const compactViewKey: InjectionKey<Ref<boolean>> = Symbol('compactView')
 
-/** cwd della sessione dell'evento selezionato, fornito ai discendenti del
- *  DetailPanel (JsonTree, ContentBlock, MessageBlock, SystemReminderText) per
- *  mostrare i path dei file relativi invece che assoluti. */
+/** cwd of the selected event's session, provided to the DetailPanel's
+ *  descendants (JsonTree, ContentBlock, MessageBlock, SystemReminderText) to
+ *  show file paths as relative instead of absolute. */
 export const cwdKey: InjectionKey<Ref<string | null | undefined>> = Symbol('cwd')

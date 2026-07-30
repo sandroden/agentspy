@@ -19,17 +19,17 @@ const route = useRoute()
 const showContextFill = ref(false)
 
 /**
- * Deep-link a un round trip: /session/<id>?event=<eventId> (usato dai punti
- * dei grafici in dashboard, ma l'URL è anche condivisibile). Mette in pausa
- * il player su quell'evento — il watch sul cursore in TimelineView scrolla
- * alla card — e ne apre il dettaglio nel pannello destro.
+ * Deep link to a round trip: /session/<id>?event=<eventId> (used by the
+ * dashboard chart points, but the URL is shareable too). Pauses the player on
+ * that event — the cursor watch in TimelineView scrolls to the card — and
+ * opens its detail in the right panel.
  */
 async function jumpToQueryEvent() {
   const eventId = Number(route.query.event)
   if (!Number.isFinite(eventId) || eventId <= 0) return
   const idx = spy.events.findIndex((e) => e.id === eventId)
   if (idx === -1) return
-  await nextTick() // lascia passare lo scroll-to-bottom del cambio sessione
+  await nextTick() // let the session switch's scroll-to-bottom go through
   spy.setCursor(idx)
   void spy.select(eventId)
 }
@@ -86,7 +86,7 @@ function goTo(id: string) {
 
     <ContextFillPanel v-if="showContextFill" />
     <TimelineView />
-    <!-- modale "cosa si porta dietro il contesto": aperta dal click su una chip -->
+    <!-- "what the context carries along" modal: opened by clicking a chip -->
     <ContextInventory />
   </div>
 </template>

@@ -38,11 +38,11 @@ SSE_EVENTS = [
     ),
     (
         "content_block_delta",
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Ciao"}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}},
     ),
     (
         "content_block_delta",
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " mondo"}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " world"}},
     ),
     ("content_block_stop", {"type": "content_block_stop", "index": 0}),
     (
@@ -91,7 +91,7 @@ async def test_proxy_streams_identical_bytes_and_reconstructs_message():
     with TestClient(app) as test_client:
         resp = test_client.post(
             "/v1/messages",
-            json={"model": "claude-x", "messages": [{"role": "user", "content": "ciao"}]},
+            json={"model": "claude-x", "messages": [{"role": "user", "content": "hello"}]},
             headers={"x-agentspy-tag": "test-tag", "x-api-key": "secret-key"},
         )
 
@@ -107,16 +107,16 @@ async def test_proxy_streams_identical_bytes_and_reconstructs_message():
     assert response["usage"]["input_tokens"] == 10
     assert response["usage"]["output_tokens"] == 5
     assert response["stop_reason"] == "end_turn"
-    assert response["message"]["content"][0]["text"] == "Ciao mondo"
+    assert response["message"]["content"][0]["text"] == "Hello world"
     assert record["timing"]["ttfb_s"] is not None
     assert record["timing"]["total_s"] is not None
 
 
 @pytest.mark.asyncio
 async def test_emit_failure_does_not_break_upstream_response():
-    """Se lo store (on_event) solleva, Claude Code deve comunque ricevere 200
-    con il body upstream intatto: l'emissione è best-effort, fuori dal percorso
-    critico."""
+    """If the store (on_event) raises, Claude Code must still receive 200 with
+    the upstream body intact: emission is best-effort, outside the critical
+    path."""
     transport = httpx.ASGITransport(app=upstream_app)
     client = httpx.AsyncClient(transport=transport, base_url="http://upstream")
 
@@ -133,7 +133,7 @@ async def test_emit_failure_does_not_break_upstream_response():
     with TestClient(app) as test_client:
         resp = test_client.post(
             "/v1/messages",
-            json={"model": "claude-x", "messages": [{"role": "user", "content": "ciao"}]},
+            json={"model": "claude-x", "messages": [{"role": "user", "content": "hello"}]},
         )
 
     await client.aclose()
@@ -148,10 +148,10 @@ def _feed_events(collector: SSECollector, events: list[tuple[str, dict]]) -> Non
 
 
 def test_prompt_usage_taken_from_message_start_not_cumulative_delta():
-    """Su un turno con extended thinking, message_delta riporta un cache_read
-    cumulativo (throughput). L'occupancy della finestra deve restare quella del
-    prompt (message_start), non il valore gonfiato del delta. Riproduce il caso
-    reale rt19: start cache_read=86747, delta cache_read=181909."""
+    """On a turn with extended thinking, message_delta reports a cumulative
+    cache_read (throughput). The window occupancy must stay the prompt one
+    (message_start), not the inflated delta value. Reproduces the real case
+    rt19: start cache_read=86747, delta cache_read=181909."""
     collector = SSECollector()
     _feed_events(
         collector,
@@ -189,20 +189,20 @@ def test_prompt_usage_taken_from_message_start_not_cumulative_delta():
     )
     result = collector.finalize()
     usage = result["usage"]
-    # prompt (occupancy): dal message_start, non il cumulativo del delta
+    # prompt (occupancy): from message_start, not the cumulative delta
     assert usage["cache_read_input_tokens"] == 86747
     assert usage["cache_creation_input_tokens"] == 8415
     assert usage["input_tokens"] == 159
-    # output: dal message_delta (cresce durante lo streaming)
+    # output: from message_delta (it grows during streaming)
     assert usage["output_tokens"] == 7251
     assert result["stop_reason"] == "tool_use"
 
 
 def test_prompt_usage_key_absent_in_start_not_taken_from_delta():
-    """Se message_start OMETTE una chiave di prompt (qui
-    cache_creation_input_tokens) e message_delta la porta cumulativa, il valore
-    gonfiato non deve entrare: le chiavi di prompt sono congelate da
-    message_start, non dalla loro semplice presenza nell'accumulo."""
+    """If message_start OMITS a prompt key (here cache_creation_input_tokens)
+    and message_delta carries it cumulatively, the inflated value must not get
+    in: prompt keys are frozen by message_start, not by their mere presence in
+    the accumulation."""
     collector = SSECollector()
     _feed_events(
         collector,
@@ -230,17 +230,17 @@ def test_prompt_usage_key_absent_in_start_not_taken_from_delta():
         ],
     )
     usage = collector.finalize()["usage"]
-    # la chiave assente da message_start non deve essere iniettata dal delta
+    # the key missing from message_start must not be injected by the delta
     assert "cache_creation_input_tokens" not in usage
     assert usage["input_tokens"] == 200
     assert usage["output_tokens"] == 42
 
 
 def test_prompt_usage_from_delta_when_start_reports_none():
-    """Le emulazioni Anthropic-compatibili (OpenRouter) mandano message_start
-    con usage a zero e i token veri solo in message_delta: se dallo start non è
-    arrivato ALCUN token di prompt, il delta è l'unica fonte e va accettato
-    (osservato in E2E con z-ai/glm-4.7-flash via OpenRouter, 2026-07-16)."""
+    """Anthropic-compatible emulations (OpenRouter) send message_start with
+    zeroed usage and the real tokens only in message_delta: if NO prompt token
+    came from the start, the delta is the only source and must be accepted
+    (observed in E2E with z-ai/glm-4.7-flash via OpenRouter, 2026-07-16)."""
     collector = SSECollector()
     _feed_events(
         collector,
@@ -273,9 +273,9 @@ def test_prompt_usage_from_delta_when_start_reports_none():
 
 
 def test_midstream_error_marks_stop_reason_error():
-    """Uno stream con event error dopo message_start (senza message_delta con
-    stop_reason) non deve sembrare riuscito: stop_reason='error' e dettaglio
-    conservato in result['error']."""
+    """A stream with an error event after message_start (without a
+    message_delta carrying stop_reason) must not look successful:
+    stop_reason='error' and the detail kept in result['error']."""
     collector = SSECollector()
     _feed_events(
         collector,
@@ -312,15 +312,16 @@ def test_redact_headers_never_leaks_secrets():
 
 
 def test_analyze_request_body_on_real_captured_log():
-    """Fixture di realismo: se esiste un log JSONL già catturato dal prototipo,
-    verifica che analyze_request_body non esploda su richieste reali."""
+    """Realism fixture: if a JSONL log already captured by the prototype
+    exists, check that analyze_request_body does not blow up on real
+    requests."""
     candidates = glob.glob(str(REPO_ROOT / "logs" / "run-*.jsonl"))
     if not candidates:
-        pytest.skip("nessun log reale in ../logs, skip fixture di realismo")
+        pytest.skip("no real log in ../logs, skipping realism fixture")
 
     with open(candidates[0]) as f:
         lines = f.readlines()
-    assert lines, "log reale vuoto"
+    assert lines, "real log is empty"
 
     for line in lines:
         record = json.loads(line)
@@ -331,9 +332,9 @@ def test_analyze_request_body_on_real_captured_log():
 
 
 def test_normalize_usage_splits_cache_write_by_ttl():
-    """Il tier della cache (5m vs 1h) arriva alle colonne DB: il write a 1h
-    costa il doppio dell'input, quello a 5m 1.25x, quindi senza split il costo
-    è sottostimato. Senza cache_creation -> None (tier ignoto), non 0."""
+    """The cache tier (5m vs 1h) reaches the DB columns: the 1h write costs
+    twice the input, the 5m one 1.25x, so without the split the cost is
+    underestimated. Without cache_creation -> None (unknown tier), not 0."""
     adapter = AnthropicAdapter()
     usage = adapter.normalize_usage(
         {

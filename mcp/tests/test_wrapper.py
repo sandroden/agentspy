@@ -1,7 +1,7 @@
-"""Test end-to-end del wrapper MCP: relay stdio fedele + spia degli eventi JSON-RPC.
+"""End-to-end test of the MCP wrapper: faithful stdio relay + JSON-RPC event spying.
 
-Topologia: pytest (parent) -> subprocess wrapper.py -> subprocess fake_mcp_server.py.
-Un HTTP server locale di cattura riceve i POST /ingest/mcp del wrapper.
+Topology: pytest (parent) -> subprocess wrapper.py -> subprocess fake_mcp_server.py.
+A local capture HTTP server receives the wrapper's POST /ingest/mcp.
 """
 import http.server
 import json
@@ -33,7 +33,7 @@ class CaptureHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        pass  # silenzia il log di default sopra stderr durante i test
+        pass  # silences the default log on stderr during the tests
 
 
 @pytest.fixture
@@ -82,10 +82,10 @@ def send_line(proc, msg):
 
 
 class StdoutReader:
-    """Legge righe da uno stream bufferizzato in un thread dedicato e le
-    espone via coda con timeout. Necessario perché selectors su uno stream
-    già bufferizzato da io.BufferedReader può non rilevare dati già letti
-    nel buffer Python (readahead), causando falsi timeout."""
+    """Reads lines from a buffered stream in a dedicated thread and exposes
+    them through a queue with a timeout. Needed because selectors on a stream
+    already buffered by io.BufferedReader may miss data already read into the
+    Python buffer (readahead), causing false timeouts."""
 
     def __init__(self, stream):
         self._q = queue.Queue()
@@ -103,16 +103,16 @@ class StdoutReader:
         try:
             line = self._q.get(timeout=timeout)
         except queue.Empty:
-            raise TimeoutError("timeout leggendo una riga da stdout")
+            raise TimeoutError("timeout reading a line from stdout")
         if line == b"":
-            raise EOFError("EOF su stdout del wrapper")
+            raise EOFError("EOF on the wrapper stdout")
         return line
 
     def expect_eof(self, timeout=5):
         try:
             line = self._q.get(timeout=timeout)
         except queue.Empty:
-            raise TimeoutError("timeout attendendo EOF su stdout")
+            raise TimeoutError("timeout waiting for EOF on stdout")
         return line == b""
 
 
@@ -122,10 +122,10 @@ def wait_for_events(server, n, timeout=5):
         if len(server.captured) >= n:
             return
         time.sleep(0.05)
-    raise TimeoutError(f"attesi {n} eventi, ricevuti {len(server.captured)}: {server.captured}")
+    raise TimeoutError(f"expected {n} events, received {len(server.captured)}: {server.captured}")
 
 
-def test_relay_fedele_e_spia(wrapper_proc, capture_server):
+def test_faithful_relay_and_spy(wrapper_proc, capture_server):
     proc = wrapper_proc
     reader = StdoutReader(proc.stdout)
 
@@ -141,15 +141,15 @@ def test_relay_fedele_e_spia(wrapper_proc, capture_server):
         },
     }
     expected_init_line = (json.dumps(expected_init_resp) + "\n").encode("utf-8")
-    expected_notif = {"jsonrpc": "2.0", "method": "notifications/ping_spontanea", "params": {"hello": "world"}}
+    expected_notif = {"jsonrpc": "2.0", "method": "notifications/spontaneous_ping", "params": {"hello": "world"}}
     expected_notif_line = (json.dumps(expected_notif) + "\n").encode("utf-8")
 
     send_line(proc, init_req)
     got_init_line = reader.read_line()
-    assert got_init_line == expected_init_line, "risposta initialize non fedele byte-per-byte"
+    assert got_init_line == expected_init_line, "initialize response not byte-for-byte faithful"
 
     got_notif_line = reader.read_line()
-    assert got_notif_line == expected_notif_line, "notifica spontanea non fedele byte-per-byte"
+    assert got_notif_line == expected_notif_line, "spontaneous notification not byte-for-byte faithful"
 
     # --- tools/list ---
     list_req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
@@ -160,7 +160,7 @@ def test_relay_fedele_e_spia(wrapper_proc, capture_server):
             "tools": [
                 {
                     "name": "echo",
-                    "description": "Restituisce l'input ricevuto",
+                    "description": "Returns the received input",
                     "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}},
                 }
             ]
@@ -169,10 +169,10 @@ def test_relay_fedele_e_spia(wrapper_proc, capture_server):
     expected_list_line = (json.dumps(expected_list_resp) + "\n").encode("utf-8")
     send_line(proc, list_req)
     got_list_line = reader.read_line()
-    assert got_list_line == expected_list_line, "risposta tools/list non fedele byte-per-byte"
+    assert got_list_line == expected_list_line, "tools/list response not byte-for-byte faithful"
 
     # --- tools/call ---
-    call_params = {"name": "echo", "arguments": {"text": "ciao mondo"}}
+    call_params = {"name": "echo", "arguments": {"text": "hello world"}}
     call_req = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": call_params}
     expected_call_resp = {
         "jsonrpc": "2.0",
@@ -182,17 +182,17 @@ def test_relay_fedele_e_spia(wrapper_proc, capture_server):
     expected_call_line = (json.dumps(expected_call_resp) + "\n").encode("utf-8")
     send_line(proc, call_req)
     got_call_line = reader.read_line()
-    assert got_call_line == expected_call_line, "risposta tools/call non fedele byte-per-byte"
+    assert got_call_line == expected_call_line, "tools/call response not byte-for-byte faithful"
 
-    # --- chiusura pulita: EOF su stdin -> il figlio esce -> exit code propagato ---
+    # --- clean shutdown: EOF on stdin -> the child exits -> exit code propagated ---
     proc.stdin.close()
     returncode = proc.wait(timeout=5)
-    assert returncode == 0, f"exit code atteso 0, ottenuto {returncode}"
+    assert returncode == 0, f"expected exit code 0, got {returncode}"
 
-    # nessun output spurio: dopo le righe attese, stdout deve essere finito (EOF)
-    assert reader.expect_eof(timeout=5), "output spurio inatteso su stdout"
+    # no spurious output: after the expected lines, stdout must be over (EOF)
+    assert reader.expect_eof(timeout=5), "unexpected spurious output on stdout"
 
-    # --- verifica eventi accoppiati/notifica ricevuti dal server di cattura ---
+    # --- check the paired/notification events received by the capture server ---
     wait_for_events(capture_server, 4)  # initialize, notification, tools/list, tools/call
     events = capture_server.captured
 
@@ -226,21 +226,21 @@ def test_relay_fedele_e_spia(wrapper_proc, capture_server):
 
     assert len(notifications) == 1
     notif_ev = notifications[0]
-    assert notif_ev["method"] == "notifications/ping_spontanea"
+    assert notif_ev["method"] == "notifications/spontaneous_ping"
     assert notif_ev["params"] == {"hello": "world"}
     assert notif_ev["direction"] == "server->client"
 
 
 def test_stderr_passthrough_and_default_name(capture_server):
-    """Il nome del server di default è il basename del comando, e stderr passa senza modifiche."""
+    """The default server name is the basename of the command, and stderr passes through unchanged."""
     env = os.environ.copy()
     env["AGENTSPY_URL"] = f"http://127.0.0.1:{capture_server.server_port}"
-    cmd = [sys.executable, str(WRAPPER), "--", sys.executable, "-c", "import sys; sys.stderr.write('errore di prova\\n'); sys.stderr.flush()"]
+    cmd = [sys.executable, str(WRAPPER), "--", sys.executable, "-c", "import sys; sys.stderr.write('test error\\n'); sys.stderr.flush()"]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     proc.stdin.close()
     returncode = proc.wait(timeout=5)
     stderr_output = proc.stderr.read()
     stdout_output = proc.stdout.read()
     assert returncode == 0
-    assert b"errore di prova" in stderr_output
+    assert b"test error" in stderr_output
     assert stdout_output == b""

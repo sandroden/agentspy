@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
-// Config separata da vite.config.ts (che porta plugin vue e proxy inutili qui):
-// i test coprono solo funzioni pure, ambiente node di default.
+// Config kept separate from vite.config.ts (which pulls in the vue plugin and
+// proxies, useless here): the tests only cover pure functions, default node env.
 export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],

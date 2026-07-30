@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "brainflow-stdio": {
+      "type": "stdio",
+      "command": "/home/sandro/src/llm/agentspy/mcp/agentspy_mcp_wrapper.py",
+      "args": [
+        "--name", "brainflow",
+        "--",
+        "uv",
+        "run", "--group", "mcp",
+        "--directory", "/home/sandro/src/siti/sandro/brainflow/django",
+        "python", "-m", "flow.mcp.server"
+      ],
+      "env": {
+        "AGENTSPY_URL": "http://127.0.0.1:8082",
+        "BRAINFLOW_API_URL": "${BRAINFLOW_API_URL:-http://localhost:8001}",
+        "BRAINFLOW_MCP_EMAIL": "${BRAINFLOW_MCP_EMAIL}",
+        "BRAINFLOW_MCP_PASSWORD": "${BRAINFLOW_MCP_PASSWORD}"
+      }
+    }
+  }
+}

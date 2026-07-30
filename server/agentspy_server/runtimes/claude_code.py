@@ -1,10 +1,10 @@
-"""Runtime Claude Code: le convenzioni specifiche del CLI di Claude Code.
+"""Claude Code runtime: the conventions specific to the Claude Code CLI.
 
-Raccoglie in un solo posto le stringhe e i parser che il resto del sistema
-tratterebbe altrimenti come costanti cablate: nomi hook, header di sessione,
-chiave del ponte MCP, mappe nome-tool → argomento, parsing degli slash-command.
-L'inventario degli artefatti del contesto (regex "Contents of…", "Called the X
-tool", ecc.) vive in ``claude_code_artifacts`` ed è esposto qui come metodo.
+Collects in one place the strings and parsers the rest of the system would
+otherwise treat as hard-wired constants: hook names, session header, MCP bridge
+key, tool-name → argument maps, slash-command parsing. The context artifact
+inventory (regexes "Contents of…", "Called the X tool", etc.) lives in
+``claude_code_artifacts`` and is exposed here as a method.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ def _extract_tag(text: str, tag: str) -> str | None:
 class ClaudeCodeRuntime(AgentRuntime):
     name = "claude-code"
 
-    # Claude Code (cli >= 2.x) manda questo header su OGNI richiesta con l'id
-    # della sessione: discrimina run concorrenti con lo stesso primo prompt.
+    # Claude Code (cli >= 2.x) sends this header on EVERY request with the
+    # session id: it tells apart concurrent runs with the same first prompt.
     session_id_header = "x-claude-code-session-id"
 
     hook_user_prompt = "UserPromptSubmit"
@@ -40,27 +40,27 @@ class ClaudeCodeRuntime(AgentRuntime):
     hook_subagent_stop = "SubagentStop"
     hook_stop = "Stop"
 
-    # Il tool_use id della conversazione API viaggia nel params._meta della
-    # tools/call JSON-RPC verso i server MCP.
+    # The tool_use id of the API conversation travels in the params._meta of
+    # the JSON-RPC tools/call towards the MCP servers.
     mcp_tool_use_id_key = "claudecode/toolUseId"
 
     system_reminder_prefix = "<system-reminder>"
 
     def last_user_message(self, messages: list[Any]) -> dict | None:
-        """Ultimo messaggio con role='user'. NON basta messages[-1]: Claude Code
-        (cli >= 2.1) accoda alla richiesta un messaggio con role='system' (es. il
-        reminder dei deferred tools), che maschererebbe il prompt dell'utente sia
-        al binding via prompt sia all'euristica del turno."""
+        """Last message with role='user'. messages[-1] is NOT enough: Claude Code
+        (cli >= 2.1) appends to the request a message with role='system' (e.g. the
+        deferred tools reminder), which would mask the user prompt both from the
+        binding via prompt and from the turn heuristic."""
         for m in reversed(messages):
             if isinstance(m, dict) and m.get("role") == "user":
                 return m
         return None
 
     def tool_hint(self, name: str | None, tool_input: Any) -> str:
-        """Indizio compatto dell'argomento di una chiamata tool, per i badge in
-        timeline: path per i tool su file, inizio comando per Bash, url/query per
-        i tool web, pattern per le ricerche. Best-effort, stringa vuota se non
-        riconosciuto."""
+        """Compact hint of a tool call's argument, for the timeline badges: path
+        for file tools, start of the command for Bash, url/query for the web
+        tools, pattern for searches. Best-effort, empty string if not
+        recognised."""
         if not isinstance(tool_input, dict):
             return ""
         try:
@@ -81,19 +81,19 @@ class ClaudeCodeRuntime(AgentRuntime):
             elif name == "Skill":
                 v = tool_input.get("skill")
             else:
-                # fallback generico (incluso mcp__*): il primo valore stringa
+                # generic fallback (mcp__* included): the first string value
                 v = next((x for x in tool_input.values() if isinstance(x, str) and x), None)
             if isinstance(v, str):
-                v = " ".join(v.split())  # su una riga
+                v = " ".join(v.split())  # on one line
                 return v[:200]
         except Exception:
             pass
         return ""
 
     def command_snippet(self, text: str) -> str | None:
-        """Se il testo è l'espansione di uno slash-command / skill
-        (`<command-name>…`), restituisce uno snippet pulito `/nome args` invece
-        dell'XML del wrapper + lo SKILL.md iniettato. Altrimenti None."""
+        """If the text is the expansion of a slash-command / skill
+        (`<command-name>…`), returns a clean `/name args` snippet instead of the
+        wrapper XML + the injected SKILL.md. Otherwise None."""
         if "<command-name>" not in text:
             return None
         name = _extract_tag(text, "command-name")

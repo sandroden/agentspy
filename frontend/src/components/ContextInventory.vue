@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Elenco cumulativo "cosa si porta dietro il contesto": tutto ciò che il
-// contesto trascina nella sessione, in ordine di prima comparsa. Aperto come
-// modale dal click su una chip "primo visto" nella timeline (spy.openContextInventory).
-// Nessun contenuto: solo l'elenco. Il click su una riga apre il round trip di comparsa.
+// Cumulative "what the context carries along" list: everything the context
+// drags through the session, in order of first appearance. Opened as a modal by
+// clicking a "first seen" chip in the timeline (spy.openContextInventory).
+// No content: just the list. Clicking a row opens the round trip it appeared in.
 import { computed } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import type { ContextArtifact } from '../types'
@@ -17,7 +17,7 @@ function artifactKey(a: ContextArtifact): string {
   return `${a.kind}|${a.path ?? a.label}`
 }
 
-/** Prima comparsa (posizione round trip + event_id) di ogni artefatto. */
+/** First appearance (round trip position + event_id) of every artifact. */
 const firstSeen = computed<Map<string, { rtIndex: number; eventId: number }>>(() => {
   const map = new Map<string, { rtIndex: number; eventId: number }>()
   spy.stats.forEach((s, idx) => {
@@ -34,8 +34,8 @@ const items = computed<ContextArtifact[]>(() => spy.cumulativeArtifacts)
 function badgeFor(a: ContextArtifact): { text: string; tone: 'new' | 'cached' } | null {
   const f = firstSeen.value.get(artifactKey(a))
   if (!f) return null
-  if (f.rtIndex === 0) return { text: 'da RT1', tone: 'cached' }
-  return { text: `nuovo · RT${f.rtIndex + 1}`, tone: 'new' }
+  if (f.rtIndex === 0) return { text: 'from RT1', tone: 'cached' }
+  return { text: `new · RT${f.rtIndex + 1}`, tone: 'new' }
 }
 
 function onPick(a: ContextArtifact) {
@@ -54,21 +54,21 @@ function close() {
 <template>
   <Teleport to="body">
     <div v-if="open" class="ctx-modal-backdrop" @click.self="close">
-      <div class="ctx-modal" role="dialog" aria-modal="true" aria-label="Inventario del contesto">
+      <div class="ctx-modal" role="dialog" aria-modal="true" aria-label="Context inventory">
         <header class="ctx-modal-head">
           <div>
-            <h2>Cosa si porta dietro il contesto</h2>
-            <p class="sub">{{ items.length }} elementi · in ordine di prima comparsa</p>
+            <h2>What the context carries along</h2>
+            <p class="sub">{{ items.length }} items · in order of first appearance</p>
           </div>
-          <button type="button" class="ctx-close" aria-label="Chiudi" @click="close">✕</button>
+          <button type="button" class="ctx-close" aria-label="Close" @click="close">✕</button>
         </header>
         <p class="legend">
-          <span class="badge cached">da RT1</span> presente dall'inizio (poi <em>cache_read</em>) ·
-          <span class="badge new">nuovo</span> aggiunto in un round trip successivo. Click su una
-          riga → apre il round trip di comparsa.
+          <span class="badge cached">from RT1</span> there from the start (then <em>cache_read</em>) ·
+          <span class="badge new">new</span> added in a later round trip. Click a row → opens the
+          round trip it appeared in.
         </p>
         <div class="ctx-modal-body">
-          <p v-if="items.length === 0" class="placeholder">nessun dato per questa sessione.</p>
+          <p v-if="items.length === 0" class="placeholder">no data for this session.</p>
           <ContextArtifactList
             v-else
             :artifacts="items"

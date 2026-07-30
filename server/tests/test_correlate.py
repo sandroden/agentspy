@@ -2,14 +2,14 @@ from agentspy_server.correlate import Correlator
 
 
 def test_fingerprint_chains_synthetic_round_trips():
-    """Tre round trip della stessa conversazione (nessun hook): stesso fingerprint
-    -> stessa sessione sintetica; il turno avanza solo su nuovo testo utente non
-    tool_result."""
+    """Three round trips of the same conversation (no hooks): same fingerprint
+    -> same synthetic session; the turn advances only on new user text that is
+    not a tool_result."""
     correlator = Correlator()
 
     record1 = {
         "tag": "run-A",
-        "request": {"body": {"system": "sys", "messages": [{"role": "user", "content": "Ciao"}]}},
+        "request": {"body": {"system": "sys", "messages": [{"role": "user", "content": "Hi"}]}},
         "response": {"message": {"content": []}},
     }
     info1 = correlator.correlate_round_trip(record1)
@@ -23,9 +23,9 @@ def test_fingerprint_chains_synthetic_round_trips():
             "body": {
                 "system": "sys",
                 "messages": [
-                    {"role": "user", "content": "Ciao"},
-                    {"role": "assistant", "content": [{"type": "text", "text": "Ciao a te"}]},
-                    {"role": "user", "content": "Come stai?"},
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]},
+                    {"role": "user", "content": "How are you?"},
                 ],
             }
         },
@@ -41,9 +41,9 @@ def test_fingerprint_chains_synthetic_round_trips():
             "body": {
                 "system": "sys",
                 "messages": [
-                    {"role": "user", "content": "Ciao"},
-                    {"role": "assistant", "content": [{"type": "text", "text": "Ciao a te"}]},
-                    {"role": "user", "content": "Come stai?"},
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]},
+                    {"role": "user", "content": "How are you?"},
                     {
                         "role": "assistant",
                         "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash"}],
@@ -64,20 +64,20 @@ def test_fingerprint_chains_synthetic_round_trips():
     assert info3["is_new_turn"] is False
     assert info3["turn_index"] == 2
 
-    # il tag mandato nel primo round trip resta sulla sessione
+    # the tag sent in the first round trip stays on the session
     assert correlator.session_state[info1["session_id"]].tag == "run-A"
 
 
 def test_user_prompt_submit_advances_turn():
     correlator = Correlator()
     info1 = correlator.correlate_hook(
-        {"session_id": "real-1", "hook_event_name": "UserPromptSubmit", "prompt": "fai una cosa"}
+        {"session_id": "real-1", "hook_event_name": "UserPromptSubmit", "prompt": "do a thing"}
     )
     assert info1["turn_index"] == 1
     assert info1["is_new_turn"] is True
 
     info2 = correlator.correlate_hook(
-        {"session_id": "real-1", "hook_event_name": "UserPromptSubmit", "prompt": "fai un'altra cosa"}
+        {"session_id": "real-1", "hook_event_name": "UserPromptSubmit", "prompt": "do another thing"}
     )
     assert info2["turn_index"] == 2
 
@@ -86,7 +86,7 @@ def test_pretooluse_merges_synthetic_session_into_real_one():
     correlator = Correlator()
 
     record = {
-        "request": {"body": {"system": "sys", "messages": [{"role": "user", "content": "ciao"}]}},
+        "request": {"body": {"system": "sys", "messages": [{"role": "user", "content": "hi"}]}},
         "response": {"message": {"content": [{"type": "tool_use", "id": "toolu_42", "name": "Bash"}]}},
     }
     info = correlator.correlate_round_trip(record)
@@ -98,13 +98,13 @@ def test_pretooluse_merges_synthetic_session_into_real_one():
     )
     assert hook_info["session_id"] == "real-session-1"
 
-    # un round trip successivo della stessa conversazione ora mappa alla sessione reale
+    # a later round trip of the same conversation now maps to the real session
     record2 = {
         "request": {
             "body": {
                 "system": "sys",
                 "messages": [
-                    {"role": "user", "content": "ciao"},
+                    {"role": "user", "content": "hi"},
                     {
                         "role": "assistant",
                         "content": [{"type": "tool_use", "id": "toolu_42", "name": "Bash"}],
@@ -125,13 +125,13 @@ def test_pretooluse_merges_synthetic_session_into_real_one():
 
 
 def test_subagent_hooks_route_to_child_session():
-    """Schema reale (verificato su Claude Code): gli hook del subagente portano
-    agent_id + session_id della MADRE. SubagentStart/Stop restano marker sulla
-    madre; i tool hook del subagente vanno nella sessione figlia sub-<agent_id>;
-    la conversazione API del subagente si aggancia alla figlia via tool_use_id."""
+    """Real scheme (verified on Claude Code): subagent hooks carry the agent_id
+    + the session_id of the PARENT. SubagentStart/Stop stay markers on the
+    parent; the subagent tool hooks go into the child session sub-<agent_id>;
+    the subagent API conversation binds to the child via tool_use_id."""
     correlator = Correlator()
 
-    # SubagentStart: evento sulla madre + sessione figlia dichiarata
+    # SubagentStart: event on the parent + declared child session
     start_info = correlator.correlate_hook(
         {
             "session_id": "mother-1",
@@ -140,7 +140,7 @@ def test_subagent_hooks_route_to_child_session():
             "agent_type": "Explore",
         }
     )
-    assert start_info["session_id"] == "mother-1"  # marker sulla madre
+    assert start_info["session_id"] == "mother-1"  # marker on the parent
     assert start_info["child_session"] == {
         "id": "sub-ag123",
         "agent_id": "ag123",
@@ -148,18 +148,18 @@ def test_subagent_hooks_route_to_child_session():
         "parent_session_id": "mother-1",
     }
     assert start_info["child_ended"] is False
-    # la madre NON deve ereditare l'agent_id del figlio
+    # the parent must NOT inherit the child's agent_id
     assert correlator.session_state["mother-1"].agent_id is None
 
-    # round trip della conversazione del subagente (fingerprint proprio)
+    # round trip of the subagent conversation (its own fingerprint)
     sub_record = {
-        "request": {"body": {"system": "sys-sub", "messages": [{"role": "user", "content": "conta"}]}},
+        "request": {"body": {"system": "sys-sub", "messages": [{"role": "user", "content": "count"}]}},
         "response": {"message": {"content": [{"type": "tool_use", "id": "toolu_glob", "name": "Glob"}]}},
     }
     synthetic_id = correlator.correlate_round_trip(sub_record)["session_id"]
     assert synthetic_id.startswith("syn-")
 
-    # PreToolUse del tool del subagente: agent_id valorizzato, session della madre
+    # PreToolUse of the subagent tool: agent_id set, session of the parent
     pre_info = correlator.correlate_hook(
         {
             "session_id": "mother-1",
@@ -169,17 +169,17 @@ def test_subagent_hooks_route_to_child_session():
             "tool_use_id": "toolu_glob",
         }
     )
-    assert pre_info["session_id"] == "sub-ag123"  # l'evento va nella figlia
-    assert pre_info["merged_from"] == [synthetic_id]  # la conversazione pure
+    assert pre_info["session_id"] == "sub-ag123"  # the event goes into the child
+    assert pre_info["merged_from"] == [synthetic_id]  # so does the conversation
     assert pre_info["parent_session_id"] == "mother-1"
 
-    # round trip successivo del subagente -> direttamente nella figlia
+    # later round trip of the subagent -> straight into the child
     sub_record2 = {
         "request": {
             "body": {
                 "system": "sys-sub",
                 "messages": [
-                    {"role": "user", "content": "conta"},
+                    {"role": "user", "content": "count"},
                     {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_glob", "name": "Glob"}]},
                     {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_glob", "content": "3"}]},
                 ],
@@ -189,7 +189,7 @@ def test_subagent_hooks_route_to_child_session():
     }
     assert correlator.correlate_round_trip(sub_record2)["session_id"] == "sub-ag123"
 
-    # SubagentStop: marker sulla madre, figlia dichiarata chiusa
+    # SubagentStop: marker on the parent, child declared closed
     stop_info = correlator.correlate_hook(
         {
             "session_id": "mother-1",
@@ -203,12 +203,12 @@ def test_subagent_hooks_route_to_child_session():
 
 
 def test_prompt_binding_links_toolless_conversation():
-    """Una conversazione senza tool call (nessun tool_use_id da joinare) si
-    aggancia alla sessione reale confrontando l'ultimo messaggio user con il
-    prompt annunciato da UserPromptSubmit."""
+    """A conversation without tool calls (no tool_use_id to join on) binds to
+    the real session by comparing the last user message with the prompt
+    announced by UserPromptSubmit."""
     correlator = Correlator()
     correlator.correlate_hook(
-        {"session_id": "real-lesson", "hook_event_name": "UserPromptSubmit", "prompt": "Estrai le lezioni."}
+        {"session_id": "real-lesson", "hook_event_name": "UserPromptSubmit", "prompt": "Extract the lessons."}
     )
     record = {
         "request": {
@@ -218,8 +218,8 @@ def test_prompt_binding_links_toolless_conversation():
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "<system-reminder>bla</system-reminder>"},
-                            {"type": "text", "text": "Estrai le lezioni."},
+                            {"type": "text", "text": "<system-reminder>blah</system-reminder>"},
+                            {"type": "text", "text": "Extract the lessons."},
                         ],
                     }
                 ],
@@ -230,13 +230,13 @@ def test_prompt_binding_links_toolless_conversation():
     info = correlator.correlate_round_trip(record)
     assert info["session_id"] == "real-lesson"
     assert info["is_new_session"] is False
-    # il turno resta quello della sessione reale (da hook), niente doppio conteggio
+    # the turn stays the one of the real session (from hooks), no double count
     assert info["turn_index"] == 1
 
 
 def test_fingerprint_ignores_cache_control_markers():
-    """I marker cache_control si spostano fra un round trip e il successivo
-    (il checkpoint di cache avanza): non devono spezzare la sessione."""
+    """The cache_control markers move between one round trip and the next (the
+    cache checkpoint advances): they must not break the session apart."""
     correlator = Correlator()
 
     record1 = {
@@ -247,7 +247,7 @@ def test_fingerprint_ignores_cache_control_markers():
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "ciao", "cache_control": {"type": "ephemeral"}}
+                            {"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}
                         ],
                     }
                 ],
@@ -258,11 +258,11 @@ def test_fingerprint_ignores_cache_control_markers():
     record2 = {
         "request": {
             "body": {
-                "system": [{"type": "text", "text": "sys"}],  # marker spostato altrove
+                "system": [{"type": "text", "text": "sys"}],  # marker moved elsewhere
                 "messages": [
-                    {"role": "user", "content": [{"type": "text", "text": "ciao"}]},
-                    {"role": "assistant", "content": [{"type": "text", "text": "ehi"}]},
-                    {"role": "user", "content": "come va?"},
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": "hey"}]},
+                    {"role": "user", "content": "how's it going?"},
                 ],
             }
         },
@@ -275,9 +275,9 @@ def test_fingerprint_ignores_cache_control_markers():
 
 
 def test_merge_reports_merged_from():
-    """Quando PreToolUse identifica una sessione sintetica con quella reale,
-    correlate_hook deve segnalare l'id assorbito perché il chiamante possa
-    riassegnare gli eventi nello store."""
+    """When PreToolUse identifies a synthetic session with the real one,
+    correlate_hook must report the absorbed id so that the caller can reassign
+    the events in the store."""
     correlator = Correlator()
     record = {
         "request": {"body": {"system": "s", "messages": [{"role": "user", "content": "x"}]}},
@@ -290,7 +290,7 @@ def test_merge_reports_merged_from():
     )
     assert hook_info["merged_from"] == [synthetic_id]
 
-    # un secondo PreToolUse sulla stessa sessione non deve rifondere nulla
+    # a second PreToolUse on the same session must not merge anything again
     hook_info2 = correlator.correlate_hook(
         {"session_id": "real-9", "hook_event_name": "PreToolUse", "tool_use_id": "toolu_m"}
     )
@@ -300,18 +300,18 @@ def test_merge_reports_merged_from():
 def test_tag_from_header_on_round_trip():
     correlator = Correlator()
     record = {
-        "tag": "notte-1",
-        "request": {"body": {"system": "sys", "messages": [{"role": "user", "content": "ciao"}]}},
+        "tag": "night-1",
+        "request": {"body": {"system": "sys", "messages": [{"role": "user", "content": "hi"}]}},
         "response": {"message": {"content": []}},
     }
     info = correlator.correlate_round_trip(record)
-    assert correlator.session_state[info["session_id"]].tag == "notte-1"
+    assert correlator.session_state[info["session_id"]].tag == "night-1"
 
 
 def test_header_session_id_parents_synthetic_session():
-    """Un round trip con header x-claude-code-session-id di una sessione già
-    nota via hook: la sintetica viene nidificata sotto la madre (non fusa,
-    perché potrebbe essere la conversazione di un subagente)."""
+    """A round trip with the x-claude-code-session-id header of a session
+    already known via hooks: the synthetic one is nested under the parent (not
+    merged, because it could be a subagent conversation)."""
     correlator = Correlator()
     correlator.correlate_hook({"session_id": "real-9", "hook_event_name": "SessionStart"})
 
@@ -328,14 +328,14 @@ def test_header_session_id_parents_synthetic_session():
 
 
 def test_header_session_id_ignored_when_mother_unknown():
-    """Se la madre non è mai stata vista via hook (progetto senza hook o
-    collector riavviato) la sintetica resta top-level: un parent che non
-    esiste come riga la farebbe sparire dalla sidebar."""
+    """If the parent was never seen via hooks (project without hooks or
+    collector restarted) the synthetic one stays top-level: a parent that does
+    not exist as a row would make it disappear from the sidebar."""
     correlator = Correlator()
 
     record = {
         "request": {
-            "headers": {"x-claude-code-session-id": "mai-vista"},
+            "headers": {"x-claude-code-session-id": "never-seen"},
             "body": {"system": "svc", "messages": [{"role": "user", "content": "quota?"}]},
         },
         "response": {"message": {"content": []}},
@@ -346,7 +346,7 @@ def test_header_session_id_ignored_when_mother_unknown():
 
 
 def _rt(session_key, system, prompt, *, tool_use_id=None, tag=None):
-    """Round trip minimale con header x-claude-code-session-id e un solo prompt."""
+    """Minimal round trip with the x-claude-code-session-id header and a single prompt."""
     response_content = (
         [{"type": "tool_use", "id": tool_use_id, "name": "Bash"}] if tool_use_id else []
     )
@@ -361,37 +361,37 @@ def _rt(session_key, system, prompt, *, tool_use_id=None, tag=None):
 
 
 def test_concurrent_runs_same_prompt_stay_distinct():
-    """Due run concorrenti con lo STESSO system e lo STESSO primo prompt ma
-    session_id (header) diversi devono restare due sessioni distinte, mai
-    collassare in una: il session_key entra nel fingerprint."""
+    """Two concurrent runs with the SAME system and the SAME first prompt but
+    different session_id (header) must stay two distinct sessions, never
+    collapse into one: the session_key enters the fingerprint."""
     correlator = Correlator()
 
-    a1 = correlator.correlate_round_trip(_rt("sess-A", "sys", "Ciao", tag="run-A"))
-    b1 = correlator.correlate_round_trip(_rt("sess-B", "sys", "Ciao", tag="run-B"))
+    a1 = correlator.correlate_round_trip(_rt("sess-A", "sys", "Hi", tag="run-A"))
+    b1 = correlator.correlate_round_trip(_rt("sess-B", "sys", "Hi", tag="run-B"))
     assert a1["session_id"] != b1["session_id"]
     assert a1["session_id"].startswith("syn-") and b1["session_id"].startswith("syn-")
 
-    # round trip successivi della stessa conversazione restano nella propria
-    a2 = correlator.correlate_round_trip(_rt("sess-A", "sys", "Ciao"))
-    b2 = correlator.correlate_round_trip(_rt("sess-B", "sys", "Ciao"))
+    # later round trips of the same conversation stay in their own session
+    a2 = correlator.correlate_round_trip(_rt("sess-A", "sys", "Hi"))
+    b2 = correlator.correlate_round_trip(_rt("sess-B", "sys", "Hi"))
     assert a2["session_id"] == a1["session_id"]
     assert b2["session_id"] == b1["session_id"]
 
 
 def test_concurrent_runs_same_prompt_bind_to_correct_hook_session():
-    """Due run con lo stesso prompt annunciato da UserPromptSubmit su session_id
-    hook diversi: il binding via prompt NON deve collassarle, e ciascun round
-    trip deve legarsi alla PROPRIA sessione hook grazie al session_key."""
+    """Two runs with the same prompt announced by UserPromptSubmit on different
+    hook session_id: binding via prompt must NOT collapse them, and each round
+    trip must bind to its OWN hook session thanks to the session_key."""
     correlator = Correlator()
     correlator.correlate_hook(
-        {"session_id": "sess-A", "hook_event_name": "UserPromptSubmit", "prompt": "fai la cosa"}
+        {"session_id": "sess-A", "hook_event_name": "UserPromptSubmit", "prompt": "do the thing"}
     )
     correlator.correlate_hook(
-        {"session_id": "sess-B", "hook_event_name": "UserPromptSubmit", "prompt": "fai la cosa"}
+        {"session_id": "sess-B", "hook_event_name": "UserPromptSubmit", "prompt": "do the thing"}
     )
 
-    info_a = correlator.correlate_round_trip(_rt("sess-A", "sysA", "fai la cosa"))
-    info_b = correlator.correlate_round_trip(_rt("sess-B", "sysB", "fai la cosa"))
+    info_a = correlator.correlate_round_trip(_rt("sess-A", "sysA", "do the thing"))
+    info_b = correlator.correlate_round_trip(_rt("sess-B", "sysB", "do the thing"))
 
     assert info_a["session_id"] == "sess-A"
     assert info_b["session_id"] == "sess-B"
@@ -399,9 +399,9 @@ def test_concurrent_runs_same_prompt_bind_to_correct_hook_session():
 
 
 def test_rehydrate_continues_session_and_turn(tmp_path):
-    """Store popolato → nuovo Correlator reidratato: turn_index, fingerprint e
-    join per tool_use_id tornano, e il round trip successivo continua la stessa
-    sessione col suo turno invece di ripartire da 1 in una nuova syn-."""
+    """Populated store → new rehydrated Correlator: turn_index, fingerprint and
+    the tool_use_id join come back, and the next round trip continues the same
+    session with its turn instead of restarting from 1 in a new syn-."""
     from agentspy_server.store import Store
 
     store = Store(tmp_path / "rehy.db")
@@ -409,12 +409,12 @@ def test_rehydrate_continues_session_and_turn(tmp_path):
     store.insert_event(
         session_id="sess-R", kind="hook", subkind="UserPromptSubmit",
         turn_index=1, ts_start=100.0, ts_end=100.0,
-        payload={"session_id": "sess-R", "hook_event_name": "UserPromptSubmit", "prompt": "ciao"},
+        payload={"session_id": "sess-R", "hook_event_name": "UserPromptSubmit", "prompt": "hi"},
     )
     rt_payload = {
         "request": {
             "headers": {"x-claude-code-session-id": "sess-R"},
-            "body": {"system": "sys", "messages": [{"role": "user", "content": "ciao"}]},
+            "body": {"system": "sys", "messages": [{"role": "user", "content": "hi"}]},
         },
         "response": {"message": {"content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash"}]}},
     }
@@ -429,17 +429,17 @@ def test_rehydrate_continues_session_and_turn(tmp_path):
 
     assert corr.session_state["sess-R"].turn_index == 1
     assert corr.session_state["sess-R"].has_hooks is True
-    # join MCP/subagente ripristinato: il tool_use della risposta è ricollegato
+    # MCP/subagent join restored: the tool_use of the response is relinked
     assert corr.session_for_tool_use("toolu_1") == "sess-R"
 
-    # round trip successivo della stessa conversazione: continua sess-R al turno 1
+    # next round trip of the same conversation: continues sess-R at turn 1
     next_rt = {
         "request": {
             "headers": {"x-claude-code-session-id": "sess-R"},
             "body": {
                 "system": "sys",
                 "messages": [
-                    {"role": "user", "content": "ciao"},
+                    {"role": "user", "content": "hi"},
                     {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash"}]},
                     {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]},
                 ],
@@ -455,8 +455,8 @@ def test_rehydrate_continues_session_and_turn(tmp_path):
 
 
 def test_rehydration_snapshot_filters_by_recency(tmp_path):
-    """Lo snapshot prende le sessioni per recency (ultima attività) e tutti i
-    loro eventi; le sessioni vecchie sono escluse."""
+    """The snapshot takes sessions by recency (last activity) and all of their
+    events; old sessions are excluded."""
     from agentspy_server.store import Store
 
     store = Store(tmp_path / "rehy2.db")
@@ -472,13 +472,13 @@ def test_rehydration_snapshot_filters_by_recency(tmp_path):
 
 
 def test_prompt_binding_survives_trailing_system_message():
-    """Claude Code (cli >= 2.1) accoda un messaggio role='system' dopo il
-    prompt utente: il binding via prompt e il turno devono basarsi sull'ultimo
-    messaggio USER, non su messages[-1] (bug: round trip in 'pre-prompt')."""
+    """Claude Code (cli >= 2.1) appends a role='system' message after the user
+    prompt: binding via prompt and the turn must rely on the last USER message,
+    not on messages[-1] (bug: round trip stuck in 'pre-prompt')."""
     correlator = Correlator()
     correlator.correlate_hook({"session_id": "real-7", "hook_event_name": "SessionStart"})
     correlator.correlate_hook(
-        {"session_id": "real-7", "hook_event_name": "UserPromptSubmit", "prompt": "che ore sono?"}
+        {"session_id": "real-7", "hook_event_name": "UserPromptSubmit", "prompt": "what time is it?"}
     )
 
     record = {
@@ -489,8 +489,8 @@ def test_prompt_binding_survives_trailing_system_message():
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "<system-reminder>contesto</system-reminder>"},
-                            {"type": "text", "text": "che ore sono?"},
+                            {"type": "text", "text": "<system-reminder>context</system-reminder>"},
+                            {"type": "text", "text": "what time is it?"},
                         ],
                     },
                     {"role": "system", "content": "The following deferred tools..."},

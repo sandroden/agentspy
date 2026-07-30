@@ -7,27 +7,27 @@ import urllib.request
 
 def main():
     try:
-        # Leggi TUTTO lo stdin
+        # Read ALL of stdin
         input_data = sys.stdin.read()
 
-        # Tenta di parsare come JSON
+        # Try to parse it as JSON
         try:
             payload = json.loads(input_data)
         except (json.JSONDecodeError, ValueError):
-            # Se non è JSON valido, crea {"raw": <testo troncato>}
+            # If it is not valid JSON, build {"raw": <truncated text>}
             payload = {"raw": input_data[:10000]}
 
-        # Costruisci il body della richiesta
+        # Build the request body
         body = {
             "ts": time.time(),
             "tag": os.environ.get("AGENTSPY_TAG"),
             "payload": payload
         }
 
-        # Determina l'URL
+        # Work out the URL
         url = os.environ.get("AGENTSPY_URL", "http://127.0.0.1:8082") + "/ingest/hook"
 
-        # Prepara la richiesta
+        # Prepare the request
         body_json = json.dumps(body)
         req = urllib.request.Request(
             url,
@@ -35,15 +35,15 @@ def main():
             headers={'Content-Type': 'application/json'}
         )
 
-        # Fai POST con timeout di 0.5 secondi: l'hook è sincrono nel ciclo di
-        # Claude Code (PreToolUse scatta a ogni tool), un collector lento non
-        # deve stallare l'agente
+        # POST with a 0.5s timeout: the hook is synchronous in the Claude Code
+        # loop (PreToolUse fires on every tool), a slow collector must not
+        # stall the agent
         with urllib.request.urlopen(req, timeout=0.5) as response:
             pass
 
     except Exception:
-        # Ignora QUALSIASI eccezione in silenzio
-        # Log su stderr solo se AGENTSPY_DEBUG=1
+        # Swallow ANY exception silently
+        # Log to stderr only when AGENTSPY_DEBUG=1
         if os.environ.get("AGENTSPY_DEBUG") == "1":
             try:
                 import traceback
@@ -51,7 +51,7 @@ def main():
             except:
                 pass
 
-    # Esce SEMPRE con exit code 0
+    # ALWAYS exit with code 0
     sys.exit(0)
 
 if __name__ == "__main__":

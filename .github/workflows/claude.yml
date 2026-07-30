@@ -12,7 +12,7 @@ on:
 
 jobs:
   claude:
-    # Reagisce solo quando il testo contiene "@claude"
+    # Only reacts when the text contains "@claude"
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
@@ -35,6 +35,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # PAT con scope workflow: il GITHUB_TOKEN dell'App non può creare
-          # branch che includono .github/workflows/ (manca il permesso workflows).
+          # PAT with the workflow scope: the App's GITHUB_TOKEN cannot create
+          # branches that include .github/workflows/ (it lacks the workflows
+          # permission).
           github_token: ${{ secrets.GH_PAT }}

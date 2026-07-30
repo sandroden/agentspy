@@ -40,8 +40,8 @@ function abbreviateModel(model: string | null): string {
   return model.length > 14 ? `${model.slice(0, 14)}…` : model
 }
 
-/** Tier del cache_write: i due TTL costano diverso (1h = 2x input, 5m = 1.25x),
- *  quindi la barra li separa invece di sommarli. */
+/** cache_write tiers: the two TTLs cost differently (1h = 2x input, 5m = 1.25x),
+ *  so the bar splits them instead of summing them. */
 function tiers(s: StatsItem) {
   return cacheWriteTiers(s)
 }
@@ -141,7 +141,7 @@ function select(eventId: number) {
   border-bottom: 1px solid var(--border);
   --cf-cache-read: #4a5a72;
   --cf-cache-write: #4f8aa3;
-  /* i due TTL come varianti dello stesso colore: 1h pieno, 5m schiarito */
+  /* the two TTLs as variants of the same colour: 1h solid, 5m lightened */
   --cf-cache-write-5m: #86b8c9;
   --cf-cache-write-na: #7e8590;
   --cf-new: #e0a23d;

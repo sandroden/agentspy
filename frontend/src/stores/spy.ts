@@ -11,7 +11,7 @@ import {
 } from '../api/client'
 import type { ContextArtifact, EventDetail, EventSummary, Session, StatsItem, WsMessage } from '../types'
 
-/** Chiave d'identità di un artefatto per il calcolo "prima comparsa". */
+/** Identity key of an artifact, for the "first appearance" computation. */
 function artifactKey(a: ContextArtifact): string {
   return `${a.kind}|${a.path ?? a.label}`
 }
@@ -46,11 +46,11 @@ export const useSpyStore = defineStore('spy', () => {
   const wsConnected = ref(false)
   /** unseen event counter per session (for the sidebar badge); reset when opening the session. */
   const unseenCounts = ref<Record<string, number>>({})
-  /** modale "cosa si porta dietro il contesto": aperta al click su una chip. */
+  /** "what the context carries along" modal: opened by clicking a chip. */
   const contextInventoryOpen = ref(false)
-  /** mostra gli hook (SessionStart, Stop, ...) come marcatori nella timeline;
-   * off di default: il player li salta per non produrre step senza cambiamenti
-   * visibili (e altri runtime — opencode, codex — non hanno hook affatto). */
+  /** show the hooks (SessionStart, Stop, ...) as markers in the timeline;
+   * off by default: the player skips them so as not to produce steps with no
+   * visible change (and other runtimes — opencode, codex — have no hooks at all). */
   const showHooks = ref(localStorage.getItem(SHOW_HOOKS_KEY) === '1')
 
   let streamHandle: StreamHandle | null = null
@@ -91,9 +91,9 @@ export const useSpyStore = defineStore('spy', () => {
     selectedEventId.value != null ? (detailCache.value[selectedEventId.value] ?? null) : null
   )
 
-  /** Indici (in `events`) degli eventi che sono step veri del player: con gli
-   *  hook nascosti gli indici grezzi salterebbero. Qui e non in TimeControls
-   *  perché anche le metriche della timeline devono sapere "a che step siamo". */
+  /** Indices (in `events`) of the events that are real player steps: with the
+   *  hooks hidden the raw indices would jump. Here and not in TimeControls
+   *  because the timeline metrics too need to know "which step we are on". */
   const playerSteps = computed<number[]>(() => {
     const out: number[] = []
     events.value.forEach((e, i) => {
@@ -102,14 +102,14 @@ export const useSpyStore = defineStore('spy', () => {
     return out
   })
 
-  /** Evento su cui è fermo il player (in LIVE: l'ultimo arrivato). */
+  /** Event the player is stopped on (in LIVE: the last one that arrived). */
   const cursorEvent = computed<EventSummary | null>(() => {
     if (events.value.length === 0) return null
     const i = Math.min(Math.max(cursor.value, 0), events.value.length - 1)
     return events.value[i] ?? null
   })
 
-  /** Posizione 0-based dello step corrente e totale degli step (per "event N/M"). */
+  /** 0-based position of the current step and total steps (for "event N/M"). */
   const playerPosition = computed<{ index: number; total: number }>(() => {
     const max = Math.max(events.value.length - 1, 0)
     const current = Math.min(Math.max(cursor.value, 0), max)
@@ -122,10 +122,10 @@ export const useSpyStore = defineStore('spy', () => {
   })
 
   /**
-   * Per ogni round trip, gli elementi del contesto visti per la PRIMA volta in
-   * quel round trip (la "canzone del mercato" resa inline): al primo RT compare
-   * la base del contesto, ai successivi solo le aggiunte. Mappa event_id →
-   * artefatti nuovi, calcolata scorrendo `stats` in ordine cronologico.
+   * For each round trip, the context elements seen for the FIRST time in that
+   * round trip ("the house that Jack built", rendered inline): the first RT
+   * shows the context baseline, the following ones only the additions. Maps
+   * event_id → new artifacts, computed by walking `stats` in chronological order.
    */
   const newArtifactsByEvent = computed<Record<number, ContextArtifact[]>>(() => {
     const seen = new Set<string>()
@@ -143,7 +143,7 @@ export const useSpyStore = defineStore('spy', () => {
     return out
   })
 
-  /** Inventario cumulativo dell'intera sessione, in ordine di prima comparsa. */
+  /** Cumulative inventory of the whole session, in order of first appearance. */
   const cumulativeArtifacts = computed<ContextArtifact[]>(() => {
     const seen = new Set<string>()
     const out: ContextArtifact[] = []
@@ -171,13 +171,13 @@ export const useSpyStore = defineStore('spy', () => {
   }
 
   /**
-   * True se l'evento produce una riga visibile nella timeline e quindi è uno
-   * step "vero" del player. Con showHooks attivo lo sono tutti (gli hook
-   * diventano marcatori, vedi TimelineView/HookMarker); con showHooks off gli
-   * hook non renderizzano nulla e il player li salta (setCursor/step), per non
-   * avere click che non cambiano niente a schermo. Gli hook che portano un
-   * agent_id di un subagente restano step anche a flag spento: nella timeline
-   * della madre producono il blocco-puntatore del subagente.
+   * True if the event produces a visible row in the timeline and is therefore a
+   * "real" player step. With showHooks on they all are (hooks become markers,
+   * see TimelineView/HookMarker); with showHooks off the hooks render nothing
+   * and the player skips them (setCursor/step), so there are no clicks that
+   * change nothing on screen. Hooks carrying a subagent's agent_id stay steps
+   * even with the flag off: in the parent's timeline they produce the
+   * subagent's pointer block.
    */
   function isPlayerStep(e: EventSummary): boolean {
     if (showHooks.value) return true
@@ -333,9 +333,9 @@ export const useSpyStore = defineStore('spy', () => {
   function setCursor(i: number) {
     const maxIndex = Math.max(events.value.length - 1, 0)
     let clamped = Math.max(0, Math.min(i, maxIndex))
-    // Aggancia l'indice a uno step vero del player: prima all'indietro (non
-    // scavalcare in avanti la posizione chiesta dallo scrubber), poi in avanti
-    // come fallback — è il caso di ⏮ su una sessione che apre con soli hook.
+    // Snap the index to a real player step: backwards first (don't overshoot
+    // forward past the position the scrubber asked for), then forward as a
+    // fallback — the ⏮ case on a session that opens with hooks only.
     const arr = events.value
     if (arr.length && !isPlayerStep(arr[clamped])) {
       let j = clamped
@@ -366,8 +366,8 @@ export const useSpyStore = defineStore('spy', () => {
   function toggleShowHooks() {
     showHooks.value = !showHooks.value
     localStorage.setItem(SHOW_HOOKS_KEY, showHooks.value ? '1' : '0')
-    // se il cursore era fermo su un hook appena nascosto, riallinealo a uno
-    // step visibile (setCursor riaggancia da sé).
+    // if the cursor was stopped on a hook that just got hidden, realign it to a
+    // visible step (setCursor snaps on its own).
     if (!showHooks.value && !live.value && events.value.length) setCursor(cursor.value)
   }
 

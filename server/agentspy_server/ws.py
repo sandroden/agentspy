@@ -1,4 +1,4 @@
-"""ConnectionManager per il WebSocket /ws: hello iniziale + broadcast live."""
+"""ConnectionManager for the /ws WebSocket: initial hello + live broadcast."""
 
 from __future__ import annotations
 
@@ -14,11 +14,10 @@ class ConnectionManager:
         self._lock = asyncio.Lock()
 
     async def serve(self, ws: WebSocket, hello_sessions: Callable[[], Awaitable[list]] | Callable[[], list]) -> None:
-        """Accetta la connessione, manda l'hello, resta in ascolto finché il client non chiude.
+        """Accept the connection, send the hello, keep listening until the client closes.
 
-        Il canale è server->client: eventuali messaggi in ingresso vengono
-        letti solo per rilevare la disconnessione (nessun comando dal client
-        nell'MVP).
+        The channel is server->client: any incoming messages are read only to
+        detect the disconnection (no commands from the client in the MVP).
         """
         await ws.accept()
         async with self._lock:

@@ -1,9 +1,9 @@
 from agentspy_server.runtimes.claude_code_artifacts import extract_artifacts
 
-# Body campione che riproduce i casi reali osservati in cattura:
-# billing header + system prompt, system-reminder con Contents of (2 CLAUDE.md +
-# MEMORY.md), un @file pre-caricato (role:system), un'immagine incollata con
-# marcatore [Image: source:], un file solo citato (da ignorare) e dei tools.
+# Sample body reproducing the real cases observed in capture:
+# billing header + system prompt, system-reminder with Contents of (2 CLAUDE.md +
+# MEMORY.md), a pre-loaded @file (role:system), a pasted image with the
+# [Image: source:] marker, a merely cited file (to ignore) and some tools.
 SAMPLE_BODY = {
     "system": [
         {"type": "text", "text": "x-anthropic-billing-header: cc_version=2.1"},
@@ -20,15 +20,15 @@ SAMPLE_BODY = {
                     "text": (
                         "<system-reminder>\n"
                         "Contents of /home/u/.claude/CLAUDE.md (user's private global instructions):\n"
-                        "istruzioni globali\n"
+                        "global instructions\n"
                         "Contents of /home/u/proj/CLAUDE.md (project instructions):\n"
-                        "istruzioni progetto\n"
+                        "project instructions\n"
                         "Contents of /home/u/.claude/memory/MEMORY.md (user's auto-memory):\n"
-                        "memoria\n"
+                        "memory\n"
                         "</system-reminder>"
                     ),
                 },
-                {"type": "text", "text": "Provo ad allegare @docs/style.md e cito docs/other.md"},
+                {"type": "text", "text": "Attaching @docs/style.md and citing docs/other.md"},
             ],
         },
         {
@@ -39,13 +39,13 @@ SAMPLE_BODY = {
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "Ecco un'immagine [Image #1]"},
+                {"type": "text", "text": "Here is an image [Image #1]"},
                 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "Zm9v"}},
                 {"type": "text", "text": "[Image: source: /home/u/.cache/1.png]"},
             ],
         },
-        # L'LLM decide una Read (tool_use) e un Bash: solo la prima porta nel
-        # contesto il contenuto di un file → un artifact `read-file`.
+        # The LLM decides on a Read (tool_use) and a Bash: only the first
+        # brings file content into the context → a `read-file` artifact.
         {
             "role": "assistant",
             "content": [
@@ -78,36 +78,36 @@ def test_extract_covers_all_kinds():
 
 def test_system_excludes_billing_header():
     system = _by_kind(extract_artifacts(SAMPLE_BODY))["system"][0]
-    # 1000 char di system prompt + "You are Claude Code." (20), NON il billing header
+    # 1000 chars of system prompt + "You are Claude Code." (20), NOT the billing header
     assert system["chars"] == 1000 + len("You are Claude Code.")
 
 
 def test_instruction_files_labelled():
     kinds = _by_kind(extract_artifacts(SAMPLE_BODY))
     labels = {a["label"] for a in kinds["claude-md"]}
-    assert labels == {"CLAUDE.md (globale)", "CLAUDE.md (progetto)"}
+    assert labels == {"CLAUDE.md (global)", "CLAUDE.md (project)"}
     assert kinds["memory"][0]["path"].endswith("MEMORY.md")
 
 
 def test_at_file_from_system_block_not_the_cited_one():
     at = _by_kind(extract_artifacts(SAMPLE_BODY))["at-file"]
     assert len(at) == 1
-    assert at[0]["path"] == "docs/style.md"       # allegato via @
-    assert at[0]["chars"] > 0                      # contenuto iniettato
-    # il file "solo citato" (docs/other.md) non deve comparire
+    assert at[0]["path"] == "docs/style.md"       # attached via @
+    assert at[0]["chars"] > 0                      # injected content
+    # the "merely cited" file (docs/other.md) must not show up
     assert all(a["path"] != "docs/other.md" for a in at)
 
 
 def test_read_file_from_llm_tool_use():
     read = _by_kind(extract_artifacts(SAMPLE_BODY))["read-file"]
-    assert len(read) == 1                          # solo la Read, non il Bash
-    assert read[0]["path"] == "src/main.py"        # path risalito via tool_use_id
+    assert len(read) == 1                          # only the Read, not the Bash
+    assert read[0]["path"] == "src/main.py"        # path traced back via tool_use_id
     assert read[0]["label"] == "main.py"
     assert read[0]["chars"] == len("1\tprint('hi')\n")
 
 
 def test_read_file_content_as_block_list():
-    # `tool_result.content` può essere lista di blocchi, non solo stringa.
+    # `tool_result.content` can be a list of blocks, not only a string.
     body = {
         "messages": [
             {"role": "assistant", "content": [
@@ -115,21 +115,21 @@ def test_read_file_content_as_block_list():
             ]},
             {"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": "t1",
-                 "content": [{"type": "text", "text": "riga uno"}, {"type": "text", "text": "riga due"}]},
+                 "content": [{"type": "text", "text": "line one"}, {"type": "text", "text": "line two"}]},
             ]},
         ]
     }
     read = _by_kind(extract_artifacts(body))["read-file"]
-    assert read[0]["chars"] == len("riga uno") + len("riga due")
+    assert read[0]["chars"] == len("line one") + len("line two")
 
 
-# Body campione che riproduce la lettura di un PDF via `@`: Claude Code non fa
-# eager loading (troppo grande), il modello chiama Read a blocchi di pagine e il
-# tool_result arriva con uno stub testuale + le pagine come blocchi image
-# FRATELLI del tool_result (caso reale osservato, evento 2230/2232).
+# Sample body reproducing reading a PDF via `@`: Claude Code does no eager
+# loading (too large), the model calls Read in page ranges and the tool_result
+# arrives with a textual stub + the pages as image blocks that are SIBLINGS of
+# the tool_result (real case observed, event 2230/2232).
 PDF_READ_BODY = {
     "messages": [
-        {"role": "user", "content": [{"type": "text", "text": "nel file @man.pdf ..."}]},
+        {"role": "user", "content": [{"type": "text", "text": "in the file @man.pdf ..."}]},
         {"role": "assistant", "content": [
             {"type": "tool_use", "id": "t1", "name": "Read",
              "input": {"file_path": "/docs/man.pdf", "pages": "1-6"}},
@@ -152,8 +152,8 @@ PDF_READ_BODY = {
 
 
 def test_file_ref_from_too_large_pdf_notice():
-    # `@file` troppo grande per l'eager loading: Claude Code inietta solo un
-    # avviso role:system → artefatto `file-ref` (referenziato, non caricato).
+    # `@file` too large for eager loading: Claude Code injects only a
+    # role:system notice → `file-ref` artifact (referenced, not loaded).
     notice = (
         "PDF file: /docs/man.pdf (13 pages, 1.4MB). This PDF is too large to read "
         'all at once. You MUST use the Read tool with the pages parameter to read '
@@ -161,31 +161,31 @@ def test_file_ref_from_too_large_pdf_notice():
     )
     body = {
         "messages": [
-            {"role": "user", "content": [{"type": "text", "text": "nel file @man.pdf ..."}]},
-            # nel caso reale l'avviso condivide il blocco system con altre
-            # notifiche (deferred tools): pesa solo il primo paragrafo
+            {"role": "user", "content": [{"type": "text", "text": "in the file @man.pdf ..."}]},
+            # in the real case the notice shares the system block with other
+            # notifications (deferred tools): only the first paragraph weighs
             {"role": "system", "content": notice + "\n\nThe following deferred tools are now available..."},
         ]
     }
     kinds = _by_kind(extract_artifacts(body))
-    assert "at-file" not in kinds                  # nessun contenuto pre-caricato
+    assert "at-file" not in kinds                  # no pre-loaded content
     ref = kinds["file-ref"][0]
     assert ref["path"] == "/docs/man.pdf"
     assert ref["label"] == "@man.pdf"
-    assert "non caricato" in ref["description"]
-    assert ref["chars"] == len(notice)             # solo l'avviso, non il resto del blocco
+    assert "not loaded" in ref["description"]
+    assert ref["chars"] == len(notice)             # only the notice, not the rest of the block
 
 
 def test_tool_result_images_are_not_user_images():
-    # Le pagine del PDF (image fratelli di un tool_result) NON sono allegati
-    # dell'utente: nessun artefatto `image`, niente bolla YOU fantasma.
+    # The PDF pages (image siblings of a tool_result) are NOT user
+    # attachments: no `image` artifact, no phantom YOU bubble.
     kinds = _by_kind(extract_artifacts(PDF_READ_BODY))
     assert "image" not in kinds
 
 
 def test_read_file_weighs_sibling_images_and_accumulates():
     read = _by_kind(extract_artifacts(PDF_READ_BODY))["read-file"]
-    # Letture ripetute dello stesso path → un solo artefatto, pesi sommati.
+    # Repeated reads of the same path → a single artifact, weights summed.
     assert len(read) == 1
     assert read[0]["path"] == "/docs/man.pdf"
     expected = (
@@ -196,7 +196,7 @@ def test_read_file_weighs_sibling_images_and_accumulates():
 
 
 def test_read_file_counts_images_inside_tool_result_content():
-    # Immagini DENTRO `tool_result.content` (es. screenshot): contate nel peso.
+    # Images INSIDE `tool_result.content` (e.g. screenshots): counted in the weight.
     body = {
         "messages": [
             {"role": "assistant", "content": [
@@ -228,15 +228,15 @@ def test_tools_aggregate():
 def test_robust_to_degenerate_bodies():
     assert extract_artifacts(None) == []
     assert extract_artifacts({}) == []
-    # system:null (chiamate token-count) → nessun artifact system, nessun errore
+    # system:null (token-count calls) → no system artifact, no error
     assert extract_artifacts({"system": None, "messages": []}) == []
-    # system come stringa
-    out = extract_artifacts({"system": "prompt intero"})
+    # system as a string
+    out = extract_artifacts({"system": "whole prompt"})
     assert out and out[0]["kind"] == "system"
 
 
 def test_system_fallback_when_no_billing_block():
-    # se non c'è il billing header, non azzerare mai il system prompt
+    # if the billing header is missing, never zero out the system prompt
     body = {"system": [{"type": "text", "text": "You are a security monitor."}]}
     out = extract_artifacts(body)
     assert out[0]["kind"] == "system"

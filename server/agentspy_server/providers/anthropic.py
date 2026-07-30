@@ -1,8 +1,8 @@
-"""Adapter per l'API Anthropic Messages (il provider "nativo" di agentspy).
+"""Adapter for the Anthropic Messages API (agentspy's "native" provider).
 
-Il modello neutro di agentspy deriva da questa API, quindi qui la traduzione
-è quasi l'identità: il lavoro vero è la ricostruzione del messaggio dallo
-stream SSE e la disciplina sull'usage (vedi ``_PROMPT_USAGE_KEYS``).
+agentspy's neutral model derives from this API, so here the translation is
+almost the identity: the real work is reconstructing the message from the SSE
+stream and the discipline on usage (see ``_PROMPT_USAGE_KEYS``).
 """
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ from .base import ProviderAdapter, StreamCollector
 
 
 def jsize(obj) -> int:
-    """Dimensione in caratteri della serializzazione JSON (proxy grezzo dei token)."""
+    """Size in characters of the JSON serialization (rough proxy for tokens)."""
     return len(json.dumps(obj, ensure_ascii=False))
 
 
 def analyze_request_body(body: dict) -> dict:
-    """Scompone la richiesta nelle sue parti: system, tools, messages."""
+    """Breaks the request down into its parts: system, tools, messages."""
     info: dict = {
         "model": body.get("model"),
         "stream": body.get("stream", False),
@@ -47,21 +47,21 @@ def analyze_request_body(body: dict) -> dict:
     return info
 
 
-# I token del prompt (input, cache read/creation) sono fissati quando la
-# richiesta parte: message_start li riporta corretti e rappresentano l'occupancy
-# reale della finestra di contesto. Su turni con extended/interleaved thinking,
-# message_delta ne riporta un cumulativo (cache-read *throughput*: il prompt
-# riletto più volte durante il turno), che NON è l'occupancy e gonfierebbe il
-# gauge. I campi di prompt vengono quindi congelati da message_start e MAI
-# accettati da message_delta; da message_delta prendiamo solo l'output
-# (output_tokens, che cresce durante lo streaming).
+# The prompt tokens (input, cache read/creation) are fixed when the request
+# starts: message_start reports them correctly and they represent the real
+# occupancy of the context window. On turns with extended/interleaved thinking,
+# message_delta reports a cumulative value (cache-read *throughput*: the prompt
+# re-read several times during the turn), which is NOT the occupancy and would
+# inflate the gauge. The prompt fields are therefore frozen by message_start and
+# NEVER accepted from message_delta; from message_delta we only take the output
+# (output_tokens, which grows during streaming).
 _PROMPT_USAGE_KEYS = frozenset(
     {"input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "cache_creation"}
 )
 
 
 class SSECollector(StreamCollector):
-    """Ricostruisce il messaggio assistant dagli eventi SSE e ne estrae usage/timing."""
+    """Reconstructs the assistant message from the SSE events and extracts usage/timing."""
 
     def __init__(self):
         self.events_count: dict = {}
@@ -71,8 +71,8 @@ class SSECollector(StreamCollector):
         self.blocks: list = []
         self.error = None
         self._buf = ""
-        # True se message_start ha riportato almeno un token di prompt: da lì
-        # in poi i campi di prompt sono congelati (vedi _merge_usage).
+        # True if message_start reported at least one prompt token: from there
+        # on the prompt fields are frozen (see _merge_usage).
         self._prompt_from_start = False
 
     def feed(self, chunk: bytes) -> None:
@@ -124,20 +124,20 @@ class SSECollector(StreamCollector):
             self.error = payload
 
     def _merge_usage(self, new: dict, *, from_start: bool = False) -> None:
-        """Fonde una usage nello stato accumulato preservando i token di prompt.
+        """Merges a usage into the accumulated state preserving the prompt tokens.
 
-        Se message_start ha riportato dei token di prompt (l'API Anthropic vera
-        lo fa sempre), i campi in _PROMPT_USAGE_KEYS restano congelati a quel
-        valore: message_delta può riportarne un cumulativo (throughput) che
-        falsa l'occupancy della finestra di contesto, quindi lì vengono
-        ignorati — anche per le chiavi che message_start avesse omesso (es.
-        cache_creation_input_tokens): il valore gonfiato del delta non deve
-        comunque entrare.
+        If message_start reported prompt tokens (the real Anthropic API always
+        does), the fields in _PROMPT_USAGE_KEYS stay frozen at that value:
+        message_delta may report a cumulative value (throughput) that skews the
+        occupancy of the context window, so there they are ignored — also for
+        the keys message_start may have omitted (e.g.
+        cache_creation_input_tokens): the delta's inflated value must not get in
+        anyway.
 
-        Alcune emulazioni Anthropic-compatibili (OpenRouter) invece mandano
-        message_start con usage a zero e i valori veri solo in message_delta:
-        se dallo start non è arrivato NESSUN token di prompt, il delta è
-        l'unica fonte e viene accettato.
+        Some Anthropic-compatible emulations (OpenRouter) instead send
+        message_start with usage at zero and the real values only in
+        message_delta: if NO prompt token arrived from the start, the delta is
+        the only source and is accepted.
         """
         if from_start:
             self._prompt_from_start = any(
@@ -161,10 +161,10 @@ class SSECollector(StreamCollector):
             if not b.get("text"):
                 b.pop("text", None)
             content.append(b)
-        # Un event error a metà stream (dopo message_start) lascia stop_reason
-        # a None e la richiesta HTTP resta 200: senza questo il round trip
-        # sembrerebbe riuscito. stop_reason="error" lo rende visibile a valle
-        # (app.py lo persiste), mentre il dettaglio resta in result["error"].
+        # An error event mid-stream (after message_start) leaves stop_reason at
+        # None and the HTTP request stays 200: without this the round trip would
+        # look successful. stop_reason="error" makes it visible downstream
+        # (app.py persists it), while the detail stays in result["error"].
         stop_reason = self.stop_reason
         if stop_reason is None and self.error is not None:
             stop_reason = "error"
@@ -184,10 +184,10 @@ class AnthropicAdapter(ProviderAdapter):
     name = "anthropic"
 
     def is_model_call(self, path: str, body: dict | None) -> bool:
-        # Il body con "messages" non basta: anche /v1/messages/count_tokens lo
-        # ha (Claude Code all'avvio ne fa decine, una per agente/skill, ognuna
-        # con fingerprint diverso -> valanga di sessioni sintetiche), quindi
-        # si filtra anche sul path.
+        # A body with "messages" is not enough: /v1/messages/count_tokens has it
+        # too (Claude Code makes dozens at startup, one per agent/skill, each
+        # with a different fingerprint -> avalanche of synthetic sessions), so
+        # the path is filtered as well.
         path = (path or "").rstrip("/")
         return bool(isinstance(body, dict) and body.get("messages") and path.endswith("/messages"))
 
@@ -203,12 +203,12 @@ class AnthropicAdapter(ProviderAdapter):
         return {}
 
     def normalize_usage(self, usage: dict) -> dict:
-        # `cache_creation` riporta il TTL con cui i token appena scritti sono
-        # stati messi in cache (5 minuti o 1 ora). Il tier NON è un dettaglio
-        # estetico: il write a 1h costa 2x l'input, quello a 5m 1.25x, quindi
-        # senza split il costo della cache è sottostimato. Assente sui provider
-        # Anthropic-compatibili che non lo espongono -> None (non 0): a valle
-        # "tier ignoto" e "zero token scritti in quel tier" restano distinti.
+        # `cache_creation` reports the TTL with which the tokens just written
+        # were cached (5 minutes or 1 hour). The tier is NOT a cosmetic detail:
+        # the 1h write costs 2x the input, the 5m one 1.25x, so without the
+        # split the cache cost is underestimated. Absent on Anthropic-compatible
+        # providers that do not expose it -> None (not 0): downstream "unknown
+        # tier" and "zero tokens written in that tier" stay distinct.
         creation = usage.get("cache_creation")
         creation = creation if isinstance(creation, dict) else {}
         return {

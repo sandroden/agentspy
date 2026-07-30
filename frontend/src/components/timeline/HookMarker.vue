@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Marcatore discreto per un evento hook (SessionStart, Stop, PreCompact, ...):
-// visibile solo con spy.showHooks attivo (toggle in TimeControls). Mostra che
-// in quel punto della timeline Claude Code ha dato spazio a una reazione
-// (es. un hook utente che blocca un comando); il click apre il payload nel
-// DetailPanel, che sa già renderizzare kind='hook'.
+// Discreet marker for a hook event (SessionStart, Stop, PreCompact, ...):
+// visible only with spy.showHooks on (toggle in TimeControls). It shows that
+// at that point of the timeline Claude Code made room for a reaction (e.g. a
+// user hook blocking a command); clicking opens the payload in the
+// DetailPanel, which already knows how to render kind='hook'.
 import { computed } from 'vue'
 import { useSpyStore } from '../../stores/spy'
 import { formatTime } from '../../utils/format'
@@ -21,7 +21,7 @@ function onClick() {
 
 <template>
   <div class="hook-row">
-    <button class="hook-marker" :class="{ selected }" title="hook di Claude Code — click per il payload" @click="onClick">
+    <button class="hook-marker" :class="{ selected }" title="Claude Code hook — click for the payload" @click="onClick">
       <span class="icon">⚓︎</span>
       <span class="name">{{ event.subkind }}</span>
       <span class="time">{{ formatTime(event.ts_start) }}</span>

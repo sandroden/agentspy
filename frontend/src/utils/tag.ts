@@ -1,10 +1,10 @@
-/** Utility per il colore di un tag di raccolta. */
+/** Utility for the color of a collection tag. */
 
 /**
- * Colore stabile derivato dal nome del tag (semplice hash → hue). Condiviso
- * fra la sidebar e la dashboard, così la chip della sessione "featured" ha lo
- * stesso colore della sua riga nella sidebar: è quella continuità visiva a
- * legare "questa riga → questi grafici".
+ * Stable color derived from the tag name (simple hash → hue). Shared between
+ * the sidebar and the dashboard, so the "featured" session's chip has the
+ * same color as its sidebar row: that visual continuity is what ties
+ * "this row → these charts".
  */
 export function tagColor(tag: string): string {
   let hash = 0

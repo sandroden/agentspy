@@ -13,14 +13,14 @@ const { selectedEventId, wsConnected } = storeToRefs(spy)
 useTheme().init()
 
 // The right detail panel belongs to the Timeline (SessionView). On the
-// dashboard the round-trip detail is intentionally absent (see the "Direzioni
-// Leggibilità" design, option 2a): a chart click navigates to the Timeline on
+// dashboard the round-trip detail is intentionally absent (see the "Readability
+// Directions" design, option 2a): a chart click navigates to the Timeline on
 // that round trip, it does not open a payload panel here. Gate on the route so
 // the panel disappears when we switch to the dashboard even if an event stayed
 // selected.
 const showDetail = computed(() => selectedEventId.value != null && route.path !== '/')
 
-// -- larghezza colonna dettaglio (ridimensionabile col mouse) ----------------
+// -- detail column width (resizable with the mouse) -------------------------
 const DETAIL_WIDTH_KEY = 'agentspy.detailWidth'
 const MIN_WIDTH = 320
 const DEFAULT_WIDTH = 420
@@ -81,8 +81,8 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-layout" :class="{ 'has-detail': showDetail, dragging }" :style="layoutStyle">
     <aside class="sidebar">
-      <!-- brand dell'app: qui, non nell'area centrale (che titola la sezione).
-           In futuro il quadrato "A" diventerà un logo vero. -->
+      <!-- app brand: here, not in the center area (which titles the section).
+           The "A" square will become a real logo later on. -->
       <div class="brand">
         <span class="brand-logo">A</span>
         <span class="brand-name">AgentSpy</span>
@@ -224,8 +224,8 @@ body {
   background-color: var(--accent);
 }
 
-/* riga brand: stessa altezza e stesso corpo del titolo di sezione
-   (SessionHeader .title-row) così le due intestazioni si allineano. */
+/* brand row: same height and same font size as the section title
+   (SessionHeader .title-row) so the two headings line up. */
 .brand {
   display: flex;
   align-items: center;
@@ -256,7 +256,7 @@ body {
   color: var(--text);
 }
 
-/* stato della connessione WebSocket al collector, ora un semplice pallino */
+/* WebSocket connection state to the collector, now just a dot */
 .ws-dot {
   margin-left: auto;
   width: 8px;

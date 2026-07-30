@@ -36,9 +36,9 @@ const trigger = computed(() => {
   if (isSubagent) return { icon: '🤖', label: 'Parent task', kind: 'subagent' }
   const t = props.userText ?? ''
   if (/^\s*<task-notification>/.test(t)) return { icon: '🔔', label: 'Task done', kind: 'notify' }
-  // Slash command / skill: il turno è stato aperto da un comando, non da testo
-  // libero — lo si etichetta col nome (es. /okf:okf). Il corpo iniettato dalla
-  // skill (il costo di contesto) è quantificato nel pannello di dettaglio.
+  // Slash command / skill: the turn was opened by a command, not by free text
+  // — label it with the name (e.g. /okf:okf). The body injected by the skill
+  // (the context cost) is quantified in the detail panel.
   const cmd = parseSlashCommand(t)
   if (cmd) return { icon: '🎓', label: `Command ${cmd.name}`, kind: 'command' }
   return { icon: '🧑', label: 'You', kind: 'user' }
@@ -75,13 +75,13 @@ function onClick() {
 }
 
 /**
- * Elementi del contesto visti per la PRIMA volta in questo round trip: la chip
- * compare una sola volta, nel round trip in cui l'elemento entra. Click → apre
- * l'elenco cumulativo ("cosa si porta dietro il contesto"). Sono divisi per
- * provenienza:
- *  - allegati dall'utente (@file, immagini incollate) → dentro la bolla azzurra;
- *  - contesto iniettato dall'harness (system prompt, CLAUDE.md, MEMORY.md, tools)
- *    → fuori dalla bolla verde di Claude, perché è input, non la risposta.
+ * Context items seen for the FIRST time in this round trip: the chip shows up
+ * only once, in the round trip where the item enters. Click → opens the
+ * cumulative list ("what the context carries along"). They are split by
+ * origin:
+ *  - attached by the user (@file, pasted images) → inside the blue bubble;
+ *  - context injected by the harness (system prompt, CLAUDE.md, MEMORY.md, tools)
+ *    → outside Claude's green bubble, because it is input, not the answer.
  */
 const newArtifacts = computed(() => spy.newArtifactsByEvent[props.event.id] ?? [])
 const USER_KINDS = new Set(['at-file', 'file-ref', 'image'])
@@ -107,7 +107,7 @@ function openInventory() {
       >
         <div class="bubble-label">{{ trigger.icon }} {{ trigger.label }}</div>
         <p v-if="userText" class="bubble-text bubble-text--clamp" :title="userText">{{ userText }}</p>
-        <!-- allegati dell'utente (@file / immagini incollate): dentro l'azzurro -->
+        <!-- user attachments (@file / pasted images): inside the blue bubble -->
         <div v-if="userArtifacts.length" class="ctx-attach">
           <button
             v-for="(a, i) in userArtifacts"
@@ -142,10 +142,10 @@ function openInventory() {
         <p v-if="event.snippet" class="bubble-text">{{ event.snippet }}</p>
       </div>
       <p class="caption">💡 {{ caption }}</p>
-      <!-- contesto iniettato dall'harness: FUORI dalla bolla verde (è input,
-           non la risposta del modello) -->
+      <!-- context injected by the harness: OUTSIDE the green bubble (it is
+           input, not the model's answer) -->
       <div v-if="systemArtifacts.length" class="ctx-sys">
-        <span class="ctx-sys-label">🆕 nel contesto:</span>
+        <span class="ctx-sys-label">🆕 in context:</span>
         <button
           v-for="(a, i) in systemArtifacts"
           :key="i"
@@ -206,7 +206,7 @@ function openInventory() {
   --c-trigger: var(--c-assistant);
 }
 
-/* Slash command / skill invocation: teal, distinto dal prompt libero. */
+/* Slash command / skill invocation: teal, distinct from the free prompt. */
 .bubble-user--command {
   --c-trigger: #3ab0a2;
 }
@@ -347,7 +347,7 @@ function openInventory() {
   width: fit-content;
 }
 
-/* Allegati dell'utente (@file / immagini): dentro la bolla azzurra, sotto il testo. */
+/* User attachments (@file / images): inside the blue bubble, below the text. */
 .ctx-attach {
   display: flex;
   flex-wrap: wrap;
@@ -355,7 +355,7 @@ function openInventory() {
   margin-top: 8px;
 }
 
-/* La colonna utente è stretta: i chip non devono traboccare dalla bolla. */
+/* The user column is narrow: chips must not overflow the bubble. */
 .ctx-attach .ctx-chip {
   max-width: 100%;
 }
@@ -368,7 +368,7 @@ function openInventory() {
   overflow: hidden;
 }
 
-/* Contesto di sistema: banda sotto la bolla verde (fuori: è input, non risposta). */
+/* System context: band below the green bubble (outside: it is input, not answer). */
 .ctx-sys {
   display: flex;
   flex-wrap: wrap;
@@ -412,7 +412,7 @@ function openInventory() {
   font-size: 0.95em;
 }
 
-/* Colori per tipo: system/istruzioni sul tono LLM, allegati (immagini/@file) in ambra. */
+/* Colors per kind: system/instructions on the LLM hue, attachments (images/@file) in amber. */
 .ctx-chip--system,
 .ctx-chip--tools {
   --c-chip: var(--c-llm);
@@ -425,13 +425,13 @@ function openInventory() {
 .ctx-chip--at-file {
   --c-chip: #d9840a;
 }
-/* @file solo referenziato (troppo grande per l'eager loading): stesso ambra
-   degli allegati ma tratteggiato — nel contesto c'è solo l'avviso, non il file. */
+/* @file only referenced (too large for eager loading): same amber as the
+   attachments but dashed — the context holds only the notice, not the file. */
 .ctx-chip--file-ref {
   --c-chip: #d9840a;
   border-style: dashed;
 }
-/* File letto dall'agente (Read): stesso contenuto di un @file, altra origine. */
+/* File read by the agent (Read): same content as an @file, different origin. */
 .ctx-chip--read-file {
   --c-chip: #0d9488;
 }

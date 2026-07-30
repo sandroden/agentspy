@@ -1,20 +1,20 @@
-"""Backfill dei token di prompt (occupancy) sui round trip già catturati.
+"""Backfill of prompt tokens (occupancy) on already captured round trips.
 
-Contesto: fino al fix del parser SSE, ``SSECollector`` lasciava che
-``message_delta`` sovrascrivesse la usage con un ``cache_read_input_tokens``
-cumulativo (throughput) sui turni con extended thinking. Il risultato: colonne
-``cache_read_tokens``/``cache_write_tokens``/``input_tokens`` gonfiate rispetto
-all'occupancy reale della finestra di contesto, con un picco fantasma nel gauge.
+Context: until the SSE parser fix, ``SSECollector`` let ``message_delta``
+overwrite the usage with a cumulative (throughput) ``cache_read_input_tokens``
+on turns with extended thinking. The result: ``cache_read_tokens``/
+``cache_write_tokens``/``input_tokens`` columns inflated with respect to the
+real context window occupancy, with a phantom peak in the gauge.
 
-Il valore corretto del prompt è nella usage di ``message_start``, che il proxy
-salva comunque in ``payload.response.message.usage``. Questo script la rilegge e
-riscrive le colonne di prompt, lasciando ``output_tokens`` (che è, giustamente,
-il valore finale del ``message_delta``).
+The correct prompt value is in the ``message_start`` usage, which the proxy
+saves anyway in ``payload.response.message.usage``. This script reads it back
+and rewrites the prompt columns, leaving ``output_tokens`` alone (which is,
+rightly, the final value from ``message_delta``).
 
-Uso:
+Usage:
 
     uv run python scripts/backfill_prompt_usage.py            # dry-run (default)
-    uv run python scripts/backfill_prompt_usage.py --apply    # scrive davvero
+    uv run python scripts/backfill_prompt_usage.py --apply    # actually writes
     uv run python scripts/backfill_prompt_usage.py -h
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ import json
 import sqlite3
 import sys
 
-# chiavi del prompt nella usage dell'API -> colonne del DB
+# prompt keys in the API usage -> DB columns
 _PROMPT_COLS = {
     "input_tokens": "input_tokens",
     "cache_read_input_tokens": "cache_read_tokens",
@@ -33,7 +33,7 @@ _PROMPT_COLS = {
 
 
 def _message_start_usage(payload_json: str | None) -> dict | None:
-    """La usage di ``message_start`` = ``response.message.usage`` nel payload."""
+    """The ``message_start`` usage = ``response.message.usage`` in the payload."""
     if not payload_json:
         return None
     try:
@@ -88,17 +88,17 @@ def backfill(db_path: str, apply: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("db", nargs="?", default="server/agentspy.db", help="path del DB (default: server/agentspy.db)")
-    parser.add_argument("--apply", action="store_true", help="scrive le modifiche (senza, è un dry-run)")
+    parser.add_argument("db", nargs="?", default="server/agentspy.db", help="DB path (default: server/agentspy.db)")
+    parser.add_argument("--apply", action="store_true", help="write the changes (without it, this is a dry-run)")
     args = parser.parse_args()
 
     mode = "APPLY" if args.apply else "DRY-RUN"
-    print(f"[{mode}] backfill prompt usage su {args.db}")
+    print(f"[{mode}] backfill prompt usage on {args.db}")
     changed = backfill(args.db, args.apply)
-    verb = "aggiornati" if args.apply else "da aggiornare"
-    print(f"{changed} round trip {verb}.")
+    verb = "updated" if args.apply else "to update"
+    print(f"{changed} round trips {verb}.")
     if changed and not args.apply:
-        print("Rilancia con --apply per scrivere.")
+        print("Re-run with --apply to write.")
     return 0
 
 

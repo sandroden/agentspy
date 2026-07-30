@@ -200,8 +200,8 @@ function scrollToSubagents() {
 
 <template>
   <div ref="rootEl" class="dashboard-page">
-    <!-- header di sezione: la sessione di cui parlano i grafici (mockup):
-         stesso componente della timeline, così cambia sessione = cambia header -->
+    <!-- section header: the session the charts are about (mockup): same
+         component as the timeline, so change session = change header -->
     <SessionHeader v-if="featured" :session="featured" />
     <header v-else class="bare-header">
       <h1 class="bare-title">Dashboard</h1>
@@ -284,7 +284,7 @@ function scrollToSubagents() {
   gap: 1.25rem;
 }
 
-/* header quando non c'è ancora nessuna sessione featured */
+/* header when there is no featured session yet */
 .bare-header {
   display: flex;
   align-items: center;

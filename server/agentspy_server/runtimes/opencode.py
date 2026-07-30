@@ -1,25 +1,25 @@
-"""Runtime opencode: le convenzioni del CLI opencode (https://opencode.ai) usato
-con modelli Anthropic via API key.
+"""opencode runtime: the conventions of the opencode CLI (https://opencode.ai)
+used with Anthropic models via API key.
 
-Speculare a ``claude_code``. Differenze principali, riflesse nel vocabolario:
+Mirror image of ``claude_code``. Main differences, reflected in the vocabulary:
 
-- **Nomi hook nativi.** Lo strumento è didattico: i dati devono rispecchiare la
-  realtà del runtime. Gli ``hook_event_name`` sono i nomi degli eventi del
-  plugin API di opencode (``chat.message``, ``tool.execute.before/after``,
-  ``session.idle``), non ribattezzati alle etichette di Claude Code. La
-  traduzione evento nativo → campi neutri dell'ingest la fa il plugin
+- **Native hook names.** The tool is educational: the data must mirror the
+  reality of the runtime. The ``hook_event_name`` values are the names of the
+  opencode plugin API events (``chat.message``, ``tool.execute.before/after``,
+  ``session.idle``), not renamed to the Claude Code labels. Translating native
+  event → neutral ingest fields is done by the plugin
   ``hooks/opencode/agentspy.js``.
-- **Nessun header di sessione.** opencode non marca le richieste HTTP con un id
-  di sessione: ``session_id_header`` è vuoto e la correlazione round trip →
-  sessione avviene per fingerprint + eventi del plugin.
-- **Concetti assenti.** opencode non ha hook dedicati di start/stop dei
-  subagenti (girano come sessioni figlie con ``parentID``), né un wrapper di
-  system-reminder attorno al prompt utente, né un ponte MCP verificato: i
-  relativi slot del vocabolario restano stringa vuota. Gli helper di ``base.py``
-  sono stati resi robusti alle stringhe vuote (una guardia ``bool(...)`` evita
-  che uno slot vuoto matchi per sbaglio ``None``/``""``).
+- **No session header.** opencode does not mark HTTP requests with a session
+  id: ``session_id_header`` is empty and the round trip → session correlation
+  happens by fingerprint + plugin events.
+- **Missing concepts.** opencode has no dedicated subagent start/stop hooks
+  (they run as child sessions with ``parentID``), no system-reminder wrapper
+  around the user prompt, and no verified MCP bridge: the corresponding
+  vocabulary slots stay empty strings. The ``base.py`` helpers were made robust
+  to empty strings (a ``bool(...)`` guard prevents an empty slot from matching
+  ``None``/``""`` by mistake).
 
-L'inventario degli artefatti vive in ``opencode_artifacts``.
+The artifact inventory lives in ``opencode_artifacts``.
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ from typing import Any
 from .base import AgentRuntime
 from .opencode_artifacts import extract_artifacts
 
-# Tool nativi di opencode → campo dell'input che porta l'argomento saliente,
-# per i badge in timeline. Nomi verificati sui sorgenti (packages/opencode/src/
-# tool/*.ts): schema camelCase, tool su file con ``filePath``.
+# Native opencode tools → input field carrying the salient argument, for the
+# timeline badges. Names verified against the sources (packages/opencode/src/
+# tool/*.ts): camelCase schema, file tools with ``filePath``.
 _HINT_KEYS: dict[str, tuple[str, ...]] = {
     "read": ("filePath",),
     "write": ("filePath",),
@@ -48,42 +48,42 @@ _HINT_KEYS: dict[str, tuple[str, ...]] = {
 class OpencodeRuntime(AgentRuntime):
     name = "opencode"
 
-    # opencode non manda un header con l'id di sessione: la correlazione round
-    # trip → sessione è per fingerprint + eventi del plugin.
+    # opencode does not send a header with the session id: the round trip →
+    # session correlation is by fingerprint + plugin events.
     session_id_header = ""
 
-    # Nomi NATIVI degli eventi del plugin API di opencode.
+    # NATIVE names of the opencode plugin API events.
     hook_user_prompt = "chat.message"
     hook_pre_tool_use = "tool.execute.before"
     hook_post_tool_use = "tool.execute.after"
-    # opencode non ha hook dedicati di start/stop dei subagenti: girano come
-    # sessioni figlie (parentID), correlazione non ancora implementata.
+    # opencode has no dedicated subagent start/stop hooks: they run as child
+    # sessions (parentID), correlation not implemented yet.
     hook_subagent_start = ""
     hook_subagent_stop = ""
-    # session.idle chiude il turno: come lo Stop di Claude Code scatta a fine di
-    # ogni risposta dell'assistente, non solo a fine sessione.
+    # session.idle closes the turn: like Claude Code's Stop it fires at the end
+    # of every assistant response, not only at the end of the session.
     hook_stop = "session.idle"
 
-    # Il callID degli hook tool È il toolu_… della wire (verificato in E2E), e il
-    # plugin lo manda come tool_use_id. Non verificato invece che opencode passi
-    # l'id nel _meta delle tools/call MCP: lasciato vuoto finché non osservato.
+    # The callID of the tool hooks IS the toolu_… on the wire (verified in E2E),
+    # and the plugin sends it as tool_use_id. Not verified instead that opencode
+    # passes the id in the _meta of MCP tools/call: left empty until observed.
     mcp_tool_use_id_key = ""
 
-    # opencode non affianca al prompt utente blocchi di system-reminder.
+    # opencode does not put system-reminder blocks alongside the user prompt.
     system_reminder_prefix = ""
 
     def last_user_message(self, messages: list[Any]) -> dict | None:
-        """Ultimo messaggio con role='user'. opencode non accoda messaggi di
-        servizio (come fa Claude Code col ``role:'system'``), quindi qui basta
-        l'ultimo ``role:'user'``."""
+        """Last message with role='user'. opencode does not append service
+        messages (as Claude Code does with ``role:'system'``), so here the last
+        ``role:'user'`` is enough."""
         for m in reversed(messages):
             if isinstance(m, dict) and m.get("role") == "user":
                 return m
         return None
 
     def tool_hint(self, name: str | None, tool_input: Any) -> str:
-        """Indizio compatto dell'argomento di una chiamata tool, per i badge in
-        timeline. Best-effort, stringa vuota se non riconosciuto."""
+        """Compact hint of a tool call's argument, for the timeline badges.
+        Best-effort, empty string if not recognised."""
         if not isinstance(tool_input, dict):
             return ""
         try:
@@ -92,8 +92,8 @@ class OpencodeRuntime(AgentRuntime):
             if keys:
                 v = next((tool_input.get(k) for k in keys if isinstance(tool_input.get(k), str) and tool_input.get(k)), None)
             if v is None:
-                # fallback generico (incluso mcp__*): path se presente, poi il
-                # primo valore stringa non vuoto.
+                # generic fallback (mcp__* included): path if present, then the
+                # first non-empty string value.
                 for k in ("filePath", "file_path", "path"):
                     val = tool_input.get(k)
                     if isinstance(val, str) and val:
@@ -108,9 +108,9 @@ class OpencodeRuntime(AgentRuntime):
         return ""
 
     def command_snippet(self, text: str) -> str | None:
-        """opencode espande gli slash-command lato server sostituendo il testo del
-        messaggio utente, senza lasciare un marcatore riconoscibile sulla wire:
-        non c'è nulla da ripulire, quindi None."""
+        """opencode expands slash-commands server-side by replacing the text of
+        the user message, without leaving a recognisable marker on the wire:
+        there is nothing to clean up, hence None."""
         return None
 
     def extract_artifacts(self, body: Any) -> list[dict[str, Any]]:

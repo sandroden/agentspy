@@ -1,11 +1,12 @@
-"""Proxy trasparente verso l'upstream LLM: solo transport, provider-agnostico.
+"""Transparent proxy towards the LLM upstream: transport only, provider-agnostic.
 
-Il forward è parametrizzato (upstream/client iniettati) e un callback
-``on_event`` viene invocato a fine round trip con il record completo. Tutto
-ciò che dipende dal protocollo del provider (analisi del body, ricostruzione
-SSE, usage) è delegato a un ``ProviderAdapter`` (vedi ``providers/``); qui
-restano solo inoltro HTTP, redazione header, timing ed emissione del record.
-Chi assembla l'app (``app.py``) collega ``on_event`` a correlate+store+ws.
+The forward is parameterized (upstream/client injected) and an ``on_event``
+callback is invoked at the end of the round trip with the full record.
+Everything that depends on the provider protocol (body analysis, SSE
+reconstruction, usage) is delegated to a ``ProviderAdapter`` (see
+``providers/``); here only HTTP forwarding, header redaction, timing and record
+emission remain. Whoever assembles the app (``app.py``) wires ``on_event`` to
+correlate+store+ws.
 """
 
 from __future__ import annotations
@@ -26,10 +27,10 @@ logger = logging.getLogger(__name__)
 
 TAG_HEADER = "x-agentspy-tag"
 
-# header hop-by-hop o che non vanno inoltrati/ritornati tal quali
+# hop-by-hop headers, or ones that must not be forwarded/returned as-is
 SKIP_REQ_HEADERS = {"host", "content-length", "accept-encoding", "connection"}
 SKIP_RESP_HEADERS = {"content-length", "content-encoding", "transfer-encoding", "connection"}
-# non salvare mai questi in chiaro
+# never store these in clear text
 SENSITIVE_HEADERS = {"authorization", "x-api-key", "cookie", "proxy-authorization"}
 
 OnEvent = Callable[[dict], Awaitable[None]]
@@ -43,10 +44,10 @@ def redact_headers(headers) -> dict:
 
 
 class ProxyForwarder:
-    """Inoltra qualunque richiesta non gestita localmente all'upstream.
+    """Forwards to the upstream any request not handled locally.
 
-    ``on_event`` viene chiamato (in background, senza bloccare la risposta al
-    client) con il record completo del round trip, non appena disponibile.
+    ``on_event`` is called (in the background, without blocking the response to
+    the client) with the full round trip record, as soon as it is available.
     """
 
     def __init__(
@@ -60,8 +61,8 @@ class ProxyForwarder:
         self.client = client
         self.on_event = on_event
         self.provider = provider or get_provider()
-        # task di emissione in volo: manteniamo un riferimento perché
-        # asyncio.create_task non lo fa e il task potrebbe essere GC'd a metà.
+        # in-flight emission tasks: we keep a reference because
+        # asyncio.create_task does not, and the task could be GC'd halfway.
         self._pending: set[asyncio.Task] = set()
 
     async def forward(self, request: Request) -> Response:
@@ -134,18 +135,18 @@ class ProxyForwarder:
                     await upstream_resp.aclose()
                     record["timing"]["total_s"] = round(time.time() - t_start, 3)
                     record["response"] = collector.finalize()
-                    # I byte sono già stati consegnati al client: un errore di
-                    # store non deve trasformare un round trip riuscito in 500.
+                    # The bytes have already been delivered to the client: a
+                    # store error must not turn a successful round trip into 500.
                     try:
                         await self._emit(record)
                     except Exception:
-                        logger.exception("agentspy: emissione record SSE fallita")
+                        logger.exception("agentspy: SSE record emission failed")
 
             return StreamingResponse(
                 tee(), status_code=upstream_resp.status_code, headers=resp_headers
             )
 
-        # risposta non in streaming (count_tokens, errori, ecc.)
+        # non-streaming response (count_tokens, errors, etc.)
         data = await upstream_resp.aread()
         await upstream_resp.aclose()
         record["timing"]["ttfb_s"] = round(time.time() - t_start, 3)
@@ -156,13 +157,13 @@ class ProxyForwarder:
             record["response"].update(self.provider.json_response_summary(body))
         except json.JSONDecodeError:
             record["response"] = {"type": "raw", "body": data.decode("utf-8", "replace")[:2000]}
-        # Emissione fuori dal percorso critico: la risposta upstream è già
-        # pronta e non deve né attendere la scrittura DB né propagarne gli errori.
+        # Emission off the critical path: the upstream response is already
+        # ready and must neither wait for the DB write nor propagate its errors.
         self._emit_background(record)
         return Response(data, status_code=upstream_resp.status_code, headers=resp_headers)
 
     def _emit_background(self, record: dict) -> None:
-        """Pianifica l'emissione senza bloccare la risposta né propagare errori."""
+        """Schedule the emission without blocking the response or propagating errors."""
         if self.on_event is None:
             return
         task = asyncio.create_task(self._emit_safe(record))
@@ -173,7 +174,7 @@ class ProxyForwarder:
         try:
             await self._emit(record)
         except Exception:
-            logger.exception("agentspy: emissione record non-streaming fallita")
+            logger.exception("agentspy: non-streaming record emission failed")
 
     async def _emit(self, record: dict) -> None:
         if self.on_event is not None:

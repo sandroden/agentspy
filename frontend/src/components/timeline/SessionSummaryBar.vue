@@ -13,28 +13,29 @@ const emit = defineEmits<{ (e: 'show-tips'): void }>()
 
 const spy = useSpyStore()
 
-// Le card leggono le stats per round trip (come la dashboard), tenute fresche
-// dal composable condiviso con la barra del player.
+// The cards read the per-round-trip stats (like the dashboard), kept fresh by
+// the composable shared with the player bar.
 const { session, stats } = useSessionStats()
 
-/** prompt utente fino al punto del player (gli hook UserPromptSubmit sono già
- *  in events): in pausa deve contare come le altre card, non l'intera sessione. */
+/** user prompts up to the player position (the UserPromptSubmit hooks are
+ *  already in events): when paused it must count like the other cards, not the
+ *  whole session. */
 const promptCount = computed(
   () =>
     spy.visibleEvents.filter((e) => e.kind === 'hook' && e.subkind === 'UserPromptSubmit').length,
 )
 
-/** Posizione del player passata alle card: in LIVE nessun taglio (null), in
- *  pausa le metriche della sessione si fermano all'evento corrente. */
+/** Player position passed to the cards: in LIVE no cut-off (null), when paused
+ *  the session metrics stop at the current event. */
 const cursorTs = computed(() => (spy.live ? null : (spy.cursorEvent?.ts_start ?? null)))
 const cursorEventId = computed(() => (spy.live ? null : (spy.cursorEvent?.id ?? null)))
 const cursorLabel = computed(() => {
   if (spy.live) return null
   const { index, total } = spy.playerPosition
-  return total > 0 ? `evento ${index + 1}/${total}` : null
+  return total > 0 ? `event ${index + 1}/${total}` : null
 })
 
-/** discendenti (ricorsivi) della sessione aperta. */
+/** (recursive) descendants of the open session. */
 const subagents = computed<Session[]>(() => {
   const rootId = session.value?.id
   if (!rootId) return []

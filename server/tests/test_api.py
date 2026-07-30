@@ -58,8 +58,8 @@ def test_api_sessions_events_and_stats(tmp_path):
 
 
 def test_foreign_host_header_is_rejected(tmp_path):
-    """TrustedHostMiddleware mitiga il DNS-rebinding: un Host estraneo -> 400,
-    mentre l'host lecito passa."""
+    """TrustedHostMiddleware mitigates DNS rebinding: a foreign Host -> 400,
+    while the legitimate host passes."""
     app = create_app(db_path=str(tmp_path / "host.db"), upstream="http://unused.invalid")
 
     with TestClient(app) as client:
@@ -85,7 +85,7 @@ def test_api_delete_session_single(tmp_path):
         assert set(r.json()["deleted"]) == {"p", "c"}
 
         assert client.get("/api/sessions").json() == []
-        # gli eventi delle sessioni cancellate non sono più recuperabili
+        # events of deleted sessions are no longer retrievable
         assert client.get("/api/sessions/p/events").json() == []
         assert client.get("/api/sessions/c/events").json() == []
 
@@ -109,7 +109,7 @@ def test_api_delete_sessions_bulk(tmp_path):
         ids = {s["id"] for s in client.get("/api/sessions").json()}
         assert ids == {"keep"}
 
-        # body senza 'ids' -> 400
+        # body without 'ids' -> 400
         assert client.post("/api/sessions/delete", json={}).status_code == 400
 
 
@@ -125,7 +125,7 @@ def test_ingest_hook_creates_session_and_event(tmp_path):
                 "payload": {
                     "session_id": "real-1",
                     "hook_event_name": "UserPromptSubmit",
-                    "prompt": "fai una cosa",
+                    "prompt": "do a thing",
                 },
             },
         )

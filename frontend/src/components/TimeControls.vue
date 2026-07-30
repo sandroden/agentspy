@@ -16,12 +16,12 @@ const maxIndex = computed(() => Math.max(total.value - 1, 0))
 const currentIndex = computed(() => Math.min(Math.max(spy.cursor, 0), maxIndex.value))
 const currentEvent = computed(() => spy.events[currentIndex.value] ?? null)
 
-/** Contatore E scrubber lavorano sugli step veri del player, non sugli
- * indici grezzi di `events`: con gli hook nascosti gli indici grezzi
- * salterebbero (event 3/15 → 5/15) e il pallino dello scrubber non
- * partirebbe mai dal bordo (⏮ atterra sul primo round trip, che negli
- * indici grezzi è già a un terzo della barra). Il calcolo sta nello store
- * perché lo condividono le metriche della timeline (vedi MetricCards). */
+/** Counter AND scrubber work on the player's real steps, not on the raw
+ * indices of `events`: with the hooks hidden the raw indices would jump
+ * (event 3/15 → 5/15) and the scrubber knob would never start from the
+ * edge (⏮ lands on the first round trip, which in raw indices is already
+ * a third of the way along the bar). The computation lives in the store
+ * because the timeline metrics share it (see MetricCards). */
 const stepIndices = computed(() => spy.playerSteps)
 const stepTotal = computed(() => spy.playerPosition.total)
 const currentStep = computed(() => spy.playerPosition.index)
@@ -32,10 +32,10 @@ const label = computed(() => {
 })
 
 /**
- * Token e costo del punto in cui siamo, in forma compatta e SEMPRE visibile:
- * le MetricCards scorrono fuori dalla viewport appena la timeline avanza,
- * mentre questa barra è sticky. Stessa sorgente e stessi helper delle card
- * (utils/usage + utils/playhead), quindi i numeri non possono divergere.
+ * Tokens and cost at the point we are on, compact and ALWAYS visible: the
+ * MetricCards scroll out of the viewport as soon as the timeline moves on,
+ * while this bar is sticky. Same source and same helpers as the cards
+ * (utils/usage + utils/playhead), so the numbers cannot diverge.
  */
 const upToCursor = computed(() =>
   statsUpTo(stats.value, spy.live ? null : (spy.cursorEvent?.ts_start ?? null))
@@ -55,8 +55,8 @@ const readout = computed(() => {
 
 const readoutTitle = computed(() =>
   spy.live
-    ? 'token consumati e costo stimato della sessione (intera: il player è in LIVE)'
-    : 'token consumati e costo stimato fino al punto del player; in corsivo il contributo di questo round trip'
+    ? 'tokens consumed and estimated cost of the session (whole: the player is LIVE)'
+    : 'tokens consumed and estimated cost up to the player position; in italics the contribution of this round trip'
 )
 
 function onSlider(e: Event) {
@@ -120,7 +120,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <button
       class="hooks-btn"
       :class="{ on: spy.showHooks }"
-      title="mostra gli hook di Claude Code come marcatori nella timeline (il player smette di saltarli)"
+      title="show Claude Code hooks as markers in the timeline (the player stops skipping them)"
       @click="spy.toggleShowHooks()"
     >
       ⚓︎ hooks
@@ -185,8 +185,8 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-/* lettura compatta di token/costo al punto del player: sta nella barra sticky
-   perché è il numero che deve restare sotto gli occhi mentre si scorre */
+/* compact tokens/cost readout at the player position: it lives in the sticky
+   bar because it is the number that must stay in sight while scrolling */
 .readout {
   white-space: nowrap;
   color: var(--muted);
@@ -204,7 +204,7 @@ button:disabled {
   font-weight: 700;
 }
 
-/* contributo del round trip corrente: presente ma subordinato al cumulato */
+/* current round trip's contribution: present but subordinate to the cumulative */
 .readout em {
   font-style: normal;
   opacity: 0.75;

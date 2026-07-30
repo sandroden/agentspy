@@ -1,4 +1,4 @@
-# dati raccolti
+# collected data
 logs/
 *.jsonl
 *.db
@@ -7,7 +7,7 @@ logs/
 *.db.pre-migrazione
 *.db.vuoto
 
-# runtime del collector (just up/down)
+# collector runtime (just up/down)
 .agentspy.pid
 agentspy.log
 
@@ -20,13 +20,13 @@ __pycache__/
 node_modules/
 dist/
 
-# vari
+# misc
 .env
 *~
 
-# stato locale di Claude Code
+# Claude Code local state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 
-# config hook locale con path assoluti (usare hooks/settings-example.json come base)
+# local hook config with absolute paths (use hooks/settings-example.json as a base)
 hooks.json

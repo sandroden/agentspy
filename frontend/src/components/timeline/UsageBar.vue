@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Mini barra orizzontale proporzionale ai 4 contatori di usage. Legenda
-// completa disponibile via `title` nativo (tooltip al hover).
+// Mini horizontal bar proportional to the 4 usage counters. Full legend
+// available via the native `title` (hover tooltip).
 import { computed } from 'vue'
 import { cacheWriteTiers } from '../../utils/cache'
 import { formatTokens } from '../../utils/format'
@@ -21,8 +21,8 @@ function pct(n: number): string {
   return `${(n / total.value) * 100}%`
 }
 
-/** TTL della cache scritta in questo round trip: "1h"/"5m" (o entrambi), vuoto
- *  se il provider non riporta il tier. */
+/** TTL of the cache written in this round trip: "1h"/"5m" (or both), empty if
+ *  the provider does not report the tier. */
 const writeTtl = computed(() => {
   const t = cacheWriteTiers(props.usage)
   const parts: string[] = []

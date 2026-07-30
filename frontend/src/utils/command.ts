@@ -1,37 +1,37 @@
 /**
- * Riconoscere l'invocazione di una skill / slash-command in un messaggio user.
+ * Recognizing a skill / slash-command invocation inside a user message.
  *
- * Claude Code espande un `/namespace:name args` digitato in un blocco che
- * viene iniettato nel messaggio user:
+ * Claude Code expands a typed `/namespace:name args` into a block that gets
+ * injected into the user message:
  *
  *   <command-message>name</command-message>
  *   <command-name>/namespace:name</command-name>
  *   <command-args>args</command-args>
- *   Base directory for this skill: /…      ← qui segue lo SKILL.md iniettato
- *   # …corpo della skill…
+ *   Base directory for this skill: /…      ← the injected SKILL.md follows here
+ *   # …skill body…
  *
- * Quel corpo iniettato è costo di contesto reale: mostrarlo (e misurarlo) è
- * lo scopo didattico. Una skill invocata dal modello, invece, appare come un
- * `tool_use` di nome `Skill` — gestito da toolIcon(); qui trattiamo solo la
- * forma slash-command.
+ * That injected body is real context cost: showing it (and measuring it) is
+ * the didactic point. A skill invoked by the model, instead, shows up as a
+ * `tool_use` named `Skill` — handled by toolIcon(); here we only deal with
+ * the slash-command form.
  */
 
 const NAME_RE = /<command-name>\s*([\s\S]*?)\s*<\/command-name>/
 const ARGS_RE = /<command-args>\s*([\s\S]*?)\s*<\/command-args>/
 const MSG_OPEN = '<command-message>'
 const NAME_OPEN = '<command-name>'
-// Forma "grezza" (quella che porta l'hook UserPromptSubmit): "/name" o
-// "/namespace:name" come primo token, seguito da spazio o fine. Il lookahead
-// evita falsi positivi su path ("/tmp/foo", "/home/sandro").
+// "Raw" form (the one the UserPromptSubmit hook carries): "/name" or
+// "/namespace:name" as the first token, followed by a space or the end. The
+// lookahead avoids false positives on paths ("/tmp/foo", "/home/sandro").
 const RAW_RE = /^\/([A-Za-z][\w-]*(?::[\w-]+)?)(?=\s|$)([^\n]*)/
 
 export interface SlashCommand {
-  name: string // es. "/okf:okf" (slash iniziale mantenuto)
-  args: string // es. "produce .okf" ("" se assenti)
+  name: string // e.g. "/okf:okf" (leading slash kept)
+  args: string // e.g. "produce .okf" ("" when absent)
 }
 
-/** Rileva uno slash-command sia nella forma espansa (wrapper) sia in quella
- *  grezza "/name args" (il testo che porta l'hook UserPromptSubmit). */
+/** Detects a slash-command both in the expanded form (wrapper) and in the raw
+ *  "/name args" one (the text the UserPromptSubmit hook carries). */
 export function parseSlashCommand(text: string): SlashCommand | null {
   if (!text) return null
   const m = text.match(NAME_RE)
@@ -45,14 +45,14 @@ export function parseSlashCommand(text: string): SlashCommand | null {
 }
 
 export interface CommandInjection {
-  before: string // testo user prima del wrapper (può essere '')
+  before: string // user text before the wrapper (can be '')
   command: SlashCommand
-  injected: string // wrapper + corpo skill iniettato (il costo di contesto)
+  injected: string // wrapper + injected skill body (the context cost)
 }
 
-/** Per il pannello di dettaglio: separa un blocco testo che porta il wrapper
- *  espanso nel testo user precedente e nel blocco iniettato. Restituisce null
- *  quando non c'è un wrapper espanso (la forma grezza "/name" non inietta). */
+/** For the detail panel: splits a text block carrying the expanded wrapper
+ *  into the preceding user text and the injected block. Returns null when
+ *  there is no expanded wrapper (the raw "/name" form injects nothing). */
 export function splitCommandInjection(text: string): CommandInjection | null {
   if (!text) return null
   let start = text.indexOf(MSG_OPEN)

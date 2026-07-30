@@ -21,25 +21,25 @@ import { aggregateUsage, consumedTokens, contextTokens, peakContext, totalConsum
 const props = defineProps<{
   stats: StatsItem[]
   model: string | null
-  /** numero di prompt utente (hook UserPromptSubmit) della sessione. */
+  /** number of user prompts (UserPromptSubmit hooks) in the session. */
   promptCount: number
-  /** subagenti (discendenti) della sessione. */
+  /** sub-agents (descendants) of the session. */
   subagents: Session[]
-  /** la card sub-agents è cliccabile (emette jump-subagents); nella timeline no. */
+  /** the sub-agents card is clickable (emits jump-subagents); not in the timeline. */
   clickableSubagents?: boolean
-  /** ts del player: le card della sessione si fermano lì. null/assente (LIVE,
-   *  dashboard) = nessun taglio, comportamento di sempre. */
+  /** player ts: the session cards stop there. null/absent (LIVE, dashboard) =
+   *  no cut, the usual behaviour. */
   cursorTs?: number | null
-  /** id dell'evento sotto il cursore, per il contributo del singolo step. */
+  /** id of the event under the cursor, for the single step's contribution. */
   cursorEventId?: number | null
-  /** etichetta della posizione, es. "evento 12/59". */
+  /** label of the position, e.g. "event 12/59". */
   cursorLabel?: string | null
 }>()
 
-/** Round trip fino al player (tutti quando non c'è taglio). */
+/** Round trips up to the player (all of them when there is no cut). */
 const stats = computed(() => statsUpTo(props.stats, props.cursorTs ?? null))
 
-/** Il round trip su cui è fermo il player: null se il cursore è su un hook. */
+/** The round trip the player sits on: null if the cursor is on a hook. */
 const stepStat = computed(() => statsForEvent(props.stats, props.cursorEventId ?? null))
 
 const atCursor = computed(() => props.cursorTs != null)
@@ -83,12 +83,12 @@ const featuredUsage = computed<Usage>(() => aggregateUsage(stats.value))
 
 const cost = computed(() => estimateCost(featuredUsage.value, props.model))
 
-/** Costo dell'intera sessione, cursore o no: somma al costo dei sub-agenti per
- *  il totale del run. */
+/** Cost of the whole session, cursor or not: added to the sub-agents' cost for
+ *  the run total. */
 const costAll = computed(() => estimateCost(aggregateUsage(props.stats), props.model))
 
-/** Contributo del round trip sotto il cursore: quanto è costato QUESTO step,
- *  la lettura didattica che il totale cumulato da solo non dà. */
+/** Contribution of the round trip under the cursor: what THIS step cost, the
+ *  didactic reading the cumulative total alone does not give. */
 const stepContribution = computed(() => {
   const s = stepStat.value
   if (!s || !atCursor.value) return null
@@ -125,22 +125,22 @@ const cacheTtlMix = computed(() => {
   <div class="metric-cards">
     <span class="group-label">
       Session
-      <span v-if="atCursor && cursorLabel" class="at-cursor" :title="'Le card della sessione si fermano al punto del player: ' + cursorLabel">
-        ❚❚ fino a {{ cursorLabel }}
+      <span v-if="atCursor && cursorLabel" class="at-cursor" :title="'The session cards stop at the player position: ' + cursorLabel">
+        ❚❚ up to {{ cursorLabel }}
       </span>
     </span>
     <div class="card">
       <span class="label"><span class="ic">📈</span>peak context</span>
       <span class="value">{{ formatTokens(peak) }}</span>
       <span v-if="stepContribution" class="step-note">
-        questo step: {{ formatTokens(stepContribution.context) }}
+        this step: {{ formatTokens(stepContribution.context) }}
       </span>
     </div>
     <div class="card">
       <span class="label"><span class="ic">🧮</span>tokens consumed (integral)</span>
       <span class="value">{{ formatTokens(consumed) }}</span>
       <span v-if="stepContribution" class="step-note">
-        +{{ formatTokens(stepContribution.consumed) }} questo step
+        +{{ formatTokens(stepContribution.consumed) }} this step
       </span>
     </div>
     <div class="card">
@@ -177,7 +177,7 @@ const cacheTtlMix = computed(() => {
       <span class="label"><span class="ic">💰</span>estimated cost</span>
       <span class="value">{{ formatCost(cost) }}</span>
       <span v-if="stepContribution" class="step-note">
-        +{{ formatCost(stepContribution.cost) }} questo step
+        +{{ formatCost(stepContribution.cost) }} this step
       </span>
     </div>
 
@@ -191,9 +191,9 @@ const cacheTtlMix = computed(() => {
         <span class="label"><span class="ic">🔁</span>round trips</span>
         <span class="value">{{ roundTripsInclSub }}</span>
       </div>
-      <!-- il costo dell'intero run (sessione + tutti i sub-agent): il numero
-           che risponde a "quanto è costato tutto?", quindi non attenuato e non
-           tagliato dal player -->
+      <!-- the cost of the whole run (session + every sub-agent): the number
+           that answers "how much did it all cost?", hence neither dimmed nor
+           cut by the player -->
       <div class="card card--total">
         <span class="label"><span class="ic">💰</span>total cost (incl. sub-agents)</span>
         <span class="value">{{ formatCost(costAll + subagentCost) }}</span>
@@ -240,7 +240,7 @@ const cacheTtlMix = computed(() => {
   min-width: auto;
 }
 
-/* costo totale del run: pieno risalto, bordo accent */
+/* total run cost: full emphasis, accent border */
 .card--total {
   border-color: var(--accent);
 }
@@ -261,8 +261,8 @@ const cacheTtlMix = computed(() => {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* posizione del player accanto al titolo del gruppo: chiarisce che i numeri
-   sotto non sono il totale della sessione ma il cumulato fino a lì */
+/* player position next to the group title: makes clear that the numbers below
+   are not the session total but the cumulative up to that point */
 .at-cursor {
   margin-left: 0.4rem;
   padding: 0.05rem 0.35rem;
@@ -276,7 +276,7 @@ const cacheTtlMix = computed(() => {
   white-space: nowrap;
 }
 
-/* contributo del singolo round trip sotto il cursore */
+/* contribution of the single round trip under the cursor */
 .step-note {
   font-size: 0.65rem;
   color: var(--muted);
@@ -284,7 +284,7 @@ const cacheTtlMix = computed(() => {
   white-space: nowrap;
 }
 
-/* "1h 68% · 5m 32%": due valori in una card, quindi un filo più compatto */
+/* "1h 68% · 5m 32%": two values in one card, so a touch more compact */
 .value--mix {
   font-size: 0.8rem;
   white-space: nowrap;
@@ -297,7 +297,7 @@ const cacheTtlMix = computed(() => {
   color: var(--muted-faint);
 }
 
-/* piccola icona davanti all'etichetta della card */
+/* small icon in front of the card label */
 .ic {
   margin-right: 0.25rem;
   font-size: 0.7rem;

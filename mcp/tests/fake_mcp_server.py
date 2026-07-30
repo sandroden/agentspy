@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Server MCP finto per i test del wrapper: legge JSON-RPC line-delimited da
-stdin e risponde a initialize / tools/list / tools/call (tool finta "echo").
-Dopo initialize invia anche una notifica spontanea senza id."""
+"""Fake MCP server for the wrapper tests: reads line-delimited JSON-RPC from
+stdin and answers initialize / tools/list / tools/call (fake "echo" tool).
+After initialize it also sends a spontaneous notification without an id."""
 import json
 import sys
 
@@ -36,7 +36,7 @@ def main():
             })
             send({
                 "jsonrpc": "2.0",
-                "method": "notifications/ping_spontanea",
+                "method": "notifications/spontaneous_ping",
                 "params": {"hello": "world"},
             })
         elif method == "tools/list":
@@ -47,7 +47,7 @@ def main():
                     "tools": [
                         {
                             "name": "echo",
-                            "description": "Restituisce l'input ricevuto",
+                            "description": "Returns the received input",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"text": {"type": "string"}},
@@ -67,9 +67,9 @@ def main():
             send({
                 "jsonrpc": "2.0",
                 "id": rpc_id,
-                "error": {"code": -32601, "message": f"metodo sconosciuto: {method}"},
+                "error": {"code": -32601, "message": f"unknown method: {method}"},
             })
-        # notifiche sconosciute in ingresso: ignorate
+        # unknown incoming notifications: ignored
 
 
 if __name__ == "__main__":

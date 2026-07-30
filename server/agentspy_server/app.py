@@ -1,9 +1,9 @@
-"""Assembla l'app Starlette: /api/*, /ws, /ingest/*, /ui/* (statico), catch-all -> proxy.
+"""Assembles the Starlette app: /api/*, /ws, /ingest/*, /ui/* (static), catch-all -> proxy.
 
-``create_app()`` costruisce un'istanza isolata (store/correlator/client propri):
-utile per i test, che passano ``db_path``/``upstream`` propri. ``main()`` è
-l'entry point dello script ``agentspy`` e lancia uvicorn con la configurazione
-da environment.
+``create_app()`` builds an isolated instance (its own store/correlator/client):
+useful for tests, which pass their own ``db_path``/``upstream``. ``main()`` is
+the entry point of the ``agentspy`` script and starts uvicorn with the
+configuration from the environment.
 """
 
 from __future__ import annotations
@@ -38,13 +38,13 @@ logger = logging.getLogger(__name__)
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 DEFAULT_UPSTREAM = "https://api.anthropic.com"
-# Finestra di reidratazione del Correlator all'avvio: sessioni con ultima
-# attività entro queste ore. Override con AGENTSPY_REHYDRATE_HOURS.
+# Correlator rehydration window at startup: sessions whose last activity falls
+# within these hours. Override with AGENTSPY_REHYDRATE_HOURS.
 DEFAULT_REHYDRATE_HOURS = 48.0
-# Il server ascolta solo su 127.0.0.1, ma il browser potrebbe raggiungerlo via
-# un nome DNS controllato da un attaccante (DNS rebinding): TrustedHostMiddleware
-# rifiuta le richieste con Host estraneo. "testserver" è l'host di default di
-# Starlette TestClient. Override con AGENTSPY_ALLOWED_HOSTS (lista CSV).
+# The server listens on 127.0.0.1 only, but the browser could reach it via a DNS
+# name controlled by an attacker (DNS rebinding): TrustedHostMiddleware rejects
+# requests with a foreign Host. "testserver" is the default host of Starlette's
+# TestClient. Override with AGENTSPY_ALLOWED_HOSTS (CSV list).
 DEFAULT_ALLOWED_HOSTS = ["localhost", "127.0.0.1", "::1", "testserver"]
 
 
@@ -70,9 +70,9 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     ws_manager: ConnectionManager = app.state.ws_manager
     provider: ProviderAdapter = app.state.provider
 
-    # Il proxy emette un record per OGNI richiesta inoltrata, ma solo le vere
-    # chiamate al modello sono round trip da correlare e persistere: il
-    # criterio (path, forma del body) lo conosce l'adapter del provider.
+    # The proxy emits a record for EVERY forwarded request, but only real model
+    # calls are round trips to correlate and persist: the criterion (path, body
+    # shape) is known by the provider adapter.
     body = (record.get("request") or {}).get("body")
     if not provider.is_model_call(record.get("path") or "", body if isinstance(body, dict) else None):
         return
@@ -80,8 +80,8 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     info = correlator.correlate_round_trip(record)
     session_id = info["session_id"]
 
-    # sessioni sintetiche identificate ora con una sessione reale (binding via
-    # prompt): sposta gli eventi già salvati e avvisa i client.
+    # synthetic sessions just identified with a real session (binding via
+    # prompt): move the events already saved and notify the clients.
     for merged_id in info.get("merged_from") or []:
         await asyncio.to_thread(store.reassign_session, merged_id, session_id)
         await ws_manager.broadcast({"type": "session_removed", "id": merged_id})
@@ -96,11 +96,11 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     total_s = timing.get("total_s")
     ts_end = ts_start + total_s if (ts_start is not None and total_s is not None) else ts_start
 
-    # una sintetica agganciata a una madre reale è traffico di servizio della
-    # CLI (titolo di sessione, topic detection...): un titolo parlante evita
-    # che in sidebar sembri una conversazione dell'utente
+    # a synthetic attached to a real parent is CLI service traffic (session
+    # title, topic detection...): a telling title avoids making it look like a
+    # user conversation in the sidebar
     service_title = (
-        "servizio" if session_id.startswith("syn-") and info.get("parent_session_id") else None
+        "service" if session_id.startswith("syn-") and info.get("parent_session_id") else None
     )
 
     await asyncio.to_thread(
@@ -150,7 +150,7 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
 
 async def ui_not_built(request: Request) -> Response:
     return JSONResponse(
-        {"error": "frontend non compilato: esegui la build in frontend/ (npm run build)"},
+        {"error": "frontend not built: run the build in frontend/ (npm run build)"},
         status_code=404,
     )
 
@@ -173,15 +173,15 @@ def create_app(db_path: str | None = None, upstream: str | None = None) -> Starl
         app.state.runtime = get_runtime()
         app.state.store = Store(db_path or default_db_path(), runtime=app.state.runtime)
         app.state.correlator = Correlator(runtime=app.state.runtime)
-        # Reidrata lo stato di correlazione dal DB: senza, un riavvio farebbe
-        # ripartire turn_index da 1 e perderebbe i join per tool_use_id. È
-        # best-effort: se fallisce si logga e si parte vuoti (mai bloccare l'avvio).
+        # Rehydrate the correlation state from the DB: without it a restart would
+        # restart turn_index from 1 and lose the joins by tool_use_id. It is
+        # best-effort: on failure it logs and starts empty (never block startup).
         try:
             hours = float(os.environ.get("AGENTSPY_REHYDRATE_HOURS", DEFAULT_REHYDRATE_HOURS))
             snap = app.state.store.rehydration_snapshot(time.time() - hours * 3600)
             app.state.correlator.rehydrate(snap["sessions"], snap["events"])
         except Exception:
-            logger.exception("agentspy: reidratazione del correlator fallita, parto vuoto")
+            logger.exception("agentspy: correlator rehydration failed, starting empty")
         app.state.ws_manager = ConnectionManager()
         app.state.client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=15, read=None, write=60, pool=15)
@@ -204,8 +204,8 @@ def create_app(db_path: str | None = None, upstream: str | None = None) -> Starl
 
     if FRONTEND_DIST.is_dir():
         async def ui_spa(request: Request) -> Response:
-            """Statico con fallback SPA: i deep link (/ui/session/<id>) devono
-            servire index.html e lasciare il routing al frontend."""
+            """Static with SPA fallback: deep links (/ui/session/<id>) must
+            serve index.html and leave the routing to the frontend."""
             rel = request.path_params.get("path") or "index.html"
             candidate = (FRONTEND_DIST / rel).resolve()
             if candidate.is_file() and candidate.is_relative_to(FRONTEND_DIST.resolve()):

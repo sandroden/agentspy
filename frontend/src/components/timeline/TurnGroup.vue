@@ -87,7 +87,7 @@ const firstRoundTripId = computed<number | null>(() => {
     </header>
 
     <div class="lanehead">
-      <span title="Ciò che innesca il turno: il tuo prompt, l'avvio di un subagente o una notifica asincrona. Nel payload API sono tutti messaggi role=user.">Trigger</span>
+      <span title="What kicks off the turn: your prompt, a subagent starting, or an async notification. In the API payload they are all role=user messages.">Trigger</span>
       <span>Claude (LLM)</span>
       <span>Tools</span>
     </div>

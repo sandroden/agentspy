@@ -6,7 +6,7 @@ from agentspy_server.store import Store
 
 
 def test_db_file_permissions_are_owner_only(tmp_path):
-    """Il DB può contenere prompt/risposte in chiaro: deve nascere 0600."""
+    """The DB can hold prompts/responses in the clear: it must be created 0600."""
     db_path = tmp_path / "perms.db"
     store = Store(db_path)
     store.upsert_session("s1", started_at=1.0)
@@ -35,7 +35,7 @@ def test_insert_and_get_event(tmp_path):
         tool_names=["Bash"],
         payload={
             "request": {"body": {}},
-            "response": {"message": {"content": [{"type": "text", "text": "ciao"}]}},
+            "response": {"message": {"content": [{"type": "text", "text": "hello"}]}},
         },
     )
     assert isinstance(event_id, int)
@@ -44,12 +44,12 @@ def test_insert_and_get_event(tmp_path):
     assert len(events) == 1
     assert events[0]["id"] == event_id
     assert "payload" not in events[0]
-    assert events[0]["snippet"] == "ciao"
+    assert events[0]["snippet"] == "hello"
     assert events[0]["usage"]["input_tokens"] == 10
     assert events[0]["tool_names"] == ["Bash"]
 
     full = store.get_event(event_id)
-    assert full["payload"]["response"]["message"]["content"][0]["text"] == "ciao"
+    assert full["payload"]["response"]["message"]["content"][0]["text"] == "hello"
     assert full["tool_names"] == ["Bash"]
 
     assert store.get_event(event_id + 1) is None
@@ -155,7 +155,7 @@ def test_delete_sessions_cascade(tmp_path):
 
     ids = {s["id"] for s in store.get_sessions()}
     assert ids == {"other"}
-    # gli eventi delle sessioni cancellate spariscono
+    # events of deleted sessions disappear
     assert store.get_session_events("parent") == []
     assert store.get_session_events("child") == []
     assert store.get_session_events("grandchild") == []
@@ -168,8 +168,8 @@ def test_delete_sessions_ignores_unknown_and_dedups(tmp_path):
     store.upsert_session("a", started_at=0.0, live=True)
     store.upsert_session("b", parent_session_id="a", started_at=1.0, live=True)
 
-    # id inesistente ignorato; padre + figlio elencati esplicitamente non
-    # producono duplicati.
+    # unknown id ignored; parent + child listed explicitly do not produce
+    # duplicates.
     deleted = store.delete_sessions(["a", "b", "nope"])
     assert sorted(deleted) == ["a", "b"]
     assert deleted.count("b") == 1
@@ -196,7 +196,7 @@ def test_reassign_session(tmp_path):
     ids = [s["id"] for s in sessions]
     assert "syn-abc" not in ids and "real-1" in ids
     real = next(s for s in sessions if s["id"] == "real-1")
-    # metadati fusi: started_at minimo, tag ereditato
+    # merged metadata: minimum started_at, inherited tag
     assert real["started_at"] == 100.0
     assert real["tag"] == "run-X"
 
@@ -209,11 +209,11 @@ def test_tool_hints_in_summary(tmp_path):
     from agentspy_server.store import Store
 
     store = Store(str(tmp_path / "t.db"))
-    store.upsert_session("s1", started_at=1.0, cwd="/home/x/progetto")
+    store.upsert_session("s1", started_at=1.0, cwd="/home/x/project")
     rt = store.insert_event(
         session_id="s1", kind="round_trip", ts_start=2.0,
         payload={"response": {"message": {"content": [
-            {"type": "tool_use", "name": "Read", "input": {"file_path": "/home/x/progetto/src/a.py"}},
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "/home/x/project/src/a.py"}},
             {"type": "tool_use", "name": "Bash", "input": {"command": "ls  -la\n | head"}},
         ]}}},
     )
@@ -223,18 +223,18 @@ def test_tool_hints_in_summary(tmp_path):
     )
     events = {e["id"]: e for e in store.get_session_events("s1")}
     assert events[rt]["tool_uses"] == [
-        {"name": "Read", "hint": "/home/x/progetto/src/a.py"},
-        {"name": "Bash", "hint": "ls -la | head"},  # normalizzato su una riga
+        {"name": "Read", "hint": "/home/x/project/src/a.py"},
+        {"name": "Bash", "hint": "ls -la | head"},  # normalized to a single line
     ]
     assert events[hook]["tool_hint"] == "https://example.com/x"
-    # il cwd della sessione è esposto (serve alla UI per relativizzare i path)
-    assert store.get_sessions()[0]["cwd"] == "/home/x/progetto"
+    # the session cwd is exposed (the UI needs it to relativize paths)
+    assert store.get_sessions()[0]["cwd"] == "/home/x/project"
     store.close()
 
 
 def test_command_snippet_in_input_snippet(tmp_path):
-    """Un messaggio user che espande uno slash-command / skill dà uno snippet
-    pulito `/nome args`, non l'XML del wrapper né lo SKILL.md iniettato."""
+    """A user message expanding a slash-command / skill yields a clean snippet
+    `/name args`, not the wrapper XML nor the injected SKILL.md."""
     from agentspy_server.store import Store
 
     store = Store(str(tmp_path / "t.db"))
@@ -243,7 +243,7 @@ def test_command_snippet_in_input_snippet(tmp_path):
         "<command-message>okf:okf</command-message>\n"
         "<command-name>/okf:okf</command-name>\n"
         "<command-args>produce .okf</command-args>\n"
-        "Base directory for this skill: /x\n\n" + "# corpo skill\n" * 200
+        "Base directory for this skill: /x\n\n" + "# skill body\n" * 200
     )
     rt = store.insert_event(
         session_id="s1", kind="round_trip", ts_start=2.0,
@@ -257,8 +257,8 @@ def test_command_snippet_in_input_snippet(tmp_path):
 
 
 def test_duplicate_event_is_ignored(tmp_path):
-    """Re-ingest dello STESSO evento (chiave dedup identica) non crea una seconda
-    riga né raddoppia i token; ritorna l'id della riga già presente."""
+    """Re-ingesting the SAME event (identical dedup key) creates no second row
+    and does not double the tokens; it returns the id of the existing row."""
     store = Store(tmp_path / "dedup.db")
     store.upsert_session("s1", started_at=1.0)
     kwargs = dict(
@@ -271,14 +271,14 @@ def test_duplicate_event_is_ignored(tmp_path):
     assert id1 == id2
     events = store.get_session_events("s1")
     assert len(events) == 1
-    # token non raddoppiati
+    # tokens not doubled
     assert store.get_sessions()[0]["usage"]["input_tokens"] == 10
     store.close()
 
 
 def test_nearby_distinct_events_both_saved(tmp_path):
-    """Due eventi distinti ma vicini (stesso session/kind/ts, payload diverso —
-    es. due PreToolUse nello stesso ms) NON devono collassare."""
+    """Two distinct but close events (same session/kind/ts, different payload —
+    e.g. two PreToolUse in the same ms) must NOT collapse."""
     store = Store(tmp_path / "dedup2.db")
     store.upsert_session("s1", started_at=1.0)
     a = store.insert_event(
@@ -294,7 +294,7 @@ def test_nearby_distinct_events_both_saved(tmp_path):
     store.close()
 
 
-# schema events PRIMA della colonna dedup_key (per testare la migrazione)
+# events schema BEFORE the dedup_key column (to test the migration)
 _OLD_EVENTS_SCHEMA = """
 CREATE TABLE events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -310,28 +310,28 @@ CREATE TABLE sessions (id TEXT PRIMARY KEY, tag TEXT, title TEXT, model TEXT,
 
 
 def test_dedup_migration_on_existing_db_backfills_and_removes_duplicates(tmp_path):
-    """Migrazione additiva e idempotente su un DB con schema vecchio (senza
-    dedup_key) che contiene già una riga byte-identica duplicata: la colonna
-    viene aggiunta, backfillata, il duplicato rimosso e l'indice UNIQUE creato;
-    un re-insert dello stesso evento viene poi ignorato."""
+    """Additive and idempotent migration on a DB with the old schema (without
+    dedup_key) that already holds a byte-identical duplicate row: the column is
+    added, backfilled, the duplicate removed and the UNIQUE index created; a
+    re-insert of the same event is then ignored."""
     db_path = tmp_path / "old.db"
     raw = sqlite3.connect(db_path)
     raw.executescript(_OLD_EVENTS_SCHEMA)
     raw.execute("INSERT INTO sessions (id, started_at, live) VALUES ('s1', 1.0, 1)")
-    # il payload va serializzato come lo scriverebbe insert_event (json.dumps
-    # con spaziatura di default): nella realtà ogni riga passa da lì, quindi la
-    # chiave backfillata combacia con quella di un futuro re-insert.
+    # the payload must be serialized the way insert_event would write it
+    # (json.dumps with default spacing): in reality every row goes through it,
+    # so the backfilled key matches that of a future re-insert.
     payload = json.dumps(
         {"request": {"body": {}}, "response": {"message": {"content": []}}}, ensure_ascii=False
     )
-    # due righe byte-identiche (la duplicazione che la chiave deve prevenire)
+    # two byte-identical rows (the duplication the key must prevent)
     for _ in range(2):
         raw.execute(
             "INSERT INTO events (session_id, kind, subkind, turn_index, ts_start, ts_end,"
             " input_tokens, payload) VALUES ('s1','round_trip',NULL,1,100.0,101.0,10,?)",
             (payload,),
         )
-    # una riga distinta
+    # one distinct row
     raw.execute(
         "INSERT INTO events (session_id, kind, subkind, ts_start, ts_end, payload)"
         " VALUES ('s1','hook','SessionStart',50.0,50.0,NULL)"
@@ -339,13 +339,13 @@ def test_dedup_migration_on_existing_db_backfills_and_removes_duplicates(tmp_pat
     raw.commit()
     raw.close()
 
-    store = Store(db_path)  # apre e migra
+    store = Store(db_path)  # opens and migrates
     events = store.get_session_events("s1")
-    # il duplicato byte-identico è stato rimosso: 2 righe (1 round_trip + 1 hook)
+    # the byte-identical duplicate was removed: 2 rows (1 round_trip + 1 hook)
     assert len(events) == 2
     kinds = sorted(e["kind"] for e in events)
     assert kinds == ["hook", "round_trip"]
-    # tutte le righe hanno dedup_key e l'indice UNIQUE esiste
+    # every row has a dedup_key and the UNIQUE index exists
     with store._lock:
         null_keys = store._conn.execute(
             "SELECT COUNT(*) FROM events WHERE dedup_key IS NULL"
@@ -356,7 +356,7 @@ def test_dedup_migration_on_existing_db_backfills_and_removes_duplicates(tmp_pat
     assert null_keys == 0
     assert idx is not None
 
-    # re-insert dello stesso round_trip: ignorato, niente raddoppio token
+    # re-insert of the same round_trip: ignored, no token doubling
     store.insert_event(
         session_id="s1", kind="round_trip", turn_index=1, ts_start=100.0, ts_end=101.0,
         input_tokens=10,
@@ -367,18 +367,18 @@ def test_dedup_migration_on_existing_db_backfills_and_removes_duplicates(tmp_pat
 
 
 def test_reassign_session_recomputes_turns_from_prompts(tmp_path):
-    """Gli eventi fusi da una sessione sintetica ereditano il turno del
-    UserPromptSubmit della sessione reale che li precede; quelli davvero
-    pre-prompt restano a 0."""
+    """Events merged in from a synthetic session inherit the turn of the
+    UserPromptSubmit of the real session preceding them; the truly pre-prompt
+    ones stay at 0."""
     store = Store(str(tmp_path / "t.db"))
     store.upsert_session("real", started_at=1.0)
     store.upsert_session("syn-x", started_at=1.0)
-    # round trip di servizio PRIMA di ogni prompt
+    # service round trip BEFORE any prompt
     store.insert_event(session_id="syn-x", kind="round_trip", turn_index=0, ts_start=5.0)
     store.insert_event(
         session_id="real", kind="hook", subkind="UserPromptSubmit", turn_index=1, ts_start=10.0
     )
-    # round trip del turno 1, arrivato quando la sessione era ancora sintetica
+    # round trip of turn 1, arrived while the session was still synthetic
     store.insert_event(session_id="syn-x", kind="round_trip", turn_index=0, ts_start=11.0)
     store.insert_event(
         session_id="real", kind="hook", subkind="UserPromptSubmit", turn_index=2, ts_start=20.0
@@ -397,11 +397,11 @@ def test_reassign_session_recomputes_turns_from_prompts(tmp_path):
 
 
 def test_cache_tier_migration_backfills_split_from_payload(tmp_path):
-    """Su un DB con schema vecchio (senza le colonne del TTL) l'apertura
-    aggiunge cache_write_5m/1h_tokens e le backfilla dal payload già salvato:
-    il tier c'era da sempre in response.usage.cache_creation, non era solo
-    promosso a colonna. Chi non espone cache_creation resta a NULL (tier
-    ignoto, diverso da 0)."""
+    """On a DB with the old schema (without the TTL columns) opening it adds
+    cache_write_5m/1h_tokens and backfills them from the payload already
+    stored: the tier was always in response.usage.cache_creation, it was only
+    promoted to a column. Whoever does not expose cache_creation stays NULL
+    (unknown tier, different from 0)."""
     db_path = tmp_path / "old_tiers.db"
     raw = sqlite3.connect(db_path)
     raw.executescript(_OLD_EVENTS_SCHEMA)
@@ -439,13 +439,13 @@ def test_cache_tier_migration_backfills_split_from_payload(tmp_path):
     raw.commit()
     raw.close()
 
-    store = Store(db_path)  # apre e migra
+    store = Store(db_path)  # opens and migrates
     events = store.get_session_events("s1")
     first, second = (e["usage"] for e in events)
     assert (first["cache_write_5m_tokens"], first["cache_write_1h_tokens"]) == (0, 8415)
     assert (second["cache_write_5m_tokens"], second["cache_write_1h_tokens"]) == (None, None)
 
-    # aggregato di sessione: somma per tier, il residuo resta implicito
+    # session aggregate: sum per tier, the remainder stays implicit
     session = next(s for s in store.get_sessions() if s["id"] == "s1")
     assert session["usage"]["cache_write_tokens"] == 8535
     assert session["usage"]["cache_write_1h_tokens"] == 8415

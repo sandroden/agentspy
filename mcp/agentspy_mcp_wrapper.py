@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Wrapper stdio trasparente per server MCP.
+"""Transparent stdio wrapper for MCP servers.
 
-Uso:
-    agentspy_mcp_wrapper.py [--name NAME] [--url URL] -- comando args...
+Usage:
+    agentspy_mcp_wrapper.py [--name NAME] [--url URL] -- command args...
 
-Lancia <comando args...> come sottoprocesso e relaya il suo stdio nei due
-sensi (parent stdin -> child stdin, child stdout -> parent stdout) byte per
-byte, riga per riga (il protocollo MCP stdio è JSON-RPC line-delimited).
-Ogni riga viene anche "spiata": se è JSON valido viene classificata come
-request/notification/response e le coppie request<->response (per "id")
-vengono POSTate a {url}/ingest/mcp. Il relay ha priorità assoluta: se lo
-spione fallisce o l'endpoint non risponde, la riga viene comunque inoltrata
-senza modifiche e senza ritardi percepibili.
+Runs <command args...> as a subprocess and relays its stdio both ways
+(parent stdin -> child stdin, child stdout -> parent stdout) byte for byte,
+line by line (the MCP stdio protocol is line-delimited JSON-RPC).
+Every line is also "spied on": if it is valid JSON it gets classified as
+request/notification/response, and request<->response pairs (by "id")
+are POSTed to {url}/ingest/mcp. The relay has absolute priority: if the
+spy fails or the endpoint does not answer, the line is forwarded anyway
+unmodified and with no perceivable delay.
 """
 import argparse
 import json
@@ -24,9 +24,9 @@ import threading
 import time
 import urllib.request
 
-MAX_LEN = 200_000       # troncamento params/result serializzati
-POST_TIMEOUT = 2.0      # timeout per singola POST
-DRAIN_TIMEOUT = 2.0     # tempo massimo complessivo per svuotare la coda a fine processo
+MAX_LEN = 200_000       # truncation of serialized params/result
+POST_TIMEOUT = 2.0      # timeout for a single POST
+DRAIN_TIMEOUT = 2.0     # overall time budget to drain the queue at process end
 
 
 def debug(msg):
@@ -37,7 +37,7 @@ def debug(msg):
 def parse_args(argv):
     if "--" not in argv:
         print(
-            "uso: agentspy_mcp_wrapper.py [--name NAME] [--url URL] -- comando args...",
+            "usage: agentspy_mcp_wrapper.py [--name NAME] [--url URL] -- command args...",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -45,7 +45,7 @@ def parse_args(argv):
     own_args = argv[:idx]
     command = argv[idx + 1:]
     if not command:
-        print("errore: nessun comando specificato dopo '--'", file=sys.stderr)
+        print("error: no command specified after '--'", file=sys.stderr)
         sys.exit(2)
 
     parser = argparse.ArgumentParser(add_help=True)
@@ -60,7 +60,7 @@ def parse_args(argv):
 
 
 def classify(msg):
-    """request (method+id) | notification (method senza id) | response (id senza method)."""
+    """request (method+id) | notification (method without id) | response (id without method)."""
     has_method = "method" in msg
     has_id = "id" in msg
     if has_method and has_id:
@@ -73,7 +73,7 @@ def classify(msg):
 
 
 def maybe_truncate(value):
-    """Ritorna (valore_per_json, truncated). Tronca solo se la serializzazione supera MAX_LEN."""
+    """Returns (value_for_json, truncated). Truncates only if the serialization exceeds MAX_LEN."""
     if value is None:
         return None, False
     try:
@@ -87,7 +87,7 @@ def maybe_truncate(value):
 
 
 class Spy:
-    """Accoppia request->response per rpc id e prepara gli eventi per la coda HTTP."""
+    """Pairs request->response by rpc id and prepares the events for the HTTP queue."""
 
     def __init__(self, server_name, tag, http_queue):
         self.server_name = server_name
@@ -99,8 +99,8 @@ class Spy:
     def feed(self, raw_line, direction):
         try:
             self._feed(raw_line, direction)
-        except Exception as e:  # la spia non deve MAI rompere il relay
-            debug(f"errore spia (ignorato): {e!r}")
+        except Exception as e:  # the spy must NEVER break the relay
+            debug(f"spy error (ignored): {e!r}")
 
     def _feed(self, raw_line, direction):
         text = raw_line.decode("utf-8", errors="replace").strip()
@@ -109,7 +109,7 @@ class Spy:
         try:
             msg = json.loads(text)
         except (json.JSONDecodeError, ValueError):
-            return  # non JSON: già inoltrata dal relay, nulla da spiare
+            return  # not JSON: already forwarded by the relay, nothing to spy on
         if not isinstance(msg, dict):
             return
 
@@ -132,7 +132,7 @@ class Spy:
             with self.lock:
                 entry = self.pending.pop(rpc_id, None)
             if entry is None:
-                debug(f"risposta senza richiesta corrispondente in pending (id={rpc_id!r})")
+                debug(f"response with no matching request in pending (id={rpc_id!r})")
                 return
             event = {
                 "server_name": self.server_name,
@@ -181,7 +181,7 @@ class Spy:
         try:
             self.http_queue.put_nowait(event)
         except Exception as e:
-            debug(f"impossibile accodare evento (ignorato): {e!r}")
+            debug(f"cannot enqueue event (ignored): {e!r}")
 
 
 def http_worker(http_queue, ingest_url, stop_event):
@@ -203,13 +203,13 @@ def http_worker(http_queue, ingest_url, stop_event):
             with urllib.request.urlopen(req, timeout=POST_TIMEOUT):
                 pass
         except Exception as e:
-            debug(f"POST a {ingest_url} fallita (scartata): {e!r}")
+            debug(f"POST to {ingest_url} failed (dropped): {e!r}")
         finally:
             http_queue.task_done()
 
 
 def pump_stdin_to_child(child_stdin, spy):
-    """parent stdin -> child stdin, riga per riga, byte identici."""
+    """parent stdin -> child stdin, line by line, byte identical."""
     src = sys.stdin.buffer
     try:
         while True:
@@ -230,7 +230,7 @@ def pump_stdin_to_child(child_stdin, spy):
 
 
 def pump_child_stdout_to_parent(child_stdout, spy):
-    """child stdout -> parent stdout, riga per riga, byte identici."""
+    """child stdout -> parent stdout, line by line, byte identical."""
     dst = sys.stdout.buffer
     while True:
         line = child_stdout.readline()
@@ -245,7 +245,7 @@ def pump_child_stdout_to_parent(child_stdout, spy):
 
 
 def pump_child_stderr_to_parent(child_stderr):
-    """child stderr -> parent stderr, passthrough puro."""
+    """child stderr -> parent stderr, pure passthrough."""
     dst = sys.stderr.buffer
     while True:
         chunk = child_stderr.read(4096)
@@ -274,7 +274,7 @@ def main():
     spy = Spy(name, tag, http_queue)
 
     def handle_signal(signum, frame):
-        debug(f"segnale {signum} ricevuto: termino il processo figlio")
+        debug(f"signal {signum} received: terminating the child process")
         try:
             child.terminate()
         except Exception:
@@ -294,8 +294,8 @@ def main():
 
     returncode = child.wait()
 
-    # il figlio è uscito: dai un attimo ai pump di stdout/stderr di svuotare
-    # quel che resta nei pipe, poi segnala allo http_worker di fermarsi.
+    # the child exited: give the stdout/stderr pumps a moment to drain what is
+    # left in the pipes, then tell the http_worker to stop.
     threads[1].join(timeout=2)
     threads[2].join(timeout=2)
     stop_event.set()

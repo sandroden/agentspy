@@ -126,7 +126,7 @@ const seriesViews = computed<SeriesView[]>(() => {
       points,
     }
   })
-  // featured disegnata per ultima (sopra le altre)
+  // featured drawn last (on top of the others)
   return views.sort((a, b) => Number(a.featured) - Number(b.featured))
 })
 
@@ -186,7 +186,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
     </p>
     <template v-else>
       <svg :viewBox="`0 0 ${width} ${height}`" :height="height" width="100%" role="img">
-        <!-- griglia + etichette Y -->
+        <!-- grid + Y labels -->
         <g class="axis">
           <template v-for="t in yTicks" :key="t.v">
             <line :x1="margin.left" :y1="t.y" :x2="width - margin.right" :y2="t.y" class="grid" />
@@ -196,7 +196,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
           </template>
         </g>
 
-        <!-- linea limite finestra di contesto -->
+        <!-- context window limit line -->
         <g v-if="showLimit">
           <line
             :x1="margin.left"
@@ -210,7 +210,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
           </text>
         </g>
 
-        <!-- marker prompt utente -->
+        <!-- user prompt markers -->
         <line
           v-for="(x, i) in promptMarkers"
           :key="'pm' + i"
@@ -221,7 +221,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
           class="prompt-marker"
         />
 
-        <!-- polyline per sessione -->
+        <!-- one polyline per session -->
         <polyline
           v-for="v in seriesViews"
           :key="v.id"
@@ -234,7 +234,7 @@ const hasData = computed(() => props.series.some((s) => s.stats.length > 0))
           stroke-linejoin="round"
         />
 
-        <!-- punti interattivi -->
+        <!-- interactive points -->
         <template v-for="v in seriesViews" :key="'pts' + v.id">
           <circle
             v-for="p in v.points"

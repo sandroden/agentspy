@@ -42,7 +42,7 @@ function show(ids: string[]) {
 }
 
 /** flatten skipping hidden nodes (and their whole subtree); each row carries
- * the count of its direct children that are hidden, for the "N nascosti" hint. */
+ * the count of its direct children that are hidden, for the "N hidden" hint. */
 function flatten(nodes: SessionNode[], depth: number): FlatRow[] {
   const rows: FlatRow[] = []
   for (const n of nodes) {
@@ -67,7 +67,7 @@ function toggleCollapse(node: SessionNode) {
   else show(childIds)
 }
 
-/** direct child ids, used to re-expand from the "N nascosti" hint. */
+/** direct child ids, used to re-expand from the "N hidden" hint. */
 function childIdsOf(node: SessionNode): string[] {
   return node.children.map((c) => c.id)
 }
@@ -134,7 +134,7 @@ function cancelSelection() {
   selected.value = new Set()
 }
 
-/** ids of the top-level sessions (children follow in cascade). */
+/** ids of the top-level sessions (the delete cascades to children). */
 const topLevelIds = computed(() => rows.value.filter((r) => r.depth === 0).map((r) => r.session.id))
 
 const allSelected = computed(
@@ -152,8 +152,8 @@ async function confirmDelete() {
   if (ids.length === 0) return
   const plural = ids.length === 1 ? 'the selected session' : `${ids.length} selected sessions`
   const msg =
-    `Delete ${plural}? Any child sessions (sub-agents) and all their events ` +
-    `will be removed in cascade. This cannot be undone.`
+    `Delete ${plural}? The delete cascades to any child sessions (sub-agents) ` +
+    `and all their events. This cannot be undone.`
   if (!window.confirm(msg)) return
   const currentDeleted = spy.currentSessionId != null && ids.includes(spy.currentSessionId)
   try {
@@ -209,7 +209,7 @@ const helpOpen = ref(false)
 <template>
   <nav class="sessions-sidebar">
     <div class="toolbar">
-      <span class="side-label">Sessioni</span>
+      <span class="side-label">Sessions</span>
       <button
         type="button"
         class="edit-toggle"
@@ -242,7 +242,7 @@ const helpOpen = ref(false)
           class="check"
           :checked="isChecked(row.session.id)"
           :disabled="isLocked(row.session.id)"
-          :title="isLocked(row.session.id) ? 'deleted in cascade with its parent' : ''"
+          :title="isLocked(row.session.id) ? 'deleted along with its parent' : ''"
         />
         <!-- Left gutter (connector + dot) kept out of the text column so that
              both lines align with the name/tag, not with the dot. -->
@@ -275,7 +275,7 @@ const helpOpen = ref(false)
               v-if="!selectionMode && row.depth > 0"
               type="button"
               class="collapse-x"
-              title="collassa questo subagente"
+              title="collapse this sub-agent"
               @click.stop="hide([row.session.id])"
             >
               ✕
@@ -303,12 +303,12 @@ const helpOpen = ref(false)
             v-if="!selectionMode && row.hiddenChildCount > 0"
             type="button"
             class="hidden-hint"
-            title="mostra i subagenti nascosti"
+            title="show the hidden sub-agents"
             @click.stop="show(childIdsOf(row.session))"
           >
             👁
             {{ row.hiddenChildCount }}
-            {{ row.hiddenChildCount === 1 ? 'subagente nascosto' : 'subagenti nascosti' }}
+            {{ row.hiddenChildCount === 1 ? 'hidden sub-agent' : 'hidden sub-agents' }}
           </button>
         </div>
       </div>
@@ -374,13 +374,13 @@ const helpOpen = ref(false)
           </header>
           <div class="help-body">
             <ol>
-              <li>Avvia il collector:<br /><code>cd server &amp;&amp; uv run agentspy</code></li>
+              <li>Start the collector:<br /><code>cd server &amp;&amp; uv run agentspy</code></li>
               <li>
-                Fai passare Claude Code dal proxy:<br />
+                Run Claude Code through the proxy:<br />
                 <code>ANTHROPIC_BASE_URL=http://127.0.0.1:8082 claude</code>
               </li>
               <li>
-                Per taggare una raccolta (separare run diverse):<br />
+                To tag a collection (separate different runs):<br />
                 <code>ANTHROPIC_CUSTOM_HEADERS="x-agentspy-tag: my-tag" claude</code>
               </li>
             </ol>
@@ -659,7 +659,7 @@ const helpOpen = ref(false)
   background-color: var(--panel);
 }
 
-/* "N subagenti nascosti" hint on a collapsed parent: click to re-expand. */
+/* "N hidden sub-agents" hint on a collapsed parent: click to re-expand. */
 .hidden-hint {
   align-self: flex-start;
   display: inline-flex;

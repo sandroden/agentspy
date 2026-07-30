@@ -1,8 +1,8 @@
-"""Registry degli adapter provider.
+"""Registry of the provider adapters.
 
-Il provider attivo si sceglie con AGENTSPY_PROVIDER (default: anthropic).
-Per aggiungerne uno: implementare ProviderAdapter in un modulo qui accanto
-e registrarlo in PROVIDERS.
+The active provider is selected with AGENTSPY_PROVIDER (default: anthropic).
+To add one: implement ProviderAdapter in a module next to this one and
+register it in PROVIDERS.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def get_provider(name: str | None = None) -> ProviderAdapter:
         return PROVIDERS[name]()
     except KeyError:
         raise ValueError(
-            f"provider sconosciuto: {name!r} (disponibili: {', '.join(sorted(PROVIDERS))})"
+            f"unknown provider: {name!r} (available: {', '.join(sorted(PROVIDERS))})"
         ) from None
 
 

@@ -1,4 +1,4 @@
-/** Icone ed etichette per i tipi di artefatto del contesto (ContextArtifact). */
+/** Icons and labels for the context artifact kinds (ContextArtifact). */
 import type { ArtifactKind } from '../types'
 
 const ICON: Record<ArtifactKind, string> = {
@@ -12,15 +12,15 @@ const ICON: Record<ArtifactKind, string> = {
   tools: '🔧',
 }
 
-/** Etichetta breve del tipo (per raggruppamenti/legende). */
+/** Short label for the kind (for groupings/legends). */
 const KIND_LABEL: Record<ArtifactKind, string> = {
   system: 'System prompt',
-  'claude-md': 'Istruzioni',
-  memory: 'Memoria',
-  image: 'Immagine',
-  'at-file': 'File allegato',
-  'file-ref': 'File referenziato (non caricato)',
-  'read-file': 'File letto',
+  'claude-md': 'Instructions',
+  memory: 'Memory',
+  image: 'Image',
+  'at-file': 'Attached file',
+  'file-ref': 'Referenced file (not loaded)',
+  'read-file': 'Read file',
   tools: 'Tools',
 }
 

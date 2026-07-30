@@ -27,7 +27,7 @@ const relativizedText = computed(() => relativizeText(props.text, cwd.value))
 interface Segment {
   kind: 'text' | 'reminder' | 'command'
   content: string
-  label?: string // command: nome della skill/comando (es. /okf:okf)
+  label?: string // command: skill/command name (e.g. /okf:okf)
 }
 
 const OPEN = '<system-reminder>'
@@ -94,7 +94,7 @@ function charLabel(n: number): string {
   return `${n} char`
 }
 
-// -- modal (vista compatta) --------------------------------------------------
+// -- modal (compact view) ----------------------------------------------------
 
 const modalContent = ref<string | null>(null)
 const modalTitle = ref('system-reminder')
@@ -136,7 +136,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     >
       <span class="gear">🎓</span>
       <span>{{ seg.label || 'command' }}</span>
-      <span class="chip-meta">{{ charLabel(seg.content.length) }} iniettati</span>
+      <span class="chip-meta">{{ charLabel(seg.content.length) }} injected</span>
     </button>
 
     <!-- command/skill, expanded view: highlighted box -->
@@ -144,7 +144,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div class="reminder-label command-label">
         <span class="gear">🎓</span>
         <span>skill / command · {{ seg.label }}</span>
-        <span class="reminder-meta">{{ charLabel(seg.content.length) }} iniettati</span>
+        <span class="reminder-meta">{{ charLabel(seg.content.length) }} injected</span>
       </div>
       <pre class="pre-wrap reminder-text">{{ textFor(seg.content) }}</pre>
     </div>
@@ -260,7 +260,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border-color: #d98cd9;
 }
 
-/* -- command/skill: teal, distinto dal reminder viola -- */
+/* -- command/skill: teal, distinct from the violet reminder -- */
 .command-box {
   background-color: rgba(58, 176, 162, 0.08);
   border-left-color: #3ab0a2;

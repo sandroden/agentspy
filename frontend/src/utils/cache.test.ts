@@ -23,7 +23,7 @@ describe('cacheWriteTiers', () => {
   })
 
   it('never returns a negative residual', () => {
-    // difesa: il totale della colonna non deve mai stare sotto la somma dei tier
+    // defensive: the column total must never fall below the sum of the tiers
     expect(
       cacheWriteTiers({
         cache_write_tokens: 10,

@@ -1,10 +1,9 @@
-"""Persistenza SQLite (WAL) per sessioni ed eventi.
+"""SQLite (WAL) persistence for sessions and events.
 
-Un'unica connessione condivisa, protetta da un lock: gli scenari di scrittura
-attesi (proxy + hooks + mcp di una singola sessione di lavoro didattica) non
-giustificano un pool o uno scheduler dedicato. Il lock serializza anche le
-letture per semplicità: il volume di traffico è quello di un solo sviluppatore
-al lavoro, non un servizio multi-utente.
+A single shared connection, protected by a lock: the expected write scenarios
+(proxy + hooks + mcp of a single educational work session) do not justify a pool
+or a dedicated scheduler. The lock also serializes reads for simplicity: the
+traffic volume is that of a single developer at work, not a multi-user service.
 """
 
 from __future__ import annotations
@@ -53,8 +52,8 @@ CREATE TABLE IF NOT EXISTS events (
     output_tokens INTEGER,
     cache_read_tokens INTEGER,
     cache_write_tokens INTEGER,
-    -- split di cache_write per TTL della cache (5 minuti / 1 ora): NULL se il
-    -- provider non lo espone, così "tier ignoto" != "0 token in quel tier"
+    -- split of cache_write by cache TTL (5 minutes / 1 hour): NULL if the
+    -- provider does not expose it, so "unknown tier" != "0 tokens in that tier"
     cache_write_5m_tokens INTEGER,
     cache_write_1h_tokens INTEGER,
     tool_names TEXT,
@@ -76,11 +75,11 @@ def _dedup_key(
     ts_end: float | None,
     payload_text: str | None,
 ) -> str:
-    """Chiave naturale idempotente di un evento: solo eventi BYTE-IDENTICI
-    collidono. Include il testo del payload GIÀ serializzato (non ri-serializzato,
-    così la chiave calcolata al backfill combacia con quella dell'insert). Due
-    eventi legittimamente distinti ma vicini (es. due PreToolUse nello stesso ms)
-    differiscono nel payload (tool_use_id/tool_input) → chiavi diverse."""
+    """Idempotent natural key of an event: only BYTE-IDENTICAL events collide.
+    It includes the ALREADY serialized payload text (not re-serialized, so the
+    key computed at backfill matches the one from the insert). Two legitimately
+    distinct but close events (e.g. two PreToolUse in the same ms) differ in the
+    payload (tool_use_id/tool_input) → different keys."""
     parts = [
         str(session_id),
         str(kind),
@@ -97,7 +96,7 @@ def default_db_path() -> str:
 
 
 def _snippet_from_payload(kind: str, subkind: str | None, payload: dict | None) -> str:
-    """Estrae un breve testo rappresentativo per le liste evento (best-effort)."""
+    """Extracts a short representative text for the event lists (best-effort)."""
     if not payload:
         return ""
     try:
@@ -116,8 +115,8 @@ def _snippet_from_payload(kind: str, subkind: str | None, payload: dict | None) 
                     return content[:160]
             return ""
         if kind == "hook":
-            # schema hook reale: UserPromptSubmit porta "prompt",
-            # Pre/PostToolUse portano "tool_name"
+            # real hook schema: UserPromptSubmit carries "prompt",
+            # Pre/PostToolUse carry "tool_name"
             prompt = payload.get("prompt")
             if isinstance(prompt, str) and prompt:
                 return prompt[:160]
@@ -133,11 +132,11 @@ def _snippet_from_payload(kind: str, subkind: str | None, payload: dict | None) 
 
 
 def _input_snippet_from_payload(kind: str, payload: dict | None, runtime: AgentRuntime) -> str:
-    """Testo del *primo* user message della request di un round trip: per un
-    subagente è il task che il padre gli ha delegato; per il traffico di
-    servizio è l'input iniziale. Diverso da `_snippet_from_payload`, che per i
-    round trip restituisce la *risposta* (o l'ultimo messaggio). Salta i blocchi
-    `<system-reminder>` iniettati da Claude Code. Best-effort, "" se assente."""
+    """Text of the *first* user message of a round trip's request: for a subagent
+    it is the task the parent delegated to it; for service traffic it is the
+    initial input. Different from `_snippet_from_payload`, which for round trips
+    returns the *response* (or the last message). Skips the `<system-reminder>`
+    blocks injected by Claude Code. Best-effort, "" if absent."""
     if not payload or kind != "round_trip":
         return ""
     try:
@@ -156,14 +155,14 @@ def _input_snippet_from_payload(kind: str, payload: dict | None, runtime: AgentR
                     if not text or runtime.is_system_reminder(text):
                         continue
                     return runtime.command_snippet(text) or text[:160]
-            return ""  # primo user message trovato ma senza testo utile
+            return ""  # first user message found but with no useful text
     except Exception:
         return ""
     return ""
 
 
 def _tool_uses_from_payload(payload: dict | None, runtime: AgentRuntime) -> list[dict[str, str]]:
-    """Coppie {name, hint} dai blocchi tool_use della risposta di un round trip."""
+    """{name, hint} pairs from the tool_use blocks of a round trip's response."""
     if not payload:
         return []
     try:
@@ -188,7 +187,7 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         with self._lock:
             self._conn.executescript(SCHEMA)
-            # migrazione leggera per DB creati prima della colonna cwd
+            # lightweight migration for DBs created before the cwd column
             try:
                 self._conn.execute("ALTER TABLE sessions ADD COLUMN cwd TEXT")
             except sqlite3.OperationalError:
@@ -196,9 +195,9 @@ class Store:
             self._migrate_dedup_key_locked()
             self._migrate_cache_tiers_locked()
             self._conn.commit()
-        # Il DB può contenere prompt/risposte in chiaro: restringiamo i permessi
-        # al solo proprietario. Best-effort (WAL/SHM potrebbero non esistere,
-        # ":memory:" non ha file): un OSError non deve impedire l'avvio.
+        # The DB can contain prompts/responses in clear text: we restrict the
+        # permissions to the owner only. Best-effort (WAL/SHM may not exist,
+        # ":memory:" has no file): an OSError must not prevent startup.
         for suffix in ("", "-wal", "-shm"):
             try:
                 os.chmod(self.db_path + suffix, 0o600)
@@ -206,17 +205,17 @@ class Store:
                 pass
 
     def _migrate_dedup_key_locked(self) -> None:
-        """Migrazione additiva e idempotente della chiave di dedup su DB esistenti
-        (il lock è già acquisito dal chiamante). Sicura per il DB live:
+        """Additive and idempotent migration of the dedup key on existing DBs
+        (the lock is already acquired by the caller). Safe for the live DB:
 
-        1. ALTER TABLE per la colonna dedup_key (guardata da PRAGMA table_info);
-        2. backfill del valore hash sulle righe con dedup_key NULL, calcolato dal
-           payload GIÀ salvato (stesso metodo dell'insert → chiavi coerenti);
-        3. l'indice UNIQUE è additivo se non esistono duplicati (caso normale,
-           verificato sul DB live: 0 collisioni). Solo se emergono righe
-           byte-identiche (l'esatta duplicazione che questa chiave deve prevenire)
-           se ne rimuovono le copie tenendo il min(id): è un'azione loggata
-           rumorosamente e ristretta a righe identiche, non una parte di routine."""
+        1. ALTER TABLE for the dedup_key column (guarded by PRAGMA table_info);
+        2. backfill of the hash value on rows with dedup_key NULL, computed from
+           the ALREADY saved payload (same method as the insert → consistent keys);
+        3. the UNIQUE index is additive if no duplicates exist (the normal case,
+           verified on the live DB: 0 collisions). Only if byte-identical rows
+           emerge (the exact duplication this key must prevent) are their copies
+           removed, keeping min(id): it is a loudly logged action, restricted to
+           identical rows, not a routine part."""
         cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(events)").fetchall()}
         if "dedup_key" not in cols:
             self._conn.execute("ALTER TABLE events ADD COLUMN dedup_key TEXT")
@@ -248,7 +247,7 @@ class Store:
                 )
                 removed += cur.rowcount
             logger.warning(
-                "agentspy: migrazione dedup: rimosse %d righe byte-identiche su %d chiavi duplicate",
+                "agentspy: dedup migration: removed %d byte-identical rows over %d duplicate keys",
                 removed, len(dup_keys),
             )
 
@@ -257,18 +256,18 @@ class Store:
         )
 
     def _migrate_cache_tiers_locked(self) -> None:
-        """Migrazione additiva del split cache_write per TTL (5m/1h), col lock già preso.
+        """Additive migration of the cache_write split by TTL (5m/1h), lock already taken.
 
-        1. ALTER TABLE per le due colonne (guardato da PRAGMA table_info);
-        2. backfill dai round trip già registrati: il tier è sempre stato nel
-           payload (`response.usage.cache_creation`), semplicemente non era
-           promosso a colonna, quindi non si inventa nulla e non si perde
-           precisione. Solo righe kind='round_trip' (indice idx_events_kind) con
-           entrambe le colonne ancora NULL: idempotente e a costo trascurabile
-           agli avvii successivi.
+        1. ALTER TABLE for the two columns (guarded by PRAGMA table_info);
+        2. backfill from the round trips already recorded: the tier has always
+           been in the payload (`response.usage.cache_creation`), it simply was
+           not promoted to a column, so nothing is invented and no precision is
+           lost. Only kind='round_trip' rows (idx_events_kind index) with both
+           columns still NULL: idempotent and at negligible cost on later
+           startups.
 
-        `json_valid` protegge da payload non-JSON (json_extract su testo
-        malformato è un errore, non un NULL)."""
+        `json_valid` guards against non-JSON payloads (json_extract on malformed
+        text is an error, not a NULL)."""
         cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(events)").fetchall()}
         for col in ("cache_write_5m_tokens", "cache_write_1h_tokens"):
             if col not in cols:
@@ -286,7 +285,7 @@ class Store:
             "  AND json_extract(payload,'$.response.usage.cache_creation') IS NOT NULL"
         )
         if cur.rowcount:
-            logger.info("agentspy: migrazione cache tier: %d round trip aggiornati", cur.rowcount)
+            logger.info("agentspy: cache tier migration: %d round trips updated", cur.rowcount)
 
     def close(self) -> None:
         with self._lock:
@@ -337,23 +336,23 @@ class Store:
             self._conn.commit()
 
     def reassign_session(self, old_id: str, new_id: str) -> int:
-        """Sposta tutti gli eventi di ``old_id`` sotto ``new_id`` e assorbe la
-        riga di sessione (usato quando una sessione sintetica creata dal solo
-        traffico proxy viene identificata con una sessione reale via hook).
-        Ritorna il numero di eventi riassegnati."""
+        """Moves all events of ``old_id`` under ``new_id`` and absorbs the
+        session row (used when a synthetic session created by proxy traffic
+        alone is identified with a real session via hook). Returns the number of
+        reassigned events."""
         with self._lock:
             old = self._conn.execute("SELECT * FROM sessions WHERE id=?", (old_id,)).fetchone()
             cur = self._conn.execute(
                 "UPDATE events SET session_id=? WHERE session_id=?", (new_id, old_id)
             )
             moved = cur.rowcount
-            # Gli eventi arrivati quando la sessione era ancora sintetica
-            # portano il turn_index di QUELLO stato (spesso 0): senza questo
-            # ricalcolo finirebbero nel gruppo "pre-prompt" invece che nel
-            # turno del prompt che li ha innescati. Il turno giusto è quello
-            # dell'ultimo UserPromptSubmit della sessione reale che precede
-            # l'evento; se non ce n'è (traffico pre-prompt, o sessione
-            # subagente senza prompt) il turn_index resta com'era.
+            # Events that arrived while the session was still synthetic carry
+            # the turn_index of THAT state (often 0): without this recompute
+            # they would end up in the "pre-prompt" group instead of the turn
+            # of the prompt that triggered them. The right turn is the one of
+            # the last UserPromptSubmit of the real session preceding the
+            # event; if there is none (pre-prompt traffic, or a subagent
+            # session without a prompt) the turn_index stays as it was.
             self._conn.execute(
                 """
                 UPDATE events SET turn_index = COALESCE(
@@ -369,8 +368,8 @@ class Store:
             self._conn.execute("DELETE FROM sessions WHERE id=?", (old_id,))
             self._conn.commit()
         if old is not None:
-            # fonde i metadati della vecchia riga (started_at min, ended_at
-            # max, tag/model se mancanti) nella sessione di destinazione.
+            # merges the old row's metadata (started_at min, ended_at max,
+            # tag/model if missing) into the destination session.
             self.upsert_session(
                 new_id,
                 tag=old["tag"],
@@ -381,10 +380,10 @@ class Store:
         return moved
 
     def delete_sessions(self, ids: list[str]) -> list[str]:
-        """Elimina le sessioni indicate e TUTTE le loro discendenti (subagenti,
-        ricorsivamente via parent_session_id), cancellando prima gli eventi e
-        poi le righe di sessione. Gli id inesistenti vengono ignorati. Ritorna
-        l'elenco completo (dedup) degli id effettivamente eliminati."""
+        """Deletes the given sessions and ALL their descendants (subagents,
+        recursively via parent_session_id), removing the events first and then
+        the session rows. Non-existing ids are ignored. Returns the full
+        (deduplicated) list of the ids actually deleted."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT id, parent_session_id FROM sessions"
@@ -451,9 +450,9 @@ class Store:
         payload_json = json.dumps(payload, ensure_ascii=False) if payload is not None else None
         dedup_key = _dedup_key(session_id, kind, subkind, ts_start, ts_end, payload_json)
         with self._lock:
-            # INSERT OR IGNORE: un re-ingest/re-seed/replay dello STESSO evento
-            # (chiave identica) non crea un duplicato che raddoppierebbe i token
-            # aggregati; si restituisce l'id della riga già presente.
+            # INSERT OR IGNORE: a re-ingest/re-seed/replay of the SAME event
+            # (identical key) does not create a duplicate that would double the
+            # aggregated tokens; the id of the existing row is returned.
             cur = self._conn.execute(
                 "INSERT OR IGNORE INTO events (session_id, kind, subkind, turn_index, agent_id,"
                 " ts_start, ts_end, ttfb_s, model, status, stop_reason, input_tokens, output_tokens,"
@@ -484,8 +483,8 @@ class Store:
                 for r in self._conn.execute("SELECT * FROM sessions ORDER BY started_at").fetchall()
             ]
             agg_rows = self._conn.execute(
-                # turn_index 0 = eventi pre-turno (SessionStart, traffico di
-                # servizio): non è un turno utente e non va contato.
+                # turn_index 0 = pre-turn events (SessionStart, service
+                # traffic): not a user turn, so it must not be counted.
                 "SELECT session_id,"
                 " COUNT(DISTINCT CASE WHEN turn_index >= 1 THEN turn_index END) AS turns,"
                 " SUM(CASE WHEN kind='round_trip' THEN 1 ELSE 0 END) AS round_trips,"
@@ -494,8 +493,8 @@ class Store:
                 " SUM(COALESCE(output_tokens,0)) AS output_tokens,"
                 " SUM(COALESCE(cache_read_tokens,0)) AS cache_read_tokens,"
                 " SUM(COALESCE(cache_write_tokens,0)) AS cache_write_tokens,"
-                # aggregati per TTL: il residuo (cache_write - 5m - 1h) è la
-                # quota a tier ignoto, ricavabile a valle senza altra colonna
+                # aggregates by TTL: the remainder (cache_write - 5m - 1h) is
+                # the unknown-tier share, derivable downstream with no extra column
                 " SUM(COALESCE(cache_write_5m_tokens,0)) AS cache_write_5m_tokens,"
                 " SUM(COALESCE(cache_write_1h_tokens,0)) AS cache_write_1h_tokens"
                 " FROM events GROUP BY session_id"
@@ -593,7 +592,7 @@ class Store:
         }
 
     def get_session_events(self, session_id: str) -> list[dict[str, Any]]:
-        """Summary leggeri (senza il campo payload) ordinati per ts_start."""
+        """Lightweight summaries (without the payload field) ordered by ts_start."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM events WHERE session_id=? ORDER BY ts_start", (session_id,)
@@ -601,7 +600,7 @@ class Store:
             return [self._event_summary(r) for r in rows]
 
     def get_event(self, event_id: int) -> dict[str, Any] | None:
-        """Riga evento completa, con payload e tool_names deserializzati."""
+        """Full event row, with payload and tool_names deserialized."""
         with self._lock:
             row = self._conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
         if row is None:
@@ -609,19 +608,19 @@ class Store:
         d = dict(row)
         d["payload"] = json.loads(d["payload"]) if d["payload"] else None
         d["tool_names"] = json.loads(d["tool_names"]) if d["tool_names"] else []
-        # Inventario degli elementi del contesto per la vista per-round-trip.
+        # Inventory of the context items for the per-round-trip view.
         request = (d["payload"] or {}).get("request") or {} if isinstance(d["payload"], dict) else {}
         d["artifacts"] = self.runtime.extract_artifacts(request.get("body"))
         return d
 
     def rehydration_snapshot(self, since_ts: float) -> dict[str, Any]:
-        """Dati minimi per reidratare il Correlator all'avvio: le sessioni
-        attive di recente (ultima attività >= ``since_ts``) e TUTTI i loro eventi
-        round_trip/hook (payload deserializzato), ordinati per ts_start.
+        """Minimum data to rehydrate the Correlator at startup: the recently
+        active sessions (last activity >= ``since_ts``) and ALL their
+        round_trip/hook events (payload deserialized), ordered by ts_start.
 
-        Si prendono le sessioni per recency e poi il loro intero set di eventi
-        (non "gli eventi delle ultime N ore"): un hook fuori finestra farebbe
-        perdere ``has_hooks`` e riattiverebbe per errore l'euristica sul testo."""
+        Sessions are taken by recency and then their whole set of events (not
+        "the events of the last N hours"): a hook outside the window would lose
+        ``has_hooks`` and would wrongly re-enable the text heuristic."""
         with self._lock:
             srows = self._conn.execute(
                 "SELECT id, tag, agent_id, parent_session_id FROM sessions "
@@ -645,7 +644,7 @@ class Store:
         return {"sessions": sessions, "events": events}
 
     def get_session_stats(self, session_id: str) -> list[dict[str, Any]]:
-        """Serie per round trip (turn_index, timing, token, char-estimate) per il context-fill."""
+        """Per-round-trip series (turn_index, timing, tokens, char-estimate) for the context-fill."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM events WHERE session_id=? AND kind='round_trip' ORDER BY ts_start",
@@ -675,8 +674,8 @@ class Store:
                     "system_chars": analysis.get("system_chars"),
                     "tools_chars": (analysis.get("tools") or {}).get("chars"),
                     "messages_chars": (analysis.get("messages") or {}).get("chars"),
-                    # Inventario didattico degli elementi entrati nel contesto,
-                    # calcolato lazy dal body: funziona sui dati già catturati.
+                    # Educational inventory of the items that entered the context,
+                    # computed lazily from the body: works on already captured data.
                     "artifacts": self.runtime.extract_artifacts(request.get("body")),
                 }
             )

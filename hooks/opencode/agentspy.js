@@ -1,28 +1,29 @@
-// Plugin opencode per agentspy: traduce gli eventi nativi del plugin API di
-// opencode nel formato neutro dell'ingest API (POST /ingest/hook) e li spedisce
-// fire-and-forget al server agentspy.
+// opencode plugin for agentspy: translates the native events of the opencode
+// plugin API into the neutral format of the ingest API (POST /ingest/hook) and
+// sends them fire-and-forget to the agentspy server.
 //
-// Speculare a ``hooks/agentspy_hook.py`` (lo script hook di Claude Code): lì è
-// Claude Code a invocare uno script per ogni hook, qui è opencode a chiamare i
-// nostri handler in-process. La traduzione evento-nativo -> campi neutri
-// dell'ingest (session_id, hook_event_name, tool_name, tool_input, tool_use_id,
-// prompt, cwd) vive QUI, come vuole il confine del layer runtime: il server
-// riceve già il vocabolario neutro (vedi runtimes/base.py e ingest.py).
+// Mirror of ``hooks/agentspy_hook.py`` (the Claude Code hook script): there it
+// is Claude Code invoking a script for every hook, here it is opencode calling
+// our handlers in-process. The native-event -> neutral ingest fields
+// (session_id, hook_event_name, tool_name, tool_input, tool_use_id, prompt,
+// cwd) translation lives HERE, as the runtime layer boundary requires: the
+// server already receives the neutral vocabulary (see runtimes/base.py and
+// ingest.py).
 //
-// Come i nomi degli hook_event_name usiamo i nomi NATIVI degli eventi opencode
-// (chat.message, tool.execute.before/after, session.idle): lo strumento è
-// didattico, i dati devono riflettere la realtà del runtime osservato. Devono
-// combaciare con il vocabolario dichiarato in OpencodeRuntime.
+// As hook_event_name values we use the NATIVE opencode event names
+// (chat.message, tool.execute.before/after, session.idle): the tool is
+// educational, the data must reflect the reality of the observed runtime. They
+// must match the vocabulary declared in OpencodeRuntime.
 //
-// Installazione: vedi README.md in questa cartella.
+// Installation: see README.md in this directory.
 
 const AGENTSPY_URL = process.env.AGENTSPY_URL || "http://127.0.0.1:8082";
 const AGENTSPY_TAG = process.env.AGENTSPY_TAG || null;
 const INGEST_URL = AGENTSPY_URL.replace(/\/$/, "") + "/ingest/hook";
 
-// POST fire-and-forget: timeout corto e MAI propagare errori a opencode (un
-// throw da un handler risalirebbe nel flusso dell'agente). Non si attende la
-// risposta: il collector non deve rallentare l'esecuzione dei tool.
+// Fire-and-forget POST: short timeout and NEVER propagate errors to opencode (a
+// throw from a handler would bubble up into the agent's flow). The response is
+// not awaited: the collector must not slow down tool execution.
 function post(payload) {
   try {
     const controller = new AbortController();
@@ -36,11 +37,11 @@ function post(payload) {
       .catch(() => {})
       .finally(() => clearTimeout(timer));
   } catch {
-    // ignora qualsiasi errore sincrono (es. fetch non disponibile)
+    // ignore any synchronous error (e.g. fetch not available)
   }
 }
 
-// Testo utente di un chat.message: concatena i part testuali del messaggio.
+// User text of a chat.message: joins the text parts of the message.
 function promptText(parts) {
   if (!Array.isArray(parts)) return undefined;
   const texts = parts
@@ -49,16 +50,16 @@ function promptText(parts) {
   return texts.length ? texts.join("\n") : undefined;
 }
 
-// Nota: NON inviamo agent_id. Il correlatore del server, ricevendo un agent_id
-// insieme al session_id, instraderebbe l'evento verso una sessione figlia
-// "sub-<agent_id>" (semantica dei subagenti Claude Code). La correlazione dei
-// subagenti opencode (sessioni figlie via parentID, senza hook start/stop
-// dedicati) è lavoro successivo: finche' non c'e', ogni evento resta sulla
-// sessione principale.
+// Note: we do NOT send agent_id. The server correlator, on receiving an
+// agent_id together with the session_id, would route the event to a
+// "sub-<agent_id>" child session (Claude Code subagent semantics). Correlating
+// opencode subagents (child sessions via parentID, without dedicated
+// start/stop hooks) is later work: until it exists, every event stays on the
+// main session.
 export const AgentSpy = async ({ directory }) => {
   const cwd = typeof directory === "string" ? directory : undefined;
   return {
-    // Messaggio dell'utente: avanza il turno lato correlatore.
+    // User message: advances the turn on the correlator side.
     "chat.message": async (input, output) => {
       post({
         session_id: input.sessionID,
@@ -68,10 +69,10 @@ export const AgentSpy = async ({ directory }) => {
       });
     },
 
-    // Chiamata a un tool, prima dell'esecuzione. In tool.execute.before gli
-    // argomenti stanno in output.args (input porta solo tool/sessionID/callID).
-    // Il callID E' l'id toolu_... della wire API Anthropic (verificato in E2E
-    // il 2026-07-16): mandato come tool_use_id abilita il join con la sessione.
+    // Tool call, before execution. In tool.execute.before the arguments are in
+    // output.args (input only carries tool/sessionID/callID). The callID IS the
+    // toolu_... id of the Anthropic wire API (verified E2E on 2026-07-16): sent
+    // as tool_use_id it enables the join with the session.
     "tool.execute.before": async (input, output) => {
       post({
         session_id: input.sessionID,
@@ -83,8 +84,8 @@ export const AgentSpy = async ({ directory }) => {
       });
     },
 
-    // Esito di una chiamata tool (solo presentazione). Qui gli argomenti sono
-    // in input.args.
+    // Outcome of a tool call (presentation only). Here the arguments are in
+    // input.args.
     "tool.execute.after": async (input, output) => {
       post({
         session_id: input.sessionID,
@@ -96,9 +97,9 @@ export const AgentSpy = async ({ directory }) => {
       });
     },
 
-    // Bus eventi: inoltriamo SOLO session.idle (chiude il turno: mappa su
-    // hook_stop). Gli altri eventi (message.updated, message.part.updated)
-    // scattano a ogni chunk dello stream e inonderebbero l'ingest.
+    // Event bus: we forward ONLY session.idle (it closes the turn: maps onto
+    // hook_stop). The other events (message.updated, message.part.updated) fire
+    // on every stream chunk and would flood the ingest.
     event: async ({ event }) => {
       if (!event || typeof event !== "object") return;
       if (event.type === "session.idle") {

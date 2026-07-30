@@ -671,7 +671,7 @@ async function copyJson() {
   gap: 0.5rem;
 }
 
-/* round-trip header (see the "Direzioni Leggibilità" design, Image 5):
+/* round-trip header (see the "Readability Directions" design, Image 5):
    a plain "ROUND TRIP" heading plus a green filled pill for its position. */
 .kind-title {
   font-size: 0.8rem;
