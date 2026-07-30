@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
-from agentspy_server.proxy import analyze_request_body  # noqa: E402
+from agentspy_server.providers.anthropic import analyze_request_body  # noqa: E402
 from agentspy_server.store import Store  # noqa: E402
 
 NOW = time.time()
