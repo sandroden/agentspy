@@ -166,3 +166,38 @@ def test_ingest_mcp_creates_event(tmp_path):
         assert len(events) == 1
         assert events[0]["kind"] == "mcp"
         assert events[0]["subkind"] == "fs:tools/call"
+
+
+def test_api_artifact_content(tmp_path):
+    """The content of a single artifact is read on demand from the payload."""
+    db_path = str(tmp_path / "artifact.db")
+    app = create_app(db_path=db_path, upstream="http://unused.invalid")
+
+    with TestClient(app) as client:
+        store = app.state.store
+        store.upsert_session("s1", tag="t1", started_at=1.0, live=True)
+        event_id = store.insert_event(
+            session_id="s1",
+            kind="round_trip",
+            turn_index=0,
+            ts_start=1.0,
+            payload={
+                "request": {
+                    "body": {
+                        "system": [{"type": "text", "text": "# You are Claude Code."}],
+                        "messages": [],
+                    }
+                }
+            },
+        )
+
+        r = client.get(f"/api/events/{event_id}/artifact?key=system|System prompt")
+        assert r.status_code == 200
+        item = r.json()
+        assert item["content"] == "# You are Claude Code."
+        assert item["format"] == "markdown"
+
+        # missing key → 400, artifact absent from this body → 404
+        assert client.get(f"/api/events/{event_id}/artifact").status_code == 400
+        r = client.get(f"/api/events/{event_id}/artifact?key=claude-md|/nope/CLAUDE.md")
+        assert r.status_code == 404

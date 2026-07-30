@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // Presentational list of the items making up a request to the LLM (a teaching
 // inventory). No content: just icon + label + size + optional path/note.
-// Reused both in the DetailPanel (per round trip) and in the cumulative
-// session panel (Phase B).
+// Used by ContextInventory (the cumulative session modal).
+//
+// Two distinct actions per row: `pick` (click on the row → read the content)
+// and `goto` (click on the badge → open the round trip where it appeared).
 import type { ContextArtifact } from '../../types'
 import { formatTokens } from '../../utils/format'
 import { relativizeText } from '../../utils/toolIcon'
@@ -15,7 +17,10 @@ const props = defineProps<{
   badgeFor?: (a: ContextArtifact) => { text: string; tone: 'new' | 'cached' } | null
 }>()
 
-const emit = defineEmits<{ (e: 'pick', a: ContextArtifact): void }>()
+const emit = defineEmits<{
+  (e: 'pick', a: ContextArtifact): void
+  (e: 'goto', a: ContextArtifact): void
+}>()
 
 function sizeLabel(a: ContextArtifact): string {
   if (a.count != null && a.kind === 'tools') return `${a.count} tools`
@@ -36,6 +41,7 @@ function pathLabel(a: ContextArtifact): string {
       :key="i"
       class="artifact"
       :class="{ clickable: true }"
+      title="open the content"
       @click="emit('pick', a)"
     >
       <span class="icon" aria-hidden="true">{{ artifactIcon(a.kind) }}</span>
@@ -45,11 +51,14 @@ function pathLabel(a: ContextArtifact): string {
         <span v-if="a.description" class="desc">{{ a.description }}</span>
       </span>
       <span class="right">
-        <span
+        <button
           v-if="badgeFor && badgeFor(a)"
+          type="button"
           class="badge"
           :class="badgeFor(a)!.tone"
-        >{{ badgeFor(a)!.text }}</span>
+          title="go to the round trip where it appeared"
+          @click.stop="emit('goto', a)"
+        >{{ badgeFor(a)!.text }}</button>
         <span class="size">{{ sizeLabel(a) }}</span>
       </span>
     </li>
@@ -127,6 +136,12 @@ function pathLabel(a: ContextArtifact): string {
   letter-spacing: 0.03em;
   padding: 1px 6px;
   border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.badge:hover {
+  border-color: currentColor;
 }
 .badge.new {
   background: #ffe6c7;

@@ -2,11 +2,13 @@
 // Cumulative "what the context carries along" list: everything the context
 // drags through the session, in order of first appearance. Opened as a modal by
 // clicking a "first seen" chip in the timeline (spy.openContextInventory).
-// No content: just the list. Clicking a row opens the round trip it appeared in.
-import { computed } from 'vue'
+// Clicking a row opens the reader with the content as it entered the context
+// (nested modal); the badge jumps to the round trip where it appeared.
+import { computed, ref, watch } from 'vue'
 import { useSpyStore } from '../stores/spy'
 import type { ContextArtifact } from '../types'
 import ContextArtifactList from './detail/ContextArtifactList.vue'
+import ArtifactContentModal from './detail/ArtifactContentModal.vue'
 
 const spy = useSpyStore()
 
@@ -38,7 +40,17 @@ function badgeFor(a: ContextArtifact): { text: string; tone: 'new' | 'cached' } 
   return { text: `new · RT${f.rtIndex + 1}`, tone: 'new' }
 }
 
+/** artifact open in the reader (nested modal), with the round trip to read it from. */
+const reading = ref<{ artifact: ContextArtifact; eventId: number; rtNumber: number } | null>(null)
+
+/** Row: read the content, taken from the round trip of first appearance. */
 function onPick(a: ContextArtifact) {
+  const f = firstSeen.value.get(artifactKey(a))
+  if (f) reading.value = { artifact: a, eventId: f.eventId, rtNumber: f.rtIndex + 1 }
+}
+
+/** Badge: go to the round trip where the artifact appeared. */
+function onGoto(a: ContextArtifact) {
   const f = firstSeen.value.get(artifactKey(a))
   if (f) {
     spy.select(f.eventId)
@@ -49,6 +61,11 @@ function onPick(a: ContextArtifact) {
 function close() {
   spy.closeContextInventory()
 }
+
+// Closing the list also closes the reader nested over it.
+watch(open, (v) => {
+  if (!v) reading.value = null
+})
 </script>
 
 <template>
@@ -63,9 +80,10 @@ function close() {
           <button type="button" class="ctx-close" aria-label="Close" @click="close">✕</button>
         </header>
         <p class="legend">
-          <span class="badge cached">from RT1</span> there from the start (then <em>cache_read</em>) ·
-          <span class="badge new">new</span> added in a later round trip. Click a row → opens the
-          round trip it appeared in.
+          Click a row → reads the content as it entered the context. The badge
+          (<span class="badge cached">from RT1</span> there from the start, then
+          <em>cache_read</em> · <span class="badge new">new</span> added in a later round trip)
+          opens the round trip it appeared in.
         </p>
         <div class="ctx-modal-body">
           <p v-if="items.length === 0" class="placeholder">no data for this session.</p>
@@ -75,11 +93,21 @@ function close() {
             :cwd="cwd"
             :badge-for="badgeFor"
             @pick="onPick"
+            @goto="onGoto"
           />
         </div>
       </div>
     </div>
   </Teleport>
+
+  <ArtifactContentModal
+    v-if="reading"
+    :artifact="reading.artifact"
+    :event-id="reading.eventId"
+    :rt-number="reading.rtNumber"
+    :cwd="cwd"
+    @close="reading = null"
+  />
 </template>
 
 <style scoped>

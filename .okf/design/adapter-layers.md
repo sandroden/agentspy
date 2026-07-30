@@ -55,10 +55,19 @@ field.
 `system_reminder_prefix`) + derived helpers (`is_session_end`,
 `is_subagent_hook`, `is_tool_call_hook`, `tool_use_id_from_mcp_meta`,
 `is_system_reminder`) + abstract parsers (`last_user_message`,
-`tool_hint`, `command_snippet`, `extract_artifacts`). The Claude Code
+`tool_hint`, `command_snippet`, `extract_artifacts`) + one concrete
+parser with a default, `extract_artifact_content(body, key)` (the content
+of a single artifact, for the reader in the UI: returns `None` — "not
+available" — for a runtime that does not implement it). The Claude Code
 artifact inventory (formerly `context_artifacts.py`) is now
 `runtimes/claude_code_artifacts.py`, an implementation detail of
 `ClaudeCodeRuntime`.
+
+The split between inventory and content is deliberate:
+`extract_artifacts` runs for **every** round trip of a session (events and
+stats) and must stay light — identity + size only; the content, which can
+be a whole file or a base64 image, is re-read from the body only when the
+user opens it (`GET /api/events/{id}/artifact`).
 
 # Runtime layer boundaries
 

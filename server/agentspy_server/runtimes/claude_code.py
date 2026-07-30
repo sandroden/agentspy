@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from .base import AgentRuntime
-from .claude_code_artifacts import extract_artifacts
+from .claude_code_artifacts import extract_artifact_content, extract_artifacts
 
 
 def _extract_tag(text: str, tag: str) -> str | None:
@@ -104,3 +104,6 @@ class ClaudeCodeRuntime(AgentRuntime):
 
     def extract_artifacts(self, body: Any) -> list[dict[str, Any]]:
         return extract_artifacts(body)
+
+    def extract_artifact_content(self, body: Any, key: str) -> dict[str, Any] | None:
+        return extract_artifact_content(body, key)

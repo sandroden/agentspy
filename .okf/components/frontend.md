@@ -8,7 +8,8 @@ timestamp: 2026-07-19T00:00:00Z
 ---
 
 Stack: **Vue 3 + Vite + TypeScript + Pinia + vue-router**, no chart
-library (custom SVG/DOM). Base path `/ui/`; in dev the Vite proxy
+library (custom SVG/DOM); the only rendering dependency is
+**markdown-it** (artifact reader). Base path `/ui/`; in dev the Vite proxy
 forwards `/api`, `/ingest`, `/ws` to `127.0.0.1:8082`.
 
 ```bash
@@ -102,6 +103,19 @@ cd frontend && npm run build    # vue-tsc + vite build → dist/ served on /ui
   `SystemReminderText` (expanded/compact view of the `<system-reminder>`
   blocks **and of the skill invocations via slash-command**, persisted —
   see [skill & commands](/design/skill-recognition.md)).
+- **ContextInventory** (modal opened from the "in context" chips in the
+  timeline): cumulative list of what the context drags along the session,
+  in order of first appearance. Two actions per row: clicking the row
+  opens **ArtifactContentModal** — the reader of the content as it entered
+  the context, fetched on demand from
+  `GET /api/events/{id}/artifact` on the round trip of first appearance —
+  and clicking the `from RT1` / `new · RTn` badge jumps to that round
+  trip. The reader renders markdown (`utils/markdown.ts`, markdown-it with
+  `html: false` so the injected markers stay visible and there is no
+  injection) with a raw/rendered toggle, shows the images inline
+  (`data:` URI) and the tool definitions as JSON. In the rendered view the
+  `<n>\t` gutter that the Read tool prepends is stripped; the raw view
+  keeps it, because those characters are in the context.
 - **SessionsSidebar**: at the top the **AgentSpy** brand (in `App.vue`)
   and the "Sessions" label; a tree list; each row shows tag + optional
   title (the session UUID is omitted — the tag identifies) and, on the

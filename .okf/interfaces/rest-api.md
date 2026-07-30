@@ -17,6 +17,7 @@ Served by the [collector server](/components/collector-server.md) on
 | `GET /api/sessions` | Session list with aggregates: own tokens **and** including subagents, duration, turn count, round trips, live, tag. |
 | `GET /api/sessions/{id}/events` | Lightweight event summaries (without payload), ordered by `ts_start`. |
 | `GET /api/events/{id}` | Full event row with the complete payload (lazy-loaded on click). 404 if absent. |
+| `GET /api/events/{id}/artifact?key=<kind>\|<path>` | Content of a single context artifact of that round trip (`{kind, label, path, media_type, format, content, images, chars}`), read on demand. 400 without `key`, 404 if the artifact is not in that body. |
 | `GET /api/sessions/{id}/stats` | Per-round-trip series (real tokens + char estimates of system/tools/messages) for the context-fill. |
 
 # Event summary

@@ -117,6 +117,24 @@ export interface ContextArtifact {
   media_type?: string | null
 }
 
+/**
+ * Content of a single artifact, read on demand
+ * (GET /api/events/:id/artifact?key=…): what actually entered the context.
+ * `format` is the server's rendering hint; `images` carries the `data:` URIs
+ * when the content is graphical (pasted image, PDF pages rendered by a Read).
+ * No size: the weight is the one in the inventory (`ContextArtifact.chars`),
+ * a single definition for the whole UI.
+ */
+export interface ArtifactContent {
+  kind: ArtifactKind
+  label: string
+  path?: string | null
+  media_type?: string | null
+  format: 'markdown' | 'json' | 'image' | 'text'
+  content: string | null
+  images: string[]
+}
+
 export interface EventDetail extends EventSummary {
   ts_end: number | null
   /**

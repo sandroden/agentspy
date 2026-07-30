@@ -1,5 +1,5 @@
 """REST endpoints: GET /api/sessions, /api/sessions/{id}/events, /api/events/{id},
-/api/sessions/{id}/stats.
+/api/events/{id}/artifact, /api/sessions/{id}/stats.
 
 The store is synchronous (sqlite3): calls are moved onto a thread so uvicorn's
 event loop is not blocked during disk I/O.
@@ -34,6 +34,23 @@ async def get_event(request: Request) -> JSONResponse:
     if event is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse(event)
+
+
+async def artifact_content(request: Request) -> JSONResponse:
+    """Content of a context artifact of the event: `?key=<kind>|<path or label>`.
+
+    Separate from `/api/events/{id}` because it is heavy (an entire file, or a
+    base64 image) and is only wanted when the user opens the reader.
+    """
+    store = request.app.state.store
+    event_id = int(request.path_params["event_id"])
+    key = request.query_params.get("key") or ""
+    if not key:
+        return JSONResponse({"error": "missing key"}, status_code=400)
+    item = await asyncio.to_thread(store.get_artifact_content, event_id, key)
+    if item is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(item)
 
 
 async def session_stats(request: Request) -> JSONResponse:
@@ -75,6 +92,7 @@ routes = [
     Route("/api/sessions/delete", delete_sessions_bulk, methods=["POST"]),
     Route("/api/sessions/{session_id}/events", session_events, methods=["GET"]),
     Route("/api/events/{event_id}", get_event, methods=["GET"]),
+    Route("/api/events/{event_id}/artifact", artifact_content, methods=["GET"]),
     Route("/api/sessions/{session_id}/stats", session_stats, methods=["GET"]),
     Route("/api/sessions/{session_id}", delete_session, methods=["DELETE"]),
 ]

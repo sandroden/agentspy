@@ -1,4 +1,9 @@
-from agentspy_server.runtimes.claude_code_artifacts import extract_artifacts
+import json
+
+from agentspy_server.runtimes.claude_code_artifacts import (
+    extract_artifact_content,
+    extract_artifacts,
+)
 
 # Sample body reproducing the real cases observed in capture:
 # billing header + system prompt, system-reminder with Contents of (2 CLAUDE.md +
@@ -241,3 +246,57 @@ def test_system_fallback_when_no_billing_block():
     out = extract_artifacts(body)
     assert out[0]["kind"] == "system"
     assert out[0]["chars"] == len("You are a security monitor.")
+
+
+# -- content on demand (artifact reader) -------------------------------------
+
+
+def test_content_system_joins_blocks_without_billing():
+    item = extract_artifact_content(SAMPLE_BODY, "system|System prompt")
+    assert item["format"] == "markdown"
+    # the weight is not repeated here: it has one definition, the inventory's
+    assert "chars" not in item
+    assert item["content"].startswith("You are Claude Code.")
+    assert "billing" not in item["content"]
+
+
+def test_content_instruction_file_stops_at_next_marker():
+    item = extract_artifact_content(SAMPLE_BODY, "claude-md|/home/u/proj/CLAUDE.md")
+    assert item["content"] == "project instructions"
+    assert item["label"] == "CLAUDE.md"
+    mem = extract_artifact_content(SAMPLE_BODY, "memory|/home/u/.claude/memory/MEMORY.md")
+    # last marker of the block: runs to the end of the reminder
+    assert mem["content"].startswith("memory")
+
+
+def test_content_at_file_is_the_preloaded_body():
+    item = extract_artifact_content(SAMPLE_BODY, "at-file|docs/style.md")
+    assert item["content"] == "1\t.foo { color: red }\n"
+    assert item["format"] == "markdown"   # .md → renderable
+
+
+def test_content_read_file_concatenates_repeated_reads():
+    item = extract_artifact_content(PDF_READ_BODY, "read-file|/docs/man.pdf")
+    assert item["content"].count("PDF pages extracted") == 2
+    # the images sibling of the tool_result are the content of the file
+    assert len(item["images"]) == 3
+    assert item["images"][0].startswith("data:image/jpeg;base64,")
+
+
+def test_content_image_returns_data_uri():
+    item = extract_artifact_content(SAMPLE_BODY, "image|/home/u/.cache/1.png")
+    assert item["format"] == "image"
+    assert item["images"] == ["data:image/png;base64,Zm9v"]
+
+
+def test_content_tools_is_pretty_json():
+    item = extract_artifact_content(SAMPLE_BODY, "tools|Tools (3)")
+    assert item["format"] == "json"
+    assert json.loads(item["content"])[0]["name"] == "Bash"
+
+
+def test_content_missing_or_degenerate():
+    assert extract_artifact_content(SAMPLE_BODY, "claude-md|/nope/CLAUDE.md") is None
+    assert extract_artifact_content(SAMPLE_BODY, "bogus-kind|x") is None
+    assert extract_artifact_content(SAMPLE_BODY, "no-separator") is None
+    assert extract_artifact_content(None, "system|System prompt") is None

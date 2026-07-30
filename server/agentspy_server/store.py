@@ -613,6 +613,25 @@ class Store:
         d["artifacts"] = self.runtime.extract_artifacts(request.get("body"))
         return d
 
+    def get_artifact_content(self, event_id: int, key: str) -> dict[str, Any] | None:
+        """Content of one context artifact of an event (`"{kind}|{path}"` key).
+
+        Read on demand: the inventory carried by events/stats stays light
+        (identity + size), the content — potentially an entire file — is only
+        materialised when the user asks to read it.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT payload FROM events WHERE id=?", (event_id,)
+            ).fetchone()
+        if row is None or not row["payload"]:
+            return None
+        payload = json.loads(row["payload"])
+        if not isinstance(payload, dict):
+            return None
+        request = payload.get("request") or {}
+        return self.runtime.extract_artifact_content(request.get("body"), key)
+
     def rehydration_snapshot(self, since_ts: float) -> dict[str, Any]:
         """Minimum data to rehydrate the Correlator at startup: the recently
         active sessions (last activity >= ``since_ts``) and ALL their

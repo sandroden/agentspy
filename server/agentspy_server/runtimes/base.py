@@ -106,3 +106,13 @@ class AgentRuntime(ABC):
         prompt, instruction files, images, attachments, tools): how the runtime
         injects them is its own knowledge.
         """
+
+    def extract_artifact_content(self, body: Any, key: str) -> dict[str, Any] | None:
+        """Content of a single artifact of the request, for the "read it" view.
+
+        ``key`` is ``"{kind}|{path or label}"``, the same identity the UI uses.
+        Concrete (not abstract) so a runtime can ship the inventory without the
+        content reading: the default is "not available", the UI degrades to a
+        message.
+        """
+        return None

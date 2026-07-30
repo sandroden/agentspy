@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-07-31
+* **Update**: Artifact reader — clicking a row of "what the context carries along" opens the content as it entered the context (markdown rendered via markdown-it, images inline, tools as JSON), read on demand from the new `GET /api/events/{id}/artifact` ([REST API](/interfaces/rest-api.md)); on the runtime side the concrete `extract_artifact_content` next to the light inventory ([adapter layers](/design/adapter-layers.md), [frontend](/components/frontend.md)). The badge keeps the jump to the round trip of first appearance.
+
 ## 2026-07-30
 * **Update**: Timeline metrics follow the playhead — while paused the session cards (and a new compact `tok · $cost (+step)` readout in the sticky player bar) describe the run up to the player's position, with the contribution of the round trip under the cursor; the "incl. sub-agents" row stays on the final totals ([frontend](/components/frontend.md), [decisions](/design/decisions.md)). New `utils/playhead.ts`, `utils/usage.ts`, `composables/useSessionStats.ts`; playhead getters (`playerSteps`, `playerPosition`, `cursorEvent`) moved into the store.
 

@@ -1,4 +1,13 @@
-import type { ContextArtifact, EventDetail, EventSummary, Session, StatsItem, Usage, WsMessage } from '../types'
+import type {
+  ArtifactContent,
+  ContextArtifact,
+  EventDetail,
+  EventSummary,
+  Session,
+  StatsItem,
+  Usage,
+  WsMessage,
+} from '../types'
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url)
@@ -38,6 +47,22 @@ export async function fetchSessionEvents(id: string): Promise<EventSummary[]> {
 
 export async function fetchSessionStats(id: string): Promise<StatsItem[]> {
   return getJson<StatsItem[]>(`/api/sessions/${id}/stats`)
+}
+
+/**
+ * Content of one context artifact of a round trip, read on demand (the
+ * inventory only carries identity + size). `key` is the artifact identity
+ * `"{kind}|{path or label}"`; 404 → null (artifact absent from that body).
+ */
+export async function fetchArtifactContent(
+  eventId: number,
+  key: string,
+): Promise<ArtifactContent | null> {
+  const url = `/api/events/${eventId}/artifact?key=${encodeURIComponent(key)}`
+  const response = await fetch(url)
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
+  return (await response.json()) as ArtifactContent
 }
 
 /**
