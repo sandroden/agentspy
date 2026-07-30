@@ -30,3 +30,6 @@ dist/
 
 # local hook config with absolute paths (use hooks/settings-example.json as a base)
 hooks.json
+
+# local MCP configs with absolute paths (--mcp-config)
+*.local.json
