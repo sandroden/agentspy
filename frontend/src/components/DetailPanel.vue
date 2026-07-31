@@ -9,6 +9,7 @@ import { fetchEventDetail } from '../api/client'
 import type { EventDetail, EventSummary } from '../types'
 import { cacheWriteTiers } from '../utils/cache'
 import { formatDuration, formatTime, formatTokens } from '../utils/format'
+import { abbreviateModel } from '../utils/model'
 import Collapsible from './detail/Collapsible.vue'
 import ContentBlock from './detail/ContentBlock.vue'
 import JsonTree from './detail/JsonTree.vue'
@@ -37,6 +38,18 @@ const cwd = computed<string | null | undefined>(() =>
   detail.value?.session_id ? spy.sessions[detail.value.session_id]?.cwd : null
 )
 provide(cwdKey, cwd)
+
+// The selection survives a session switch on purpose: it lets you keep a round
+// trip open while looking at another session. The event then no longer belongs
+// to the open session, so say it out loud — otherwise its model and tokens read
+// as the current session's. Only a notice: the panel is NOT refreshed or cleared.
+const foreignSession = computed(() => {
+  const sid = detail.value?.session_id
+  const open = spy.currentSessionId
+  if (!sid || !open || sid === open) return null
+  const s = spy.sessions[sid]
+  return { name: s?.tag || s?.title || sid, model: s?.model ?? null }
+})
 
 function asRecord(v: unknown): AnyRecord {
   return v !== null && typeof v === 'object' ? (v as AnyRecord) : {}
@@ -321,7 +334,7 @@ async function copyJson() {
 </script>
 
 <template>
-  <div class="detail-panel">
+  <div class="detail-panel" :class="{ foreign: foreignSession }">
     <p v-if="spy.selectedEventId == null" class="placeholder">No event selected</p>
     <div v-else-if="spy.detailLoading" class="spinner-wrap">
       <span class="spinner"></span>
@@ -344,6 +357,11 @@ async function copyJson() {
           </template>
           <button class="close-btn" title="close" @click="spy.clearSelection()">✕</button>
         </div>
+        <p v-if="foreignSession" class="foreign-note">
+          another session:
+          <strong>{{ foreignSession.name }}</strong>
+          <span v-if="foreignSession.model">· {{ abbreviateModel(foreignSession.model) }}</span>
+        </p>
         <div class="meta-row">
           <span v-if="detail.turn_index != null">turn {{ detail.turn_index }}</span>
           <span>{{ formatTime(detail.ts_start) }}</span>
@@ -616,6 +634,25 @@ async function copyJson() {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+/* Event from a session other than the open one: flagged, never auto-refreshed. */
+.detail-panel.foreign {
+  box-shadow: inset 3px 0 0 var(--c-tool, #f5a623);
+}
+
+.foreign-note {
+  margin: 4px 0 0;
+  font-size: 0.78em;
+  color: var(--c-tool, #f5a623);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: baseline;
+}
+.foreign-note strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .placeholder {
