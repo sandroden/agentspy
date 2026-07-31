@@ -6,6 +6,7 @@ logs/
 *.db-shm
 *.db.pre-migrazione
 *.db.vuoto
+*.db.bak
 
 # collector runtime (just up/down)
 .agentspy.pid
