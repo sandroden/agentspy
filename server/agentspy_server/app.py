@@ -96,18 +96,28 @@ async def _handle_round_trip(app: Starlette, record: dict) -> None:
     total_s = timing.get("total_s")
     ts_end = ts_start + total_s if (ts_start is not None and total_s is not None) else ts_start
 
-    # a synthetic attached to a real parent is CLI service traffic (session
-    # title, topic detection...): a telling title avoids making it look like a
-    # user conversation in the sidebar
-    service_title = (
-        "service" if session_id.startswith("syn-") and info.get("parent_session_id") else None
-    )
+    # a synthetic attached to a real parent is CLI service traffic: a telling
+    # title avoids making it look like a user conversation in the sidebar. The
+    # runtime reads from the request WHICH machinery it is (safety check,
+    # suggestions, probe...); "service" stays as the fallback for what it does
+    # not recognize, and as a weak title it never overwrites a sharper one
+    # already found on another round trip of the same session.
+    service_title = None
+    title_weak = False
+    if session_id.startswith("syn-") and info.get("parent_session_id"):
+        runtime = app.state.runtime
+        service_title = runtime.service_label(body)
+        # weak = it must not overwrite a sharper label already found on another
+        # round trip: both the fallback and the family-only labels qualify.
+        title_weak = service_title is None or service_title in runtime.generic_service_labels
+        service_title = service_title or "service"
 
     await asyncio.to_thread(
         store.upsert_session,
         session_id,
         tag=record.get("tag"),
         title=service_title,
+        title_weak=title_weak,
         model=model,
         agent_id=info.get("agent_id"),
         parent_session_id=info.get("parent_session_id"),

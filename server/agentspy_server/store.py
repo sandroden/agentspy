@@ -194,6 +194,7 @@ class Store:
                 pass
             self._migrate_dedup_key_locked()
             self._migrate_cache_tiers_locked()
+            self._migrate_service_labels_locked()
             self._conn.commit()
         # The DB can contain prompts/responses in clear text: we restrict the
         # permissions to the owner only. Best-effort (WAL/SHM may not exist,
@@ -287,6 +288,54 @@ class Store:
         if cur.rowcount:
             logger.info("agentspy: cache tier migration: %d round trips updated", cur.rowcount)
 
+    def _migrate_service_labels_locked(self) -> None:
+        """Relabels the service sessions already recorded, lock already taken.
+
+        Same pattern as the two migrations above: no schema change, nothing
+        invented (the discriminant has always been in the request payload, it
+        simply was not read), idempotent because it is restricted to sessions
+        still carrying a generic title. Generic means `service` OR `servizio`:
+        the label was written in Italian before the UI was translated, and a
+        live DB holds both — measured on the 2026-07-28 copy, where all 15
+        service sessions are `servizio`. A session whose round
+        trips say nothing keeps that title and is re-examined at the next start:
+        the cost is proportional to what is left unrecognized, not to the DB.
+
+        Round trips are scanned in chronological order and the first SPECIFIC
+        label found wins the session: the marker is not on every round trip, so
+        a scan that stopped at the first one would give an order-dependent
+        result. A family-only label (``generic_service_labels``) is kept as a
+        fallback and the scan goes on — same rule as ``title_weak`` at ingest,
+        so a session gets the same name whether it was labelled live or here.
+        """
+        generic = self.runtime.generic_service_labels
+        # iterated lazily, not fetchall(): a payload is tens of KB and the
+        # cursor would otherwise hold all the service traffic in memory at once.
+        cur = self._conn.execute(
+            "SELECT e.session_id, e.payload FROM events e JOIN sessions s ON s.id = e.session_id"
+            " WHERE s.title IN ('service', 'servizio') AND e.kind = 'round_trip'"
+            "  AND e.payload IS NOT NULL AND json_valid(e.payload)"
+            " ORDER BY e.session_id, e.ts_start"
+        )
+
+        labels: dict[str, str] = {}
+        for row in cur:
+            session_id = row["session_id"]
+            if labels.get(session_id) not in (None, *generic):
+                continue  # already specific: skip the rest of the session
+            try:
+                body = (json.loads(row["payload"]).get("request") or {}).get("body")
+            except (ValueError, AttributeError):
+                continue
+            label = self.runtime.service_label(body)
+            if label and (session_id not in labels or label not in generic):
+                labels[session_id] = label
+
+        for session_id, label in labels.items():
+            self._conn.execute("UPDATE sessions SET title=? WHERE id=?", (label, session_id))
+        if labels:
+            logger.info("agentspy: service labels migration: %d sessions relabelled", len(labels))
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()
@@ -306,7 +355,13 @@ class Store:
         ended_at: float | None = None,
         live: bool | None = None,
         cwd: str | None = None,
+        title_weak: bool = False,
     ) -> None:
+        """``title_weak`` marks the title as a fallback: it fills the field when
+        empty, never overwrites a title already set. Service traffic needs it —
+        the marker that identifies it is not on every round trip of a session
+        (measured: 11 out of 13), so without this the first unrecognizable round
+        trip would drag the session back to the generic label."""
         with self._lock:
             row = self._conn.execute("SELECT * FROM sessions WHERE id=?", (id,)).fetchone()
             if row is None:
@@ -323,8 +378,11 @@ class Store:
                 ends = [v for v in (row["ended_at"], ended_at) if v is not None]
                 new_started = min(starts) if starts else None
                 new_ended = max(ends) if ends else None
+                # title: a weak one only fills the gap (COALESCE(title, ?)), a
+                # strong one wins as usual (COALESCE(?, title)).
+                title_sql = "COALESCE(title, ?)" if title_weak else "COALESCE(?, title)"
                 self._conn.execute(
-                    "UPDATE sessions SET tag=COALESCE(?, tag), title=COALESCE(?, title),"
+                    f"UPDATE sessions SET tag=COALESCE(?, tag), title={title_sql},"
                     " model=COALESCE(?, model), parent_session_id=COALESCE(?, parent_session_id),"
                     " agent_id=COALESCE(?, agent_id), started_at=?, ended_at=?,"
                     " live=COALESCE(?, live), cwd=COALESCE(?, cwd) WHERE id=?",

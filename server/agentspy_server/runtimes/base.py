@@ -107,6 +107,24 @@ class AgentRuntime(ABC):
         injects them is its own knowledge.
         """
 
+    # Labels that ``service_label`` returns when it recognizes the FAMILY of
+    # the traffic but not its exact kind. They fill the field like any other
+    # label, but never overwrite a sharper one found on another round trip of
+    # the same session — otherwise the arrival order would decide the name.
+    generic_service_labels: frozenset[str] = frozenset()
+
+    def service_label(self, body: Any) -> str | None:
+        """Kind of service traffic the request belongs to, or None if unknown.
+
+        A CLI does not only run the user's conversation: it also spends model
+        calls on its own machinery (safety checks, suggestions, probes). They
+        all land in synthetic sessions and look alike in the sidebar, while
+        doing very different things. The request itself says which is which —
+        the runtime knows the prompts. Concrete (returns None) so a runtime can
+        ignore the question: the caller falls back to a generic label.
+        """
+        return None
+
     def extract_artifact_content(self, body: Any, key: str) -> dict[str, Any] | None:
         """Content of a single artifact of the request, for the "read it" view.
 
