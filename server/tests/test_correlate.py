@@ -131,7 +131,9 @@ def test_subagent_hooks_route_to_child_session():
     the subagent API conversation binds to the child via tool_use_id."""
     correlator = Correlator()
 
-    # SubagentStart: event on the parent + declared child session
+    # SubagentStart: marker on the parent. It does NOT declare the child yet —
+    # the identity comes from the subagent's own traffic or from its working
+    # hooks, see test_subagent_markers_alone_do_not_create_a_session.
     start_info = correlator.correlate_hook(
         {
             "session_id": "mother-1",
@@ -141,12 +143,7 @@ def test_subagent_hooks_route_to_child_session():
         }
     )
     assert start_info["session_id"] == "mother-1"  # marker on the parent
-    assert start_info["child_session"] == {
-        "id": "sub-ag123",
-        "agent_id": "ag123",
-        "agent_type": "Explore",
-        "parent_session_id": "mother-1",
-    }
+    assert start_info["child_session"] is None
     assert start_info["child_ended"] is False
     # the parent must NOT inherit the child's agent_id
     assert correlator.session_state["mother-1"].agent_id is None
@@ -200,6 +197,33 @@ def test_subagent_hooks_route_to_child_session():
     )
     assert stop_info["session_id"] == "mother-1"
     assert stop_info["child_ended"] is True
+    # here the child DOES get declared: it already exists (its tool hooks and
+    # its conversation created it), and the Stop has to be able to close it
+    assert stop_info["child_session"]["id"] == "sub-ag123"
+
+
+def test_subagent_markers_alone_do_not_create_a_session():
+    """Start/Stop are markers on the parent: on their own they must not bring a
+    child session into existence.
+
+    Measured on the live DB: the CLI's own subagents (the ones generating the
+    reply suggestions) send their traffic with the session-id header but no
+    agent-id one, so it lands in a synthetic session; their hooks carry the
+    agent_id and used to leave a `sub-` row with zero events — 19 empty rows
+    against 3 real subagents."""
+    correlator = Correlator()
+    for hook_name in ("SubagentStart", "SubagentStop"):
+        info = correlator.correlate_hook(
+            {
+                "session_id": "mother-2",
+                "hook_event_name": hook_name,
+                "agent_id": "ghost",
+                "agent_type": "",
+            }
+        )
+        assert info["session_id"] == "mother-2"
+        assert info["child_session"] is None
+    assert "sub-ghost" not in correlator.session_state
 
 
 def test_prompt_binding_links_toolless_conversation():

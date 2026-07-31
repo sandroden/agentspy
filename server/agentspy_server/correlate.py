@@ -409,20 +409,31 @@ class Correlator:
         target_id, target = session_id, state
         if agent_id and session_id:
             child_id = f"sub-{agent_id}"
-            child = self._state(child_id)
-            child.has_hooks = True
-            child.agent_id = agent_id
-            child.parent_session_id = session_id
-            if tag:
-                child.tag = tag
-            child_session = {
-                "id": child_id,
-                "agent_id": agent_id,
-                "agent_type": payload.get("agent_type"),
-                "parent_session_id": session_id,
-            }
-            if not self.runtime.is_subagent_hook(hook_name):
-                target_id, target = child_id, child
+            # A Start/Stop must not BRING a child session into existence, only
+            # mark the parent. Not every agent_id seen by the hooks becomes a
+            # session with content: the CLI's own subagents (suggestions) send
+            # their traffic with the session-id header but no agent-id one, so
+            # it lands in a synthetic session and the child would stay empty
+            # forever — measured on the live DB, 19 empty against 3 real ones.
+            # A child that already exists is still updated: the Stop has to be
+            # able to close it, and its identity came from its own traffic or
+            # from a working hook, not from this marker.
+            marker_only = self.runtime.is_subagent_hook(hook_name)
+            if not marker_only or child_id in self.session_state:
+                child = self._state(child_id)
+                child.has_hooks = True
+                child.agent_id = agent_id
+                child.parent_session_id = session_id
+                if tag:
+                    child.tag = tag
+                child_session = {
+                    "id": child_id,
+                    "agent_id": agent_id,
+                    "agent_type": payload.get("agent_type"),
+                    "parent_session_id": session_id,
+                }
+                if not marker_only:
+                    target_id, target = child_id, child
 
         is_new_turn = False
         merged_from: list[str] = []
