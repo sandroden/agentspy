@@ -15,5 +15,5 @@ communication between Claude Code and the Anthropic API.
 
 * [Components](components/) - Collector server, hook script, MCP wrapper, Vue frontend, legacy standalone proxy, seed demo.
 * [Interfaces](interfaces/) - REST API, WebSocket, ingest API, SQLite schema, JSONL format.
-* [Design](design/) - Traffic↔session correlation, collection tags, token/cost accounting, architectural decisions.
+* [Design](design/) - Traffic↔session correlation, collection tags, token/cost accounting, service-traffic recognition, architectural decisions.
 * [Runbooks](runbooks/) - Quickstart and development/testing.
